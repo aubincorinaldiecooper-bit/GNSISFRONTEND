@@ -22,6 +22,7 @@ import {
   ChevronsUpDown,
   FolderGit,
   GitBranch,
+  Cpu,
   Send,
   Loader2,
   CircleCheck,
@@ -38,6 +39,7 @@ import BillingPage from "@/pages/BillingPage";
 import {
   createJob,
   listJobs,
+  listEngines,
   getJob,
   getJobLogs,
   getJobDiff,
@@ -50,6 +52,7 @@ import {
   type JobStatus,
   type LogRecord,
   type DiffRecord,
+  type EngineInfo,
 } from "@/lib/api";
 import {
   Tooltip,
@@ -298,6 +301,18 @@ function timeAgo(iso: string): string {
   if (hr < 24) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   return `${day}d ago`;
+}
+
+// Not every engine reports usage (the "claude"/"openhands" engines don't yet;
+// "gnsis" does). Returns null rather than "0" when there's nothing to show.
+function totalTokens(usage: Record<string, number> | undefined): number | null {
+  if (!usage || Object.keys(usage).length === 0) return null;
+  if (typeof usage.total_tokens === "number") return usage.total_tokens;
+  const prompt = usage.prompt_tokens ?? 0;
+  const completion = usage.completion_tokens ?? 0;
+  if (prompt || completion) return prompt + completion;
+  const sum = Object.values(usage).reduce((s, v) => (typeof v === "number" ? s + v : s), 0);
+  return sum || null;
 }
 
 // =============================================================================
@@ -682,6 +697,7 @@ function SidebarRegion({
 interface ComposerSelection {
   repo: string;
   branch: string;
+  engine: string;
 }
 
 interface NewRunComposerProps {
@@ -693,13 +709,42 @@ const knownRepos = [
   "aubincorinaldiecooper-bit/gnsisbackend",
 ];
 
+// Fallback if GET /engines hasn't loaded yet (or fails) — kept in sync with
+// the backend's own AVAILABLE_ENGINES by hand, same as the backend does for
+// the engine registry itself.
+const fallbackEngines: EngineInfo[] = [
+  { id: "claude", label: "Claude Agent SDK" },
+  { id: "gnsis", label: "GNSIS (OpenRouter, native)" },
+  { id: "openhands", label: "OpenHands" },
+];
+
 function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [prompt, setPrompt] = useState("");
   const [repo, setRepo] = useState(knownRepos[0]);
   const [branch, setBranch] = useState("main");
+  const [engines, setEngines] = useState<EngineInfo[]>(fallbackEngines);
+  const [engine, setEngine] = useState(fallbackEngines[0].id);
   const [showMobileConfig, setShowMobileConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isApiConfigured()) return;
+    let cancelled = false;
+    listEngines()
+      .then((list) => {
+        if (cancelled || list.length === 0) return;
+        setEngines(list);
+        setEngine((current) => (list.some((e) => e.id === current) ? current : list[0].id));
+      })
+      .catch(() => {
+        // keep the fallback list — the composer still works, just may offer
+        // an engine the backend doesn't actually have configured
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const canSubmit = prompt.trim().length > 0 && repo.trim().length > 0 && !isSubmitting;
 
@@ -708,12 +753,12 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     setIsSubmitting(true);
     setError(null);
     try {
-      await onSubmit(prompt.trim(), { repo: repo.trim(), branch: branch.trim() || "main" });
+      await onSubmit(prompt.trim(), { repo: repo.trim(), branch: branch.trim() || "main", engine });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start the run.");
       setIsSubmitting(false);
     }
-  }, [canSubmit, prompt, repo, branch, onSubmit]);
+  }, [canSubmit, prompt, repo, branch, engine, onSubmit]);
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
@@ -764,6 +809,24 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 className="h-7 w-28 border-none shadow-none bg-transparent px-1.5 text-xs font-mono focus-visible:ring-0"
               />
             </div>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Cpu className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+              <Select value={engine} onValueChange={setEngine}>
+                <SelectTrigger
+                  size="sm"
+                  className="h-7 w-auto gap-1.5 rounded-md border-none bg-transparent px-1.5 shadow-none text-xs focus-visible:ring-0"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {engines.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <Button
@@ -784,7 +847,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             onClick={() => setShowMobileConfig((v) => !v)}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors text-left min-w-0 truncate"
           >
-            <span className="font-mono">{repo || "owner/repo"}</span> · {branch || "main"}
+            <span className="font-mono">{repo || "owner/repo"}</span> · {branch || "main"} · {engines.find((e) => e.id === engine)?.label ?? engine}
           </button>
           <Button
             size="sm"
@@ -813,6 +876,18 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
               placeholder="main"
               className="h-8 text-xs font-mono"
             />
+            <Select value={engine} onValueChange={setEngine}>
+              <SelectTrigger size="sm" className="h-8 text-xs w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {engines.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -1169,6 +1244,8 @@ function ActivityPanel({ thread }: { thread: ThreadState }) {
     );
   }
 
+  const tokens = totalTokens(thread.job.usage);
+
   return (
     <div className="flex-1 overflow-y-auto flex flex-col">
       <div className="flex-1">
@@ -1178,7 +1255,9 @@ function ActivityPanel({ thread }: { thread: ThreadState }) {
       </div>
       <div className="shrink-0 sticky bottom-0 bg-white border-t border-border px-4 py-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-foreground">Compute used</span>
-        <span className="text-xs text-muted-foreground">Not tracked yet</span>
+        <span className="text-xs text-muted-foreground font-mono">
+          {tokens !== null ? `${tokens.toLocaleString()} tokens` : "Not tracked yet"}
+        </span>
       </div>
     </div>
   );
@@ -1245,9 +1324,13 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
 
       <div className="px-4 py-4 border-b border-border space-y-3">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem label="Tokens" value="Not tracked yet" />
+          <SummaryItem
+            label="Tokens"
+            value={totalTokens(job.usage)?.toLocaleString() ?? "Not tracked yet"}
+            emphasize={totalTokens(job.usage) !== null}
+          />
           <SummaryItem label="Spent" value="Not tracked yet" />
-          <SummaryItem label="Files changed" value={String(diff?.files_changed.length ?? 0)} emphasize />
+          <SummaryItem label="Files changed" value={String(diff?.files_changed.length ?? 0)} />
           <SummaryItem label="Engine" value={job.engine} />
         </div>
       </div>
@@ -1994,7 +2077,12 @@ function GNSISWorkspacePreview() {
   };
 
   const handleComposerSubmit = async (prompt: string, selection: ComposerSelection) => {
-    const job = await createJob({ repo: selection.repo, instruction: prompt, base_branch: selection.branch });
+    const job = await createJob({
+      repo: selection.repo,
+      instruction: prompt,
+      base_branch: selection.branch,
+      engine: selection.engine,
+    });
     setJobs((prev) => upsertJob(prev, job));
     setActiveRunId(job.id);
     setView({

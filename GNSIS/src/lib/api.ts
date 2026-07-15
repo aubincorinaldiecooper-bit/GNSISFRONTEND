@@ -28,6 +28,13 @@ export interface JobRecord {
   error: string | null;
   created_at: string;
   updated_at: string;
+  // Present once the engine reports token usage (not every engine does).
+  usage: Record<string, number>;
+}
+
+export interface EngineInfo {
+  id: string;
+  label: string;
 }
 
 export interface LogRecord {
@@ -90,6 +97,10 @@ export function isApiConfigured(): boolean {
 
 export function health(): Promise<{ status: string }> {
   return request("/health");
+}
+
+export function listEngines(): Promise<EngineInfo[]> {
+  return request("/engines");
 }
 
 export function createJob(input: CreateJobInput): Promise<JobRecord> {
