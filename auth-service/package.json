@@ -1,0 +1,28 @@
+{
+  "name": "gnsis-auth-service",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Better Auth service for Genesis: GitHub login, sessions, JWT/JWKS bridge to the FastAPI backend, and GitHub App installation ownership verification.",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "auth:generate": "better-auth generate --config src/auth.ts -y",
+    "auth:migrate": "better-auth migrate --config src/auth.ts -y"
+  },
+  "dependencies": {
+    "better-auth": "^1.6.23",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@better-auth/cli": "^1.4.21",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
