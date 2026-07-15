@@ -22,23 +22,35 @@ import {
   ChevronsUpDown,
   FolderGit,
   GitBranch,
-  Cpu,
   Send,
   Loader2,
   CircleCheck,
   CircleX,
   Circle,
-  ChevronRight,
-  ChevronLeft,
-  ArrowUpRight,
-  TrendingDown,
-  Wallet,
+  ExternalLink,
+  AlertTriangle,
   Activity as ActivityGlyph,
   Menu,
   X,
 } from "lucide-react";
 import SettingsPage from "@/pages/SettingsPage";
 import BillingPage from "@/pages/BillingPage";
+import {
+  createJob,
+  listJobs,
+  getJob,
+  getJobLogs,
+  getJobDiff,
+  approveJob,
+  rejectJob,
+  isApiConfigured,
+  ApiError,
+  isTerminalStatus,
+  type JobRecord,
+  type JobStatus,
+  type LogRecord,
+  type DiffRecord,
+} from "@/lib/api";
 import {
   Tooltip,
   TooltipContent,
@@ -219,43 +231,32 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "complete" | "running" | "failed";
+type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed";
 type NavId = "new-run" | "runs" | "dashboard";
 
-const repoOptions = ["gnsis/frontend", "gnsis/api", "gnsis/docs"] as const;
-const branchOptions = ["main", "staging", "feature/navbar-fix"] as const;
-const modelOptions = ["Claude Sonnet", "Claude Opus", "GPT model", "Gemini model"] as const;
-
-type RepoOption = (typeof repoOptions)[number];
-type BranchOption = (typeof branchOptions)[number];
-type ModelOption = (typeof modelOptions)[number];
-
-interface RecentRun {
-  id: string;
-  title: string;
-  repo: RepoOption;
-  model: string;
-  source: string;
-  time: string;
-  status: RunStatus;
-  tokens: number;
-  cost: number;
+function jobStatusToRunStatus(status: JobStatus): RunStatus {
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "awaiting_approval":
+      return "awaiting_approval";
+    case "completed":
+      return "complete";
+    case "rejected":
+      return "rejected";
+    case "failed":
+      return "failed";
+    default:
+      return "running";
+  }
 }
 
-const recentRuns: RecentRun[] = [
-  { id: "run-1", title: "Fix navbar positioning", repo: "gnsis/frontend", model: "Claude Sonnet", source: "Web", time: "2h ago", status: "complete", tokens: 42180, cost: 0.46 },
-  { id: "run-2", title: "Check Stripe webhook", repo: "gnsis/api", model: "Claude Opus", source: "API", time: "5h ago", status: "complete", tokens: 58400, cost: 0.63 },
-  { id: "run-3", title: "Add authentication guard", repo: "gnsis/frontend", model: "GPT-4o", source: "Web", time: "1d ago", status: "complete", tokens: 36900, cost: 0.4 },
-  { id: "run-4", title: "Refactor database schema", repo: "gnsis/api", model: "Claude Sonnet", source: "CLI", time: "Running", status: "running", tokens: 31000, cost: 0.34 },
-  { id: "run-5", title: "Update README docs", repo: "gnsis/docs", model: "Claude Haiku", source: "Web", time: "2d ago", status: "failed", tokens: 12200, cost: 0.13 },
-  { id: "run-6", title: "Fix Stripe webhook retry", repo: "gnsis/api", model: "Claude Sonnet", source: "Web", time: "3d ago", status: "complete", tokens: 28400, cost: 0.31 },
-  { id: "run-7", title: "Update navigation styles", repo: "gnsis/frontend", model: "Gemini Pro", source: "API", time: "4d ago", status: "complete", tokens: 15200, cost: 0.18 },
-  { id: "run-8", title: "Add rate limiting", repo: "gnsis/api", model: "Claude Sonnet", source: "CLI", time: "5d ago", status: "failed", tokens: 22100, cost: 0.24 },
-];
-
 const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
-  complete: { label: "Complete", cls: "text-emerald-600" },
+  queued: { label: "Queued", cls: "text-muted-foreground" },
   running: { label: "Running", cls: "text-blue-600" },
+  awaiting_approval: { label: "Needs approval", cls: "text-amber-600" },
+  complete: { label: "Complete", cls: "text-emerald-600" },
+  rejected: { label: "Rejected", cls: "text-muted-foreground" },
   failed: { label: "Failed", cls: "text-red-600" },
 };
 
@@ -264,19 +265,39 @@ function StatusLabel({ status }: { status: RunStatus }) {
   return <span className={cn("font-medium", s.cls)}>{s.label}</span>;
 }
 
-interface UsageData {
-  total: number;
-  used: number;
+// Sidebar/table row shape, derived from a real JobRecord — no fabricated fields.
+interface RecentRun {
+  id: string;
+  title: string;
+  repo: string;
+  engine: string;
+  status: RunStatus;
+  updatedAt: string;
 }
 
-const usageData: UsageData = { total: 20.0, used: 7.6 };
-
-function formatUsd(value: number) {
-  return `$${value.toFixed(2)}`;
+function toRecentRun(job: JobRecord): RecentRun {
+  return {
+    id: job.id,
+    title: job.instruction.split("\n")[0].slice(0, 140) || job.instruction,
+    repo: job.repo,
+    engine: job.engine,
+    status: jobStatusToRunStatus(job.status),
+    updatedAt: job.updated_at,
+  };
 }
 
-function formatTokensK(tokens: number) {
-  return `${(tokens / 1000).toFixed(1)}k`;
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso;
+  const diffMs = Date.now() - then;
+  const sec = Math.max(0, Math.floor(diffMs / 1000));
+  if (sec < 60) return "Just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
 }
 
 // =============================================================================
@@ -333,8 +354,11 @@ function SidebarNavItem({
 // =============================================================================
 
 const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
-  complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
+  queued: <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 self-start mt-0.5" />,
   running: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
+  awaiting_approval: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
+  complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
+  rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
   failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
 };
 
@@ -391,7 +415,7 @@ function SidebarRunRow({
           {run.title}
         </span>
         <span className="block text-xs text-muted-foreground truncate leading-tight mt-0.5">
-          {run.time}
+          {timeAgo(run.updatedAt)}
         </span>
       </span>
     </button>
@@ -399,63 +423,31 @@ function SidebarRunRow({
 }
 
 // =============================================================================
-// USAGE METER (sans-serif dollars, "Monthly usage" heading)
+// USAGE METER (backend does not track cost/usage yet — shown as unavailable)
 // =============================================================================
 
-function UsageMeter({ data }: { data: UsageData }) {
-  const remaining = Math.max(data.total - data.used, 0);
-  const percentUsed = Math.min((data.used / data.total) * 100, 100);
-  const isLow = percentUsed >= 85;
-
+function UsageMeter() {
   return (
-    <div className="px-3 pb-2.5 pt-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Usage balance
-        </span>
-        {isLow && (
-          <span className="text-[11px] font-semibold text-amber-600">Running low</span>
-        )}
-      </div>
-      <p className="text-sm font-semibold text-foreground">
-        {formatUsd(remaining)} remaining
-      </p>
-      <div className="h-2 w-full rounded-full bg-neutral-200 overflow-hidden">
-        <div
-          className={cn(
-            "h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none",
-            isLow ? "bg-amber-500" : "bg-blue-500"
-          )}
-          style={{ width: `${percentUsed}%` }}
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        {formatUsd(data.used)} of {formatUsd(data.total)} used
-      </p>
+    <div className="px-3 pb-2.5 pt-3 space-y-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Usage balance
+      </span>
+      <p className="text-xs text-muted-foreground">Not tracked yet</p>
     </div>
   );
 }
 
-function CollapsedUsageIndicator({ data }: { data: UsageData }) {
-  const remaining = Math.max(data.total - data.used, 0);
-  const percentUsed = Math.min((data.used / data.total) * 100, 100);
-  const isLow = percentUsed >= 85;
-
+function CollapsedUsageIndicator() {
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="px-4 pb-2.5 pt-3 flex justify-center cursor-pointer">
-            <div className="h-1.5 w-9 rounded-full bg-neutral-200/80 overflow-hidden">
-              <div
-                className={cn("h-full rounded-full", isLow ? "bg-amber-500" : "bg-blue-500/70")}
-                style={{ width: `${percentUsed}%` }}
-              />
-            </div>
+            <div className="h-1.5 w-9 rounded-full bg-neutral-200/80 overflow-hidden" />
           </div>
         </TooltipTrigger>
         <TooltipContent side="right" className="text-xs">
-          {formatUsd(remaining)} remaining
+          Usage tracking not available yet
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -551,6 +543,7 @@ interface SidebarRegionProps {
   onToggle: () => void;
   activeNav: NavId;
   activeRunId: string | null;
+  runs: RecentRun[];
   onNavSelect: (id: NavId) => void;
   onRunSelect: (id: string) => void;
   onSettings: () => void;
@@ -563,6 +556,7 @@ function SidebarRegion({
   onToggle,
   activeNav,
   activeRunId,
+  runs,
   onNavSelect,
   onRunSelect,
   onSettings,
@@ -638,12 +632,12 @@ function SidebarRegion({
                   Recent
                 </p>
               )}
-              {recentRuns.length === 0 && !collapsed && (
+              {runs.length === 0 && !collapsed && (
                 <p className="px-2.5 py-4 text-xs text-muted-foreground text-center">
                   No recent runs
                 </p>
               )}
-              {recentRuns.slice(0, 5).map((run) => (
+              {runs.slice(0, 5).map((run) => (
                 <SidebarRunRow
                   key={run.id}
                   run={run}
@@ -670,7 +664,7 @@ function SidebarRegion({
       <Divider orientation="horizontal" />
 
       {/* Usage meter — fixed */}
-      {collapsed ? <CollapsedUsageIndicator data={usageData} /> : <UsageMeter data={usageData} />}
+      {collapsed ? <CollapsedUsageIndicator /> : <UsageMeter />}
 
       <Divider orientation="horizontal" />
 
@@ -682,95 +676,44 @@ function SidebarRegion({
 
 
 // =============================================================================
-// COMPACT SELECT
-// =============================================================================
-
-function CompactSelect<T extends string>({
-  icon,
-  value,
-  options,
-  onChange,
-  mono,
-  label,
-}: {
-  icon: React.ReactNode;
-  value: T;
-  options: readonly T[];
-  onChange: (value: T) => void;
-  mono?: boolean;
-  label: string;
-}) {
-  return (
-    <Select value={value} onValueChange={(v) => onChange(v as T)}>
-      <TooltipProvider delayDuration={400}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <SelectTrigger
-              size="sm"
-              className={cn(
-                "h-7 gap-1.5 rounded-md border-none bg-transparent px-2 shadow-none text-xs text-muted-foreground",
-                "hover:bg-black/[0.04] hover:text-foreground focus-visible:ring-0 data-[state=open]:bg-black/[0.05]",
-                "[&_svg]:h-3.5 [&_svg]:w-3.5"
-              )}
-            >
-              <span className="shrink-0 text-muted-foreground/70">{icon}</span>
-              <SelectValue>
-                <span className={cn(mono && "font-mono", "truncate")}>{value}</span>
-              </SelectValue>
-            </SelectTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">
-            {label}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <SelectContent align="start" className="max-h-60">
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt} className={cn(mono && "font-mono")}>
-            {opt}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-// =============================================================================
 // NEW RUN COMPOSER (with duplicate submission prevention)
 // =============================================================================
 
 interface ComposerSelection {
-  repo: RepoOption;
-  branch: BranchOption;
-  routing: "automatic" | "specific";
-  routingModel?: ModelOption;
+  repo: string;
+  branch: string;
 }
 
 interface NewRunComposerProps {
-  onSubmit: (prompt: string, selection: ComposerSelection) => void;
+  onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
 }
+
+const knownRepos = [
+  "aubincorinaldiecooper-bit/gnsisfrontend",
+  "aubincorinaldiecooper-bit/gnsisbackend",
+];
 
 function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [prompt, setPrompt] = useState("");
-  const [repo, setRepo] = useState<RepoOption>("gnsis/frontend");
-  const [branch, setBranch] = useState<BranchOption>("main");
-  const [routing, setRouting] = useState<"automatic" | "specific">("automatic");
-  const [routingModel, setRoutingModel] = useState<ModelOption>("Claude Sonnet");
+  const [repo, setRepo] = useState(knownRepos[0]);
+  const [branch, setBranch] = useState("main");
   const [showMobileConfig, setShowMobileConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = prompt.trim().length > 0 && !isSubmitting;
+  const canSubmit = prompt.trim().length > 0 && repo.trim().length > 0 && !isSubmitting;
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
     setIsSubmitting(true);
-    onSubmit(prompt.trim(), {
-      repo,
-      branch,
-      routing,
-      routingModel: routing === "specific" ? routingModel : undefined,
-    });
-  }, [canSubmit, prompt, repo, branch, routing, routingModel, onSubmit]);
+    setError(null);
+    try {
+      await onSubmit(prompt.trim(), { repo: repo.trim(), branch: branch.trim() || "main" });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to start the run.");
+      setIsSubmitting(false);
+    }
+  }, [canSubmit, prompt, repo, branch, onSubmit]);
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
@@ -779,7 +722,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           What should Genesis work on?
         </h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Choose your workspace, describe the task, and start the run.
+          Choose your repository, describe the task, and start the run.
         </p>
       </div>
 
@@ -799,37 +742,28 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 
         <Divider orientation="horizontal" />
 
-        {/* Desktop selectors */}
+        {/* Desktop fields */}
         <div className="hidden md:flex items-center justify-between gap-2 px-2.5 py-2">
-          <div className="flex items-center gap-0.5 flex-wrap min-w-0">
-            <CompactSelect icon={<FolderGit />} value={repo} options={repoOptions} onChange={setRepo} mono label="Repository" />
-            <CompactSelect icon={<GitBranch />} value={branch} options={branchOptions} onChange={setBranch} mono label="Branch" />
-            {/* Routing control */}
-            <Select value={routing} onValueChange={(v) => setRouting(v as "automatic" | "specific")}>
-              <TooltipProvider delayDuration={400}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <SelectTrigger
-                      size="sm"
-                      className="h-7 gap-1.5 rounded-md border-none bg-transparent px-2 shadow-none text-xs text-muted-foreground hover:bg-black/[0.04] hover:text-foreground focus-visible:ring-0 data-[state=open]:bg-black/[0.05] [&_svg]:h-3.5 [&_svg]:w-3.5"
-                    >
-                      <span className="shrink-0 text-muted-foreground/70"><Cpu className="h-3.5 w-3.5" /></span>
-                      <SelectValue>
-                        <span>{routing === "automatic" ? "Automatic" : routingModel}</span>
-                      </SelectValue>
-                    </SelectTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">Routing</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <SelectContent align="start">
-                <SelectItem value="automatic">Automatic</SelectItem>
-                <SelectItem value="specific">Specific model…</SelectItem>
-              </SelectContent>
-            </Select>
-            {routing === "specific" && (
-              <CompactSelect icon={<Cpu />} value={routingModel} options={modelOptions} onChange={setRoutingModel} label="Model" />
-            )}
+          <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <FolderGit className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+              <Input
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="owner/repo"
+                list="repo-suggestions"
+                className="h-7 w-64 border-none shadow-none bg-transparent px-1.5 text-xs font-mono focus-visible:ring-0"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <GitBranch className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+              <Input
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                placeholder="main"
+                className="h-7 w-28 border-none shadow-none bg-transparent px-1.5 text-xs font-mono focus-visible:ring-0"
+              />
+            </div>
           </div>
 
           <Button
@@ -838,7 +772,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             onClick={handleSubmit}
             className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
           >
-            <Send className="h-3.5 w-3.5" />
+            {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             Start run
           </Button>
         </div>
@@ -850,7 +784,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             onClick={() => setShowMobileConfig((v) => !v)}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors text-left min-w-0 truncate"
           >
-            <span className="font-mono">{repo}</span> · {branch} · {routing === "automatic" ? "Auto" : routingModel}
+            <span className="font-mono">{repo || "owner/repo"}</span> · {branch || "main"}
           </button>
           <Button
             size="sm"
@@ -858,7 +792,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             onClick={handleSubmit}
             className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
           >
-            <Send className="h-3.5 w-3.5" />
+            {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             <span className="text-sm">Start</span>
           </Button>
         </div>
@@ -866,21 +800,37 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         {/* Mobile config sheet */}
         {showMobileConfig && (
           <div className="md:hidden border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
-            <CompactSelect icon={<FolderGit />} value={repo} options={repoOptions} onChange={setRepo} mono label="Repository" />
-            <CompactSelect icon={<GitBranch />} value={branch} options={branchOptions} onChange={setBranch} mono label="Branch" />
-            <Select value={routing} onValueChange={(v) => setRouting(v as "automatic" | "specific")}>
-              <SelectTrigger size="sm" className="h-8 text-xs w-full"><SelectValue placeholder="Routing" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="automatic">Automatic</SelectItem>
-                <SelectItem value="specific">Specific model…</SelectItem>
-              </SelectContent>
-            </Select>
-            {routing === "specific" && (
-              <CompactSelect icon={<Cpu />} value={routingModel} options={modelOptions} onChange={setRoutingModel} label="Model" />
-            )}
+            <Input
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+              placeholder="owner/repo"
+              list="repo-suggestions"
+              className="h-8 text-xs font-mono"
+            />
+            <Input
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              placeholder="main"
+              className="h-8 text-xs font-mono"
+            />
           </div>
         )}
+
+        <datalist id="repo-suggestions">
+          {knownRepos.map((r) => (
+            <option key={r} value={r} />
+          ))}
+        </datalist>
       </div>
+
+      {error && (
+        <p className="mt-2 text-center text-xs text-red-600">{error}</p>
+      )}
+      {!isApiConfigured() && (
+        <p className="mt-2 text-center text-xs text-amber-600">
+          VITE_API_BASE_URL is not configured — runs cannot be started.
+        </p>
+      )}
     </div>
   );
 }
@@ -889,165 +839,162 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 // RUN THREAD STATE MACHINE
 // =============================================================================
 
-type ThreadPhase =
-  | "inspecting"
-  | "awaiting-approval"
-  | "applying"
-  | "testing"
-  | "verifying"
-  | "completed"
-  | "failed";
-
+// A thread mirrors one real backend job: status drives which messages render,
+// logs are the real per-phase event stream, diff is the proposed patch (once
+// the engine has produced one).
 interface ThreadState {
-  task: string;
-  repo: RepoOption;
-  branch: BranchOption;
-  routing: "automatic" | "specific";
-  routingModel?: ModelOption;
-  phase: ThreadPhase;
-  planSummary: string;
-  approvedPlan?: string;
+  job: JobRecord;
+  logs: LogRecord[];
+  diff: DiffRecord | null;
+  actionPending: "approve" | "reject" | null;
+  actionError: string | null;
 }
 
-const defaultPlanSummary =
-  "The agent plans to update components/Navbar.tsx and styles/navigation.css to correct fixed positioning across desktop and mobile layouts.";
-
-const revisedPlanSummary =
-  "The agent will update components/Navbar.tsx and adjust only the desktop rules in styles/navigation.css. Mobile behavior will remain unchanged.";
-
-function buildFixNavbarThread(): ThreadState {
-  return {
-    task: "Fix the navbar so it remains fixed while scrolling without overlapping the page content.",
-    repo: "gnsis/frontend",
-    branch: "main",
-    routing: "specific",
-    routingModel: "Claude Sonnet",
-    phase: "completed",
-    planSummary: defaultPlanSummary,
-    approvedPlan: defaultPlanSummary,
-  };
-}
-
-function buildGenericThread(run: RecentRun): ThreadState {
-  let phase: ThreadPhase;
-  if (run.status === "failed") phase = "failed";
-  else if (run.status === "running") phase = "inspecting";
-  else phase = "completed";
-
-  return {
-    task: run.title,
-    repo: run.repo,
-    branch: "main",
-    routing: "specific",
-    routingModel: run.model as ModelOption,
-    phase,
-    planSummary: defaultPlanSummary,
-    approvedPlan: phase === "completed" ? defaultPlanSummary : undefined,
-  };
-}
+const phaseStatusLabel: Record<JobStatus, string> = {
+  queued: "Genesis is queued…",
+  planning: "Genesis is planning the change…",
+  patching: "Genesis is writing the patch…",
+  testing: "Running tests…",
+  summarizing: "Genesis is summarizing the change…",
+  awaiting_approval: "Genesis is ready for review",
+  approved: "Approved — preparing to publish…",
+  publishing: "Opening the pull request…",
+  completed: "Run complete",
+  rejected: "Run rejected",
+  failed: "Run failed",
+};
 
 // =============================================================================
 // THREAD SUB-COMPONENTS
 // =============================================================================
 
-function ThreadContextRow({ thread }: { thread: ThreadState }) {
-  const routingLabel = thread.routing === "automatic"
-    ? "Automatic routing"
-    : thread.routingModel || "Claude Sonnet";
-
+function ThreadContextRow({ job }: { job: JobRecord }) {
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground/80 pb-4">
-      <span className="font-mono">{thread.repo}</span>
+      <span className="font-mono">{job.repo}</span>
       <span className="text-muted-foreground/40">·</span>
-      <span className="font-mono">{thread.branch}</span>
+      <span className="font-mono">{job.branch || job.base_branch}</span>
       <span className="text-muted-foreground/40">·</span>
-      <span>{routingLabel}</span>
+      <span>{job.engine}</span>
     </div>
   );
 }
 
-function TaskMessage({ task }: { task: string }) {
+function TaskMessage({ instruction }: { instruction: string }) {
   return (
     <div className="border-b border-border pb-4">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
         Task
       </p>
-      <p className="text-sm text-foreground leading-relaxed">{task}</p>
+      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{instruction}</p>
     </div>
   );
 }
 
-function AgentInspectingMessage() {
+const inFlightStatuses: JobStatus[] = ["queued", "planning", "patching", "testing", "summarizing", "approved", "publishing"];
+
+function StatusMessage({ status }: { status: JobStatus }) {
   return (
     <div className="flex items-center gap-2.5 py-4 border-b border-border">
       <Loader2 className="h-4 w-4 text-blue-500 animate-spin motion-reduce:animate-none shrink-0" />
-      <p className="text-sm text-muted-foreground">Genesis is inspecting the repository and preparing a plan…</p>
+      <p className="text-sm text-muted-foreground">{phaseStatusLabel[status]}</p>
     </div>
   );
 }
 
-function AgentInspectedMessage() {
+function DiffSummary({ diff }: { diff: DiffRecord }) {
+  const [showPatch, setShowPatch] = useState(false);
   return (
-    <div className="py-4 border-b border-border space-y-1.5">
-      <div className="flex items-center gap-2">
-        <CircleCheck className="h-4 w-4 text-emerald-600 shrink-0" />
-        <p className="text-sm font-semibold text-foreground">Repository inspected</p>
-      </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
-        Genesis located the navbar component, reviewed the positioning styles,
-        and identified the responsive layout constraints.
-      </p>
-    </div>
-  );
-}
-
-function ChangesApprovedMessage({ plan }: { plan?: string }) {
-  return (
-    <div className="py-3 border-b border-border space-y-1.5">
-      <div className="flex items-center gap-2">
-        <CircleCheck className="h-4 w-4 text-emerald-600 shrink-0" />
-        <p className="text-sm font-semibold text-foreground">Changes approved</p>
-      </div>
-      {plan && (
-        <p className="text-xs text-muted-foreground leading-relaxed pl-6">
-          Approved plan: {plan}
-        </p>
+    <div className="space-y-2">
+      <ul className="text-xs text-muted-foreground space-y-1">
+        {diff.files_changed.length === 0 && <li>No files changed.</li>}
+        {diff.files_changed.map((f) => (
+          <li key={f} className="flex items-center gap-1.5 font-mono">
+            <span className="h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
+            {f}
+          </li>
+        ))}
+      </ul>
+      {diff.patch && (
+        <button
+          type="button"
+          onClick={() => setShowPatch((v) => !v)}
+          className="text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+        >
+          {showPatch ? "Hide patch" : "View patch"}
+        </button>
+      )}
+      {showPatch && diff.patch && (
+        <pre className="max-h-64 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre">
+          {diff.patch}
+        </pre>
       )}
     </div>
   );
 }
 
-function ApplyingMessage() {
+function ApprovalBlock({
+  diff,
+  pending,
+  error,
+  onApprove,
+  onReject,
+}: {
+  diff: DiffRecord | null;
+  pending: "approve" | "reject" | null;
+  error: string | null;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
   return (
-    <div className="flex items-center gap-2.5 py-4 border-b border-border">
-      <span className="relative flex h-2 w-2 shrink-0">
-        <span className="absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-60 animate-ping motion-reduce:animate-none" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-      </span>
-      <p className="text-sm text-muted-foreground">Genesis is applying approved changes…</p>
+    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <StatusIndicator status="waiting" />
+        <p className="text-sm font-semibold text-foreground">Genesis is ready for review</p>
+      </div>
+      {diff ? (
+        <DiffSummary diff={diff} />
+      ) : (
+        <p className="text-sm text-muted-foreground">Loading the proposed diff…</p>
+      )}
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div className="flex items-center gap-2 pt-1 flex-wrap">
+        <Button
+          size="sm"
+          disabled={pending !== null}
+          onClick={onApprove}
+          className="h-8 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
+        >
+          {pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Approve &amp; publish
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending !== null}
+          onClick={onReject}
+          className="h-8 rounded-lg"
+        >
+          {pending === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Reject
+        </Button>
+      </div>
     </div>
   );
 }
 
-function TestingMessage() {
-  return (
-    <div className="flex items-center gap-2.5 py-4 border-b border-border">
-      <Loader2 className="h-4 w-4 text-blue-500 animate-spin motion-reduce:animate-none shrink-0" />
-      <p className="text-sm text-muted-foreground">Running tests…</p>
-    </div>
-  );
+const prUrlPattern = /opened PR #\d+: (\S+)/;
+
+function findPrUrl(logs: LogRecord[]): string | null {
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const match = logs[i].message.match(prUrlPattern);
+    if (match) return match[1];
+  }
+  return null;
 }
 
-function VerifyingMessage() {
-  return (
-    <div className="flex items-center gap-2.5 py-4 border-b border-border">
-      <Loader2 className="h-4 w-4 text-blue-500 animate-spin motion-reduce:animate-none shrink-0" />
-      <p className="text-sm text-muted-foreground">Genesis is verifying the run…</p>
-    </div>
-  );
-}
-
-function RunCompleteMessage() {
+function RunCompleteMessage({ job, diff, logs }: { job: JobRecord; diff: DiffRecord | null; logs: LogRecord[] }) {
+  const prUrl = findPrUrl(logs);
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
@@ -1055,17 +1002,25 @@ function RunCompleteMessage() {
         <p className="text-sm font-semibold text-foreground">Run complete</p>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed pl-6">
-        Navbar positioning was updated across desktop and mobile layouts without
-        changing unrelated components.
+        {diff && diff.files_changed.length > 0
+          ? `${diff.files_changed.length} file${diff.files_changed.length === 1 ? "" : "s"} changed on branch ${job.branch ?? job.base_branch}.`
+          : "The run finished successfully."}
       </p>
-      <p className="text-xs text-muted-foreground pl-6">
-        42,180 tokens · {formatUsd(0.46)} spent · 2 files changed · 8 tests passed
-      </p>
+      {prUrl && (
+        <a
+          href={prUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 pl-6 text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+        >
+          View pull request <ExternalLink className="h-3 w-3" />
+        </a>
+      )}
     </div>
   );
 }
 
-function FailedMessage() {
+function FailedMessage({ job }: { job: JobRecord }) {
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
@@ -1073,224 +1028,63 @@ function FailedMessage() {
         <p className="text-sm font-semibold text-red-600">Run failed</p>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed pl-6">
-        This run failed before changes were applied. Two responsive-layout tests failed.
-      </p>
-      <p className="text-xs text-muted-foreground pl-6">
-        31,260 tokens · {formatUsd(0.34)} spent · 6 passed, 2 failed
+        {job.error || "The run failed before it could finish."}
       </p>
     </div>
   );
 }
 
-function ApprovalBlock({
-  planSummary,
-  onApply,
-  onRevise,
-}: {
-  planSummary: string;
-  onApply: () => void;
-  onRevise: () => void;
-}) {
+function RejectedMessage() {
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
+    <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
-        <StatusIndicator status="waiting" />
-        <p className="text-sm font-semibold text-foreground">Genesis is ready to make changes</p>
+        <CircleX className="h-4 w-4 text-muted-foreground shrink-0" />
+        <p className="text-sm font-semibold text-foreground">Run rejected</p>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed">{planSummary}</p>
-      <ul className="text-xs text-muted-foreground space-y-1.5">
-        <li className="flex items-center gap-1.5">
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
-          2 files expected to change
-        </li>
-        <li className="flex items-center gap-1.5">
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
-          No new dependencies planned
-        </li>
-        <li className="flex items-center gap-1.5">
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
-          Tests will run after implementation
-        </li>
-      </ul>
-      <div className="flex items-center gap-2 pt-1 flex-wrap">
-        <Button
-          size="sm"
-          onClick={onApply}
-          className="h-8 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
-        >
-          Apply changes
-        </Button>
-        <Button size="sm" variant="outline" onClick={onRevise} className="h-8 rounded-lg">
-          Revise plan
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function RevisePlanInput({
-  value,
-  onChange,
-  onUpdate,
-  onCancel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onUpdate: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-white p-3 space-y-2.5">
-      <Input
-        autoFocus
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Tell Genesis what to change about the plan…"
-        className="h-9 text-sm"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onUpdate();
-          if (e.key === "Escape") onCancel();
-        }}
-      />
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          onClick={onUpdate}
-          disabled={value.trim().length === 0}
-          className="h-8 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
-        >
-          Update plan
-        </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} className="h-8 rounded-lg">
-          Cancel
-        </Button>
-      </div>
+      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
+        The proposed change was reviewed and rejected before publishing.
+      </p>
     </div>
   );
 }
 
 // =============================================================================
-// RUN THREAD (with approval audit entry)
+// RUN THREAD
 // =============================================================================
 
 function RunThread({
   thread,
-  onThreadChange,
+  onApprove,
+  onReject,
 }: {
   thread: ThreadState;
-  onThreadChange: (updater: (t: ThreadState) => ThreadState) => void;
+  onApprove: () => void;
+  onReject: () => void;
 }) {
-  const [revising, setRevising] = useState(false);
-  const [reviseValue, setReviseValue] = useState("");
-  const [inspectionResolved, setInspectionResolved] = useState(thread.phase !== "inspecting");
-
-  useEffect(() => {
-    setInspectionResolved(thread.phase !== "inspecting");
-  }, [thread.task]);
-
-  useEffect(() => {
-    let t: ReturnType<typeof setTimeout> | undefined;
-
-    if (thread.phase === "inspecting" && !inspectionResolved) {
-      t = setTimeout(() => {
-        setInspectionResolved(true);
-        onThreadChange((x) => ({ ...x, phase: "awaiting-approval" }));
-      }, 1600);
-    } else if (thread.phase === "applying") {
-      t = setTimeout(() => onThreadChange((x) => ({ ...x, phase: "testing" })), 1400);
-    } else if (thread.phase === "testing") {
-      t = setTimeout(() => onThreadChange((x) => ({ ...x, phase: "verifying" })), 1400);
-    } else if (thread.phase === "verifying") {
-      t = setTimeout(() => onThreadChange((x) => ({ ...x, phase: "completed" })), 1200);
-    }
-
-    return () => { if (t) clearTimeout(t); };
-  }, [thread.phase, inspectionResolved]);
-
-  const handleApply = () => {
-    onThreadChange((t) => ({
-      ...t,
-      phase: "applying",
-      approvedPlan: t.planSummary,
-    }));
-  };
-
-  const handleRevise = () => {
-    setRevising(true);
-    setReviseValue("");
-  };
-
-  const handleUpdatePlan = () => {
-    onThreadChange((t) => ({ ...t, planSummary: revisedPlanSummary }));
-    setRevising(false);
-  };
-
-  const handleCancelRevise = () => setRevising(false);
-
-  const showInspecting = thread.phase === "inspecting" && !inspectionResolved;
-  const showInspected = thread.phase !== "inspecting" || inspectionResolved;
+  const { job, diff, logs, actionPending, actionError } = thread;
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
-      <ThreadContextRow thread={thread} />
-      <TaskMessage task={thread.task} />
+      <ThreadContextRow job={job} />
+      <TaskMessage instruction={job.instruction} />
 
-      {showInspecting && <AgentInspectingMessage />}
+      {inFlightStatuses.includes(job.status) && <StatusMessage status={job.status} />}
 
-      {showInspected && thread.phase !== "failed" && (
-        <>
-          <AgentInspectedMessage />
-
-          {thread.phase === "awaiting-approval" && (
-            <div className="pt-4">
-              {revising ? (
-                <RevisePlanInput
-                  value={reviseValue}
-                  onChange={setReviseValue}
-                  onUpdate={handleUpdatePlan}
-                  onCancel={handleCancelRevise}
-                />
-              ) : (
-                <ApprovalBlock
-                  planSummary={thread.planSummary}
-                  onApply={handleApply}
-                  onRevise={handleRevise}
-                />
-              )}
-            </div>
-          )}
-
-          {thread.phase === "applying" && (
-            <>
-              <ChangesApprovedMessage plan={thread.approvedPlan} />
-              <ApplyingMessage />
-            </>
-          )}
-
-          {thread.phase === "testing" && (
-            <>
-              <ChangesApprovedMessage plan={thread.approvedPlan} />
-              <TestingMessage />
-            </>
-          )}
-
-          {thread.phase === "verifying" && (
-            <>
-              <ChangesApprovedMessage plan={thread.approvedPlan} />
-              <VerifyingMessage />
-            </>
-          )}
-
-          {thread.phase === "completed" && (
-            <>
-              <ChangesApprovedMessage plan={thread.approvedPlan} />
-              <RunCompleteMessage />
-            </>
-          )}
-        </>
+      {job.status === "awaiting_approval" && (
+        <div className="pt-4">
+          <ApprovalBlock
+            diff={diff}
+            pending={actionPending}
+            error={actionError}
+            onApprove={onApprove}
+            onReject={onReject}
+          />
+        </div>
       )}
 
-      {thread.phase === "failed" && <FailedMessage />}
+      {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
+      {job.status === "failed" && <FailedMessage job={job} />}
+      {job.status === "rejected" && <RejectedMessage />}
     </div>
   );
 }
@@ -1299,62 +1093,29 @@ function RunThread({
 // THREAD COMPOSER (sticky, clear status)
 // =============================================================================
 
-function ThreadComposer({ phase }: { phase: ThreadPhase }) {
-  const [value, setValue] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const isBusy = phase === "applying" || phase === "testing" || phase === "verifying";
-  const isCompleted = phase === "completed";
-
-  const placeholder = isCompleted
-    ? "Ask for another change…"
-    : isBusy
-    ? "Genesis is working…"
-    : "Send a follow-up to Genesis…";
-
-  const canSend = !isBusy && value.trim().length > 0 && !isSending;
-
-  const handleSend = () => {
-    if (!canSend) return;
-    setIsSending(true);
-    setTimeout(() => {
-      setValue("");
-      setIsSending(false);
-    }, 300);
-  };
-
+// Follow-up messages on an existing job aren't supported by the backend yet
+// (a job is one-shot: create → approve/reject). Shown disabled rather than a
+// control that silently no-ops.
+function ThreadComposer({ onNewRun }: { onNewRun: () => void }) {
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6">
       <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
         <Textarea
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          disabled={isBusy}
-          placeholder={placeholder}
+          value=""
+          disabled
+          placeholder="Follow-up messages aren't supported yet — start a new run instead."
           className="min-h-16 resize-none border-none shadow-none rounded-none px-4 py-3 text-sm focus-visible:ring-0 disabled:opacity-50"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canSend) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
         />
         <Divider orientation="horizontal" />
         <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-xs text-muted-foreground">
-            {isBusy
-              ? "Genesis is working…"
-              : isCompleted
-              ? "This run is complete."
-              : "A follow-up will be sent once this run finishes."}
-          </span>
+          <span className="text-xs text-muted-foreground">Not supported yet.</span>
           <Button
             size="sm"
-            disabled={!canSend}
-            onClick={handleSend}
+            onClick={onNewRun}
             className="h-7 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
           >
             <Send className="h-3.5 w-3.5" />
-            Send
+            New run
           </Button>
         </div>
       </div>
@@ -1364,403 +1125,69 @@ function ThreadComposer({ phase }: { phase: ThreadPhase }) {
 
 
 // =============================================================================
-// ACTIVITY DATA
+// ACTIVITY PANEL (real log stream from GET /jobs/{id}/logs)
 // =============================================================================
 
-type ActivityPhaseId = "understand" | "inspect" | "approval" | "apply" | "test" | "verify";
-type ActivityStatus = "pending" | "active" | "awaiting" | "complete" | "failed";
-
-interface ActivityLine {
-  label: string;
-  value: string;
-}
-
-interface ActivityPhaseDef {
-  id: ActivityPhaseId;
-  title: string;
-  summary: string;
-  lines: ActivityLine[];
-  tokens: number;          // per-phase token count
-  cumulativeTokens: number; // running total for receipt compatibility
-  cumulativeCost: number;
-  duration: string;
-}
-
-const activityPhaseDefs: ActivityPhaseDef[] = [
-  {
-    id: "understand",
-    title: "Understand the request",
-    summary: "Parsed the user task and identified constraints.",
-    lines: [
-      { label: "Parse", value: "User task" },
-      { label: "Identify", value: "Responsive layout constraints" },
-      { label: "Plan", value: "Minimal implementation path" },
-    ],
-    tokens: 4620,
-    cumulativeTokens: 4620,
-    cumulativeCost: 0.05,
-    duration: "2s",
-  },
-  {
-    id: "inspect",
-    title: "Inspect the codebase",
-    summary: "Located the navbar component and relevant styling logic.",
-    lines: [
-      { label: "Read", value: "components/Navbar.tsx" },
-      { label: "Read", value: "styles/navigation.css" },
-      { label: "Search", value: "Existing fixed-position logic" },
-      { label: "Check", value: "Responsive breakpoints" },
-    ],
-    tokens: 10540,
-    cumulativeTokens: 15160,
-    cumulativeCost: 0.16,
-    duration: "6s",
-  },
-  {
-    id: "approval",
-    title: "Await approval",
-    summary: "Waiting for user approval before editing files.",
-    lines: [
-      { label: "Plan", value: "2 files expected to change" },
-      { label: "Check", value: "No new dependencies planned" },
-      { label: "Wait", value: "User approval required" },
-    ],
-    tokens: 0,
-    cumulativeTokens: 15160,
-    cumulativeCost: 0.16,
-    duration: "—",
-  },
-  {
-    id: "apply",
-    title: "Apply changes",
-    summary: "Editing navbar positioning across desktop and mobile.",
-    lines: [
-      { label: "Edit", value: "components/Navbar.tsx" },
-      { label: "Edit", value: "styles/navigation.css" },
-      { label: "Check", value: "No unrelated components changed" },
-    ],
-    tokens: 15870,
-    cumulativeTokens: 31030,
-    cumulativeCost: 0.34,
-    duration: "14s",
-  },
-  {
-    id: "test",
-    title: "Test the result",
-    summary: "Ran navbar and layout tests to confirm the fix.",
-    lines: [
-      { label: "Test", value: "navbar.spec.ts" },
-      { label: "Test", value: "responsive-layout.spec.ts" },
-      { label: "Result", value: "8 passed, 0 failed" },
-    ],
-    tokens: 6340,
-    cumulativeTokens: 37370,
-    cumulativeCost: 0.41,
-    duration: "8s",
-  },
-  {
-    id: "verify",
-    title: "Verify the run",
-    summary: "Confirmed all required run checks passed.",
-    lines: [
-      { label: "Check", value: "Required tests passed" },
-      { label: "Check", value: "No new dependencies added" },
-      { label: "Check", value: "Scope remained within task" },
-    ],
-    tokens: 4810,
-    cumulativeTokens: 42180,
-    cumulativeCost: 0.46,
-    duration: "3s",
-  },
-];
-
-const activityOrder: ActivityPhaseId[] = ["understand", "inspect", "approval", "apply", "test", "verify"];
-
-const phaseIdx: Record<Exclude<ThreadPhase, "failed">, number> = {
-  inspecting: 1,
-  "awaiting-approval": 2,
-  applying: 3,
-  testing: 4,
-  verifying: 5,
-  completed: 6,
-};
-
-function computeActivityStatus(id: ActivityPhaseId, threadPhase: ThreadPhase): ActivityStatus {
-  const idx = activityOrder.indexOf(id);
-  if (threadPhase === "failed") {
-    const testIdx = activityOrder.indexOf("test");
-    if (id === "test") return "failed";
-    return idx < testIdx ? "complete" : "pending";
-  }
-  const activeIdx = phaseIdx[threadPhase];
-  if (activeIdx === 6) return "complete";
-  if (idx < activeIdx) return "complete";
-  if (idx === activeIdx) return id === "approval" ? "awaiting" : "active";
-  return "pending";
-}
-
-const activityIcon: Record<ActivityStatus, React.ReactNode> = {
-  pending: <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />,
-  active: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none" />,
-  awaiting: (
-    <span className="relative flex h-2.5 w-2.5">
-      <span className="absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-60 animate-ping motion-reduce:animate-none" />
-      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
-    </span>
-  ),
-  complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />,
-  failed: <CircleX className="h-3.5 w-3.5 text-red-500" />,
-};
-
-// =============================================================================
-// ACTIVITY PHASE ROW (exclusive accordion)
-// =============================================================================
-
-function ActivityPhaseRow({
-  def,
-  status,
-  expanded,
-  onToggle,
-}: {
-  def: ActivityPhaseDef;
-  status: ActivityStatus;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const canExpand = status !== "pending";
+function LogRow({ log }: { log: LogRecord }) {
+  const icon =
+    log.level === "error" ? (
+      <CircleX className="h-3.5 w-3.5 text-red-500" />
+    ) : log.level === "warning" ? (
+      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+    ) : (
+      <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
+    );
 
   return (
-    <div className="border-b border-border last:border-b-0">
-      <button
-        type="button"
-        onClick={() => canExpand && onToggle()}
-        disabled={!canExpand}
-        className={cn(
-          "w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors duration-150",
-          canExpand
-            ? "hover:bg-black/[0.03] focus-visible:outline-none focus-visible:bg-black/[0.03]"
-            : "cursor-default opacity-50"
-        )}
-      >
-        <span className="shrink-0">{activityIcon[status]}</span>
-        <span className="flex-1 min-w-0">
-          <span className="block text-sm font-medium text-foreground truncate">
-            {def.title}
-          </span>
-          <span className="block text-xs text-muted-foreground truncate mt-0.5">
-            {def.summary}
-          </span>
-        </span>
-        <span className="shrink-0 text-right">
-          {status === "complete" && (
-            <span className="block text-xs text-muted-foreground font-mono">
-              {def.tokens > 0 ? `${def.tokens.toLocaleString()} tok · ` : ""}{def.duration}
+    <div className="flex items-start gap-2.5 px-4 py-2.5 border-b border-border last:border-b-0">
+      <span className="shrink-0 mt-0.5">{icon}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          {log.phase && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 truncate">
+              {log.phase}
             </span>
           )}
-          {status === "active" && <span className="block text-xs text-blue-600">In progress…</span>}
-          {status === "awaiting" && <span className="block text-xs text-amber-600">Waiting…</span>}
-          {status === "failed" && <span className="block text-xs text-red-600">Failed</span>}
-        </span>
-        {canExpand && (
-          <ChevronRight
-            className={cn(
-              "h-3.5 w-3.5 text-muted-foreground/50 transition-transform duration-200 shrink-0",
-              expanded && "rotate-90"
-            )}
-          />
-        )}
-      </button>
-      {expanded && canExpand && (
-        <div className="px-4 pb-3 pl-10 space-y-1">
-          {def.lines.map((line, i) => (
-            <div key={i} className="flex items-baseline gap-2 text-xs">
-              <span className="text-muted-foreground/70 w-14 shrink-0">{line.label}</span>
-              <span className="font-mono text-foreground/80 truncate">{line.value}</span>
-            </div>
-          ))}
+          <span className="text-xs text-muted-foreground/60 font-mono shrink-0 ml-auto">
+            {timeAgo(log.created_at)}
+          </span>
         </div>
-      )}
+        <p className="text-sm text-foreground/90 leading-relaxed mt-0.5 break-words">{log.message}</p>
+      </div>
     </div>
   );
 }
 
-// =============================================================================
-// ACTIVITY PANEL (exclusive accordion, live tokens)
-// =============================================================================
-
 function ActivityPanel({ thread }: { thread: ThreadState }) {
-  const [expandedId, setExpandedId] = useState<ActivityPhaseId | null>(null);
-
-  const handleToggle = useCallback((id: ActivityPhaseId) => {
-    setExpandedId((current) => (current === id ? null : id));
-  }, []);
-
-  const rows = activityPhaseDefs.map((def) => ({
-    def,
-    status: computeActivityStatus(def.id, thread.phase),
-  }));
-
-  // Compute total tokens from completed phases
-  const completeRows = rows.filter((r) => r.status === "complete");
-  const last = completeRows[completeRows.length - 1];
-  const totalTokens = last ? last.def.cumulativeTokens : 0;
-  const totalCost = last ? last.def.cumulativeCost : 0;
-  const isComplete = thread.phase === "completed" || thread.phase === "failed";
+  if (thread.logs.length === 0) {
+    return (
+      <EmptyState
+        icon={<ActivityGlyph className="h-8 w-8" />}
+        title="No activity yet"
+        description="Logs will appear here as Genesis works on this run."
+      />
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto flex flex-col">
       <div className="flex-1">
-        {rows.map(({ def, status }) => (
-          <ActivityPhaseRow
-            key={def.id}
-            def={def}
-            status={status}
-            expanded={expandedId === def.id}
-            onToggle={() => handleToggle(def.id)}
-          />
+        {thread.logs.map((log, i) => (
+          <LogRow key={i} log={log} />
         ))}
       </div>
-
-      {/* Sticky compute footer */}
-      {totalTokens > 0 && (
-        <div className="shrink-0 sticky bottom-0 bg-white border-t border-border px-4 py-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-foreground">
-              Compute used
-            </span>
-            <span className="text-sm font-mono text-muted-foreground">
-              {totalTokens.toLocaleString()} tokens
-            </span>
-          </div>
-          {isComplete && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {formatUsd(totalCost)} total run cost
-            </p>
-          )}
-        </div>
-      )}
+      <div className="shrink-0 sticky bottom-0 bg-white border-t border-border px-4 py-3 flex items-center justify-between">
+        <span className="text-sm font-semibold text-foreground">Compute used</span>
+        <span className="text-xs text-muted-foreground">Not tracked yet</span>
+      </div>
     </div>
   );
 }
 
 // =============================================================================
-// RECEIPT DATA
+// RECEIPT PANEL (real status/outcome/files; cost & token accounting not
+// tracked by the backend yet, shown as unavailable rather than fabricated)
 // =============================================================================
-
-interface ReceiptPhaseDef {
-  id: ActivityPhaseId;
-  title: string;
-  summary: string;
-  tokens: number;
-  percent: number;
-  duration: string;
-  lines: ActivityLine[];
-}
-
-const receiptPhases: ReceiptPhaseDef[] = [
-  {
-    id: "understand",
-    title: "Understand the request",
-    summary: "Identified layout constraints and expected behavior.",
-    tokens: 4600,
-    percent: 11,
-    duration: "2s",
-    lines: [
-      { label: "Parse", value: "User task" },
-      { label: "Identify", value: "Responsive constraints" },
-      { label: "Plan", value: "Minimal implementation path" },
-    ],
-  },
-  {
-    id: "inspect",
-    title: "Inspect the codebase",
-    summary: "Located the navbar and relevant styling logic.",
-    tokens: 10500,
-    percent: 25,
-    duration: "6s",
-    lines: [
-      { label: "Read", value: "components/Navbar.tsx" },
-      { label: "Read", value: "styles/navigation.css" },
-      { label: "Search", value: "Existing positioning logic" },
-      { label: "Check", value: "Responsive breakpoints" },
-    ],
-  },
-  {
-    id: "apply",
-    title: "Update navbar",
-    summary: "Corrected positioning across desktop and mobile.",
-    tokens: 15900,
-    percent: 38,
-    duration: "14s",
-    lines: [
-      { label: "Read", value: "components/Navbar.tsx" },
-      { label: "Edit", value: "components/Navbar.tsx" },
-      { label: "Edit", value: "styles/navigation.css" },
-      { label: "Check", value: "No unrelated components changed" },
-    ],
-  },
-  {
-    id: "test",
-    title: "Test the result",
-    summary: "Ran eight tests and checked for regressions.",
-    tokens: 6300,
-    percent: 15,
-    duration: "8s",
-    lines: [
-      { label: "Test", value: "navbar.spec.ts" },
-      { label: "Test", value: "responsive-layout.spec.ts" },
-      { label: "Result", value: "8 passed, 0 failed" },
-      { label: "Check", value: "No regressions detected" },
-    ],
-  },
-  {
-    id: "verify",
-    title: "Verify the run",
-    summary: "Confirmed all required run checks passed.",
-    tokens: 4800,
-    percent: 11,
-    duration: "3s",
-    lines: [
-      { label: "Check", value: "No unrelated files changed" },
-      { label: "Check", value: "No new dependencies added" },
-      { label: "Check", value: "Required tests passed" },
-      { label: "Capture", value: "Full execution trace" },
-    ],
-  },
-];
-
-interface ReceiptSummary {
-  outcome: string;
-  tokens: number;
-  cost: number;
-  modelCalls: number;
-  toolCalls: number;
-  filesChanged: number;
-  testsPassed: number;
-  testsFailed: number;
-}
-
-const successReceipt: ReceiptSummary = {
-  outcome: "Updated navbar positioning across desktop and mobile layouts without changing unrelated components.",
-  tokens: 42180,
-  cost: 0.46,
-  modelCalls: 6,
-  toolCalls: 7,
-  filesChanged: 2,
-  testsPassed: 8,
-  testsFailed: 0,
-};
-
-const failedReceipt: ReceiptSummary = {
-  outcome: "The navbar update was stopped because two responsive-layout tests failed.",
-  tokens: 31260,
-  cost: 0.34,
-  modelCalls: 5,
-  toolCalls: 6,
-  filesChanged: 2,
-  testsPassed: 6,
-  testsFailed: 2,
-};
 
 function SummaryItem({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
   return (
@@ -1773,38 +1200,19 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
   );
 }
 
-// =============================================================================
-// RECEIPT PANEL
-// =============================================================================
+function receiptOutcome(thread: ThreadState): string {
+  const { job, diff } = thread;
+  if (job.status === "failed") return job.error || "The run failed before it could finish.";
+  if (job.status === "rejected") return "The proposed change was reviewed and rejected before publishing.";
+  if (diff && diff.files_changed.length > 0) {
+    return `Changed ${diff.files_changed.length} file${diff.files_changed.length === 1 ? "" : "s"} on branch ${job.branch ?? job.base_branch}.`;
+  }
+  return "The run finished successfully.";
+}
 
 function ReceiptPanel({ thread }: { thread: ThreadState }) {
-  const failed = thread.phase === "failed";
-  const [expandedId, setExpandedId] = useState<ActivityPhaseId | null>(null);
-  const summary = failed ? failedReceipt : successReceipt;
-
-  const displayPhases = receiptPhases.map((p) => {
-    if (failed && p.id === "test") {
-      return {
-        ...p,
-        summary: "Two layout tests failed; the run halted before verification.",
-        lines: [
-          { label: "Test", value: "navbar.spec.ts" },
-          { label: "Test", value: "responsive-layout.spec.ts" },
-          { label: "Result", value: "6 passed, 2 failed" },
-        ],
-        rowFailed: true,
-      };
-    }
-    if (failed && p.id === "verify") {
-      return {
-        ...p,
-        summary: "Run halted; verification was not completed.",
-        lines: [{ label: "Check", value: "Run halted after failing tests" }],
-        rowFailed: false,
-      };
-    }
-    return { ...p, rowFailed: false };
-  });
+  const { job, diff } = thread;
+  const failed = job.status === "failed" || job.status === "rejected";
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -1812,9 +1220,9 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Run receipt
         </p>
-        <p className="text-sm font-semibold text-foreground">{thread.task}</p>
+        <p className="text-sm font-semibold text-foreground line-clamp-2">{job.instruction}</p>
         <p className="text-xs text-muted-foreground font-mono">
-          {thread.routing === "automatic" ? "Automatic" : thread.routingModel || "Claude Sonnet"} · run_8f3ac1e2 · 43s
+          {job.repo} · {job.id}
         </p>
         <div className="flex items-center gap-1.5 pt-1">
           {failed ? (
@@ -1823,7 +1231,7 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
             <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
           )}
           <span className={cn("text-sm font-semibold", failed ? "text-red-600" : "text-emerald-600")}>
-            {failed ? "Failed" : "Complete"}
+            {runLabelCls[jobStatusToRunStatus(job.status)].label}
           </span>
         </div>
       </div>
@@ -1832,85 +1240,28 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Outcome
         </p>
-        <p className="text-sm text-foreground leading-relaxed">{summary.outcome}</p>
+        <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(thread)}</p>
       </div>
 
       <div className="px-4 py-4 border-b border-border space-y-3">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem label="Tokens" value={summary.tokens.toLocaleString()} emphasize />
-          <SummaryItem label="Spent" value={formatUsd(summary.cost)} emphasize />
-          <SummaryItem label="Model calls" value={String(summary.modelCalls)} />
-          <SummaryItem label="Tool calls" value={String(summary.toolCalls)} />
-          <SummaryItem label="Files changed" value={String(summary.filesChanged)} />
-          <SummaryItem
-            label="Tests"
-            value={failed ? `${summary.testsPassed} passed, ${summary.testsFailed} failed` : `${summary.testsPassed} passed`}
-          />
-        </div>
-        <div className="flex items-center gap-1.5">
-          {failed ? (
-            <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0" />
-          ) : (
-            <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-          )}
-          <span className="text-xs text-muted-foreground">
-            {failed ? "Run checks failed" : "Run checks passed"}
-          </span>
+          <SummaryItem label="Tokens" value="Not tracked yet" />
+          <SummaryItem label="Spent" value="Not tracked yet" />
+          <SummaryItem label="Files changed" value={String(diff?.files_changed.length ?? 0)} emphasize />
+          <SummaryItem label="Engine" value={job.engine} />
         </div>
       </div>
 
-      <div className="px-4 pt-4 pb-1">
-        <p className="text-sm font-semibold text-foreground">Token spend by work phase</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {summary.tokens.toLocaleString()} tokens across {receiptPhases.length} work phases
-        </p>
-      </div>
-      <div>
-        {displayPhases.map((phase) => (
-          <div key={phase.id} className="border-b border-border last:border-b-0">
-            <button
-              type="button"
-              onClick={() => setExpandedId((id) => (id === phase.id ? null : phase.id))}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:bg-black/[0.03]"
-            >
-              {phase.rowFailed ? (
-                <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0" />
-              ) : (
-                <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              )}
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-medium text-foreground truncate">
-                  {phase.title}
-                </span>
-                <span className="block text-xs text-muted-foreground truncate mt-0.5">
-                  {phase.summary}
-                </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="block text-xs text-muted-foreground font-mono">
-                  {(phase.tokens / 1000).toFixed(1)}k · {phase.percent}% · {phase.duration}
-                </span>
-              </span>
-              <ChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 text-muted-foreground/50 transition-transform duration-200 shrink-0",
-                  expandedId === phase.id && "rotate-90"
-                )}
-              />
-            </button>
-            {expandedId === phase.id && (
-              <div className="px-4 pb-3 pl-10 space-y-1">
-                {phase.lines.map((line, i) => (
-                  <div key={i} className="flex items-baseline gap-2 text-xs">
-                    <span className="text-muted-foreground/70 w-14 shrink-0">{line.label}</span>
-                    <span className="font-mono text-foreground/80 truncate">{line.value}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      {diff && diff.files_changed.length > 0 && (
+        <div className="px-4 py-4">
+          <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
+          <ul className="text-xs text-muted-foreground space-y-1 font-mono">
+            {diff.files_changed.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -2001,14 +1352,14 @@ function RunPanelHeader({
   );
 }
 
-function CollapsedRunPanel({ phase }: { phase?: ThreadPhase }) {
-  const status: StatusKind = !phase
+function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
+  const status: StatusKind = !jobStatus
     ? "idle"
-    : phase === "completed"
+    : jobStatus === "completed"
     ? "completed"
-    : phase === "failed"
+    : jobStatus === "failed" || jobStatus === "rejected"
     ? "failed"
-    : phase === "awaiting-approval"
+    : jobStatus === "awaiting_approval"
     ? "waiting"
     : "active";
 
@@ -2042,11 +1393,11 @@ function RunPanelRegion({
   view: WorkspaceView;
 }) {
   const hasThread = view.kind === "thread";
-  const phase = hasThread ? view.thread.phase : undefined;
+  const status = hasThread ? view.thread.job.status : undefined;
   const threadKey = hasThread ? view.threadKey : null;
 
   const [tab, setTab] = useState<"activity" | "receipt">("activity");
-  const prevPhaseRef = useRef<ThreadPhase | null>(null);
+  const prevStatusRef = useRef<JobStatus | null>(null);
 
   // Scroll positions per tab
   const activityScrollRef = useRef<HTMLDivElement>(null);
@@ -2077,31 +1428,31 @@ function RunPanelRegion({
   // Reset on thread change
   useEffect(() => {
     if (!hasThread) {
-      prevPhaseRef.current = null;
+      prevStatusRef.current = null;
       setTab("activity");
       activityScrollPos.current = 0;
       receiptScrollPos.current = 0;
       return;
     }
-    const initialPhase = view.thread.phase;
-    setTab(initialPhase === "completed" || initialPhase === "failed" ? "receipt" : "activity");
+    const initialStatus = view.thread.job.status;
+    setTab(isTerminalStatus(initialStatus) ? "receipt" : "activity");
     activityScrollPos.current = 0;
     receiptScrollPos.current = 0;
-    prevPhaseRef.current = initialPhase;
+    prevStatusRef.current = initialStatus;
   }, [threadKey]);
 
   // Auto-switch to receipt when run completes
   useEffect(() => {
     if (!hasThread) return;
-    const phaseNow = view.thread.phase;
-    if (prevPhaseRef.current && prevPhaseRef.current !== "completed" && phaseNow === "completed") {
+    const statusNow = view.thread.job.status;
+    if (prevStatusRef.current && prevStatusRef.current !== "completed" && statusNow === "completed") {
       handleTabChange("receipt");
     }
-    prevPhaseRef.current = phaseNow;
-  }, [hasThread, phase]);
+    prevStatusRef.current = statusNow;
+  }, [hasThread, status]);
 
-  const receiptEnabled = phase === "completed" || phase === "failed";
-  const hasActivity = hasThread && (phase !== "completed" && phase !== "failed");
+  const receiptEnabled = !!status && isTerminalStatus(status);
+  const hasActivity = hasThread && !(status && isTerminalStatus(status));
 
   return (
     <aside
@@ -2124,7 +1475,7 @@ function RunPanelRegion({
 
       {collapsed ? (
         <div className="flex-1 cursor-pointer" onClick={onToggle}>
-          <CollapsedRunPanel phase={phase} />
+          <CollapsedRunPanel jobStatus={status} />
         </div>
       ) : !hasThread ? (
         tab === "activity" ? (
@@ -2157,9 +1508,6 @@ function RunPanelRegion({
 // SEARCH VIEW (with empty state)
 // =============================================================================
 
-const modelOptionsForFilter = ["Claude Sonnet", "Claude Opus", "Claude Haiku", "GPT-4o", "Gemini Pro"] as const;
-const sourceOptions = ["Web", "CLI", "API"] as const;
-
 function RunsFilterSelect({
   label,
   value,
@@ -2191,7 +1539,8 @@ function RunsFilterSelect({
   );
 }
 
-const runsColumns = "grid-cols-[1.8fr_1fr_1fr_0.7fr_0.7fr_0.8fr_0.7fr]";
+const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
+const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "failed"];
 
 function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void }) {
   return (
@@ -2206,31 +1555,26 @@ function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void })
     >
       <span className="text-sm text-foreground truncate">{run.title}</span>
       <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-      <span className="text-xs text-muted-foreground truncate">{run.model}</span>
-      <span className="text-xs text-muted-foreground truncate">{run.source}</span>
+      <span className="text-xs text-muted-foreground truncate">{run.engine}</span>
       <span className="text-xs"><StatusLabel status={run.status} /></span>
-      <span className="text-xs font-mono text-muted-foreground">{run.tokens.toLocaleString()}</span>
-      <span className="text-xs text-muted-foreground/70 text-right">{run.status === "running" ? "Now" : run.time}</span>
+      <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
     </button>
   );
 }
 
-function RunsView({ onSelectRun }: { onSelectRun: (id: string) => void }) {
+function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: string) => void }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [repoFilter, setRepoFilter] = useState("all");
-  const [modelFilter, setModelFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("all");
 
-  const filtered = recentRuns.filter((run) => {
+  const repoOptions = Array.from(new Set(runs.map((r) => r.repo)));
+
+  const filtered = runs.filter((run) => {
     if (statusFilter !== "all" && run.status !== statusFilter) return false;
     if (repoFilter !== "all" && run.repo !== repoFilter) return false;
-    if (modelFilter !== "all" && run.model !== modelFilter) return false;
-    if (sourceFilter !== "all" && run.source !== sourceFilter) return false;
     if (
       query.trim().length > 0 &&
-      !`${run.title} ${run.repo} ${run.model} ${run.source} ${run.id}`.toLowerCase().includes(query.trim().toLowerCase())
+      !`${run.title} ${run.repo} ${run.id}`.toLowerCase().includes(query.trim().toLowerCase())
     )
       return false;
     return true;
@@ -2247,17 +1591,14 @@ function RunsView({ onSelectRun }: { onSelectRun: (id: string) => void }) {
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search tasks, repositories, models, or run IDs…"
+          placeholder="Search tasks, repositories, or run IDs…"
           className="h-10 max-w-md"
         />
       </div>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={["complete", "running", "failed"]} />
+        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={runStatusOptions} />
         <RunsFilterSelect label="Repository" value={repoFilter} onChange={setRepoFilter} options={repoOptions} />
-        <RunsFilterSelect label="Model" value={modelFilter} onChange={setModelFilter} options={modelOptionsForFilter} />
-        <RunsFilterSelect label="Source" value={sourceFilter} onChange={setSourceFilter} options={sourceOptions} />
-        <RunsFilterSelect label="Date" value={dateFilter} onChange={setDateFilter} options={["Today", "This week", "This month"]} />
       </div>
 
       <p className="text-xs text-muted-foreground mb-2">
@@ -2268,11 +1609,9 @@ function RunsView({ onSelectRun }: { onSelectRun: (id: string) => void }) {
       <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", runsColumns)}>
         <span>Task</span>
         <span>Repository</span>
-        <span>Model</span>
-        <span>Source</span>
+        <span>Engine</span>
         <span>Status</span>
-        <span>Tokens</span>
-        <span className="text-right">Time</span>
+        <span className="text-right">Updated</span>
       </div>
 
       {/* Desktop rows */}
@@ -2304,17 +1643,14 @@ function RunsView({ onSelectRun }: { onSelectRun: (id: string) => void }) {
             >
               <div className="flex items-center justify-between">
                 <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
-                <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{run.status === "running" ? "Now" : run.time}</span>
+                <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="font-mono">{run.repo}</span>
                 <span>·</span>
-                <span>{run.model}</span>
-                <span>·</span>
-                <span>{run.source}</span>
+                <span>{run.engine}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-muted-foreground">{run.tokens.toLocaleString()} tokens</span>
                 <StatusLabel status={run.status} />
               </div>
             </button>
@@ -2326,474 +1662,30 @@ function RunsView({ onSelectRun }: { onSelectRun: (id: string) => void }) {
 }
 
 // =============================================================================
-// DASHBOARD VIEW (with empty state, stacked mobile rows)
-// =============================================================================
-
-const dashboardColumns = "grid-cols-[1.6fr_1fr_1fr_0.8fr_0.8fr_0.7fr_0.7fr]";
-
-// =============================================================================
-// PERIOD SELECTOR
-// =============================================================================
-
-type Period = "7d" | "14d" | "30d" | "all";
-
-const periodOptions: { value: Period; label: string }[] = [
-  { value: "7d", label: "7D" },
-  { value: "14d", label: "14D" },
-  { value: "30d", label: "30D" },
-  { value: "all", label: "All" },
-];
-
-function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
-  return (
-    <div className="inline-flex items-center rounded-lg border border-border bg-white p-0.5 gap-0.5">
-      {periodOptions.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "h-7 px-3 rounded-md text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-            value === opt.value
-              ? "bg-black/[0.04] text-foreground"
-              : "text-muted-foreground hover:text-foreground hover:bg-black/[0.03]"
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// =============================================================================
-// VERIFIED SAVINGS
-// =============================================================================
-
-interface SavingsRecord {
-  id: string;
-  type: "lower-cost-model" | "cached-token" | "retry-reduction" | "reduced-repeated-work";
-  runId: string;
-  baselineRunId: string;
-  baselineModel: string;
-  actualModel: string;
-  baselineCost: number;
-  actualCost: number;
-  verifiedSavings: number;
-  status: "verified" | "pending";
-  timestamp: string;
-}
-
-const savingsRecords: SavingsRecord[] = [
-  {
-    id: "sv-1",
-    type: "lower-cost-model",
-    runId: "run-2",
-    baselineRunId: "bl-1",
-    baselineModel: "Claude Opus",
-    actualModel: "Claude Sonnet",
-    baselineCost: 1.24,
-    actualCost: 0.63,
-    verifiedSavings: 0.61,
-    status: "verified",
-    timestamp: "2026-07-10T14:00:00Z",
-  },
-  {
-    id: "sv-2",
-    type: "cached-token",
-    runId: "run-1",
-    baselineRunId: "bl-2",
-    baselineModel: "Claude Sonnet",
-    actualModel: "Claude Sonnet",
-    baselineCost: 0.92,
-    actualCost: 0.46,
-    verifiedSavings: 0.46,
-    status: "verified",
-    timestamp: "2026-07-11T10:00:00Z",
-  },
-  {
-    id: "sv-3",
-    type: "retry-reduction",
-    runId: "run-3",
-    baselineRunId: "bl-3",
-    baselineModel: "Claude Sonnet",
-    actualModel: "Claude Sonnet",
-    baselineCost: 0.95,
-    actualCost: 0.40,
-    verifiedSavings: 0.55,
-    status: "verified",
-    timestamp: "2026-07-09T09:00:00Z",
-  },
-  {
-    id: "sv-4",
-    type: "reduced-repeated-work",
-    runId: "run-4",
-    baselineRunId: "bl-4",
-    baselineModel: "Claude Sonnet",
-    actualModel: "Claude Sonnet",
-    baselineCost: 0.86,
-    actualCost: 0.34,
-    verifiedSavings: 0.52,
-    status: "verified",
-    timestamp: "2026-07-08T16:00:00Z",
-  },
-];
-
-function isWithinPeriod(timestamp: string, period: Period): boolean {
-  if (period === "all") return true;
-  const days = period === "7d" ? 7 : period === "14d" ? 14 : 30;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  return new Date(timestamp) >= cutoff;
-}
-
-function filterByPeriod<T extends { timestamp: string }>(items: T[], period: Period): T[] {
-  return period === "all" ? items : items.filter((i) => isWithinPeriod(i.timestamp, period));
-}
-
-function savingsTypeLabel(type: SavingsRecord["type"]): string {
-  switch (type) {
-    case "lower-cost-model": return "Lower-cost model";
-    case "cached-token": return "Cached-token discount";
-    case "retry-reduction": return "Retry reduction";
-    case "reduced-repeated-work": return "Reduced repeated work";
-  }
-}
-
-// =============================================================================
-// SPEND DATA (for charts)
-// =============================================================================
-
-interface DailyTokens {
-  date: string;
-  label: string;
-  tokens: number;
-}
-
-const dailyTokenData: DailyTokens[] = [
-  { date: "2026-07-08", label: "Jul 8", tokens: 22100 },
-  { date: "2026-07-09", label: "Jul 9", tokens: 24500 },
-  { date: "2026-07-10", label: "Jul 10", tokens: 58400 },
-  { date: "2026-07-11", label: "Jul 11", tokens: 42180 },
-  { date: "2026-07-12", label: "Jul 12", tokens: 15200 },
-  { date: "2026-07-13", label: "Jul 13", tokens: 18400 },
-  { date: "2026-07-14", label: "Jul 14", tokens: 36900 },
-];
-
-interface ModelUsage {
-  model: string;
-  tokens: number;
-  runs: number;
-}
-
-const modelUsageData: ModelUsage[] = [
-  { model: "Claude Sonnet", tokens: 118680, runs: 4 },
-  { model: "Claude Opus", tokens: 58400, runs: 1 },
-  { model: "Claude Haiku", tokens: 12200, runs: 1 },
-  { model: "GPT-4o", tokens: 36900, runs: 1 },
-  { model: "Gemini Pro", tokens: 15200, runs: 1 },
-];
-
-// =============================================================================
-// COST BREAKDOWN
-// =============================================================================
-
-interface CostBreakdownItem {
-  label: string;
-  amount: number;
-  runCount: number;
-  color: string;
-}
-
-const costBreakdownData: CostBreakdownItem[] = [
-  { label: "Successful run cost", amount: 5.84, runCount: 3, color: "bg-neutral-600" },
-  { label: "Retried-call cost", amount: 0.78, runCount: 2, color: "bg-neutral-400" },
-  { label: "Failed-call cost", amount: 0.63, runCount: 1, color: "bg-neutral-400" },
-  { label: "Interrupted-run cost", amount: 0.21, runCount: 1, color: "bg-neutral-300" },
-  { label: "Cancelled-run cost", amount: 0.08, runCount: 1, color: "bg-neutral-300" },
-  { label: "Superseded-attempt cost", amount: 0.06, runCount: 1, color: "bg-neutral-200" },
-];
-
-// =============================================================================
-// COST BREAKDOWN PANEL
-// =============================================================================
-
-function CostBreakdownPanel({
-  open,
-  onClose,
-  onSelectRun,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSelectRun: (id: string) => void;
-}) {
-  if (!open) return null;
-
-  const totalCost = costBreakdownData.reduce((s, i) => s + i.amount, 0);
-  const totalRuns = costBreakdownData.reduce((s, i) => s + i.runCount, 0);
-  const maxAmt = Math.max(...costBreakdownData.map((r) => r.amount));
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
-      <div
-        className={cn(
-          "fixed z-50 bg-white shadow-xl overflow-y-auto scrollbar-thin",
-          "md:right-0 md:top-0 md:bottom-0 md:w-[400px] md:h-full md:border-l md:border-border",
-          "max-md:left-0 max-md:right-0 max-md:bottom-0 max-md:max-h-[85vh] max-md:rounded-t-2xl"
-        )}
-      >
-        <div className="md:hidden flex items-center justify-center py-2">
-          <div className="h-1 w-8 rounded-full bg-neutral-300" />
-        </div>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            aria-label="Close cost breakdown"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <div>
-            <p className="text-sm font-semibold text-foreground">Cost breakdown</p>
-            <p className="text-xs text-muted-foreground">July 2026</p>
-          </div>
-        </div>
-        <div className="px-4 py-4 border-b border-border">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Total cost</p>
-          <p className="text-2xl font-bold text-foreground mt-0.5">{formatUsd(totalCost)}</p>
-          <p className="text-xs text-muted-foreground mt-1">Across {totalRuns} affected runs</p>
-        </div>
-        <div className="px-4 py-4 space-y-3">
-          {costBreakdownData.map((row) => (
-            <button
-              key={row.label}
-              type="button"
-              onClick={() => { onSelectRun("run-1"); onClose(); }}
-              className="w-full text-left group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-lg"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-foreground">{row.label}</span>
-                <span className="text-sm font-semibold text-foreground">{formatUsd(row.amount)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-2 rounded-full bg-neutral-100 overflow-hidden">
-                  <div
-                    className={cn("h-full rounded-full transition-[width] duration-500", row.color)}
-                    style={{ width: `${(row.amount / maxAmt) * 100}%` }}
-                  />
-                </div>
-                <span className="text-xs text-muted-foreground w-10 text-right">
-                  {row.runCount} {row.runCount === 1 ? "run" : "runs"}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// =============================================================================
-// VERIFIED SAVINGS PANEL
-// =============================================================================
-
-function VerifiedSavingsPanel({
-  open,
-  onClose,
-  records,
-}: {
-  open: boolean;
-  onClose: () => void;
-  records: SavingsRecord[];
-}) {
-  if (!open) return null;
-
-  const total = records.reduce((s, r) => s + r.verifiedSavings, 0);
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
-      <div
-        className={cn(
-          "fixed z-50 bg-white shadow-xl overflow-y-auto scrollbar-thin",
-          "md:right-0 md:top-0 md:bottom-0 md:w-[400px] md:h-full md:border-l md:border-border",
-          "max-md:left-0 max-md:right-0 max-md:bottom-0 max-md:max-h-[85vh] max-md:rounded-t-2xl"
-        )}
-      >
-        <div className="md:hidden flex items-center justify-center py-2">
-          <div className="h-1 w-8 rounded-full bg-neutral-300" />
-        </div>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            aria-label="Close verified savings"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <div>
-            <p className="text-sm font-semibold text-foreground">Verified savings</p>
-            <p className="text-xs text-muted-foreground">{records.length} verified records</p>
-          </div>
-        </div>
-
-        <div className="px-4 py-4 border-b border-border">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Total verified savings</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-0.5">{formatUsd(total)}</p>
-        </div>
-
-        <div className="divide-y divide-border">
-          {records.map((record) => (
-            <div key={record.id} className="px-4 py-3.5 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-foreground">{savingsTypeLabel(record.type)}</span>
-                <span className="text-sm font-semibold text-emerald-600">{formatUsd(record.verifiedSavings)}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Baseline: {record.baselineModel} at {formatUsd(record.baselineCost)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Actual: {record.actualModel} at {formatUsd(record.actualCost)}
-              </p>
-              <div className="flex items-center gap-1.5 pt-0.5">
-                <CircleCheck className="h-3 w-3 text-emerald-600" />
-                <span className="text-xs text-emerald-600 font-semibold">Verified</span>
-                <span className="text-xs text-muted-foreground">· {record.runId}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// =============================================================================
-// TOKENS OVER TIME CHART (monochrome bars)
-// =============================================================================
-
-function TokensOverTimeChart({ data }: { data: DailyTokens[] }) {
-  const maxTokens = Math.max(...data.map((d) => d.tokens), 1);
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tokens over time</p>
-      </div>
-      <div className="flex items-end gap-1 h-20">
-        {data.map((day) => (
-          <div key={day.date} className="flex-1 flex flex-col items-center gap-1">
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    className="w-full rounded-sm bg-neutral-300 hover:bg-neutral-400 transition-colors cursor-pointer"
-                    style={{ height: `${(day.tokens / maxTokens) * 100}%`, minHeight: 2 }}
-                  />
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">
-                  {day.label}: {day.tokens.toLocaleString()} tokens
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <span className="text-[10px] text-muted-foreground">{day.label.split(" ")[1]}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
-// MODEL USAGE (horizontal bars, token-based)
-// =============================================================================
-
-function ModelUsageChart({ data }: { data: ModelUsage[] }) {
-  const maxTokens = Math.max(...data.map((d) => d.tokens), 1);
-
-  return (
-    <div className="space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Model usage</p>
-      <div className="space-y-2.5">
-        {data.map((m) => (
-          <div key={m.model} className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-foreground">{m.model}</span>
-              <span className="text-muted-foreground font-mono">{m.tokens.toLocaleString()} tok · {m.runs} {m.runs === 1 ? "run" : "runs"}</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-neutral-100 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-neutral-500 transition-[width] duration-500"
-                style={{ width: `${(m.tokens / maxTokens) * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
 // GITHUB ONBOARDING CARD
 // =============================================================================
 
-type OnboardingState = "not-connected" | "connecting" | "no-runs" | "has-runs";
-
-function GitHubOnboardingCard({
-  state,
-  onConnect,
-  onNewRun,
-}: {
-  state: OnboardingState;
-  onConnect: () => void;
-  onNewRun: () => void;
-}) {
-  if (state === "has-runs") return null;
-
-  const content: Record<Exclude<OnboardingState, "has-runs">, { icon: React.ReactNode; title: string; desc: string; action: { label: string; onClick: () => void } | null }> = {
-    "not-connected": {
-      icon: <FolderGit className="h-5 w-5 text-muted-foreground/60" />,
-      title: "Connect a repository",
-      desc: "Link a GitHub repository to start running Genesis on your codebase.",
-      action: { label: "Connect repository", onClick: onConnect },
-    },
-    "connecting": {
-      icon: <Loader2 className="h-5 w-5 text-muted-foreground/60 animate-spin motion-reduce:animate-none" />,
-      title: "Connecting repository…",
-      desc: "We're verifying access to your repository. This takes a few seconds.",
-      action: null,
-    },
-    "no-runs": {
-      icon: <CirclePlus className="h-5 w-5 text-muted-foreground/60" />,
-      title: "Start your first run",
-      desc: "Your repository is connected. Describe a task and Genesis will get to work.",
-      action: { label: "New run", onClick: onNewRun },
-    },
-  };
-
-  const c = content[state];
+function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRun: () => void }) {
+  if (hasRuns) return null;
 
   return (
     <div className="rounded-xl border border-border bg-white p-5 mb-8">
       <div className="flex items-start gap-3">
-        <div className="shrink-0 mt-0.5">{c.icon}</div>
+        <div className="shrink-0 mt-0.5">
+          <CirclePlus className="h-5 w-5 text-muted-foreground/60" />
+        </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground">{c.title}</p>
-          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">{c.desc}</p>
-          {c.action && (
-            <Button
-              size="sm"
-              onClick={c.action.onClick}
-              className="h-8 mt-3 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs"
-            >
-              {c.action.label}
-            </Button>
-          )}
+          <p className="text-sm font-semibold text-foreground">Start your first run</p>
+          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+            Describe a task and point Genesis at a repository to get started.
+          </p>
+          <Button
+            size="sm"
+            onClick={onNewRun}
+            className="h-8 mt-3 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs"
+          >
+            New run
+          </Button>
         </div>
       </div>
     </div>
@@ -2801,162 +1693,99 @@ function GitHubOnboardingCard({
 }
 
 // =============================================================================
-// FINOPS DASHBOARD (with period selector, savings, charts)
+// DASHBOARD (run counts are real; cost/token/savings tracking not built yet)
 // =============================================================================
 
+const dashboardColumns = "grid-cols-[1.8fr_1.2fr_0.9fr_0.9fr_0.9fr]";
+
 function DashboardView({
+  runs,
   onSelectRun,
   onNewRun,
 }: {
+  runs: RecentRun[];
   onSelectRun: (id: string) => void;
   onNewRun: () => void;
 }) {
-  const [period, setPeriod] = useState<Period>("30d");
-  const [costBreakdownOpen, setCostBreakdownOpen] = useState(false);
-  const [savingsPanelOpen, setSavingsPanelOpen] = useState(false);
-  const [onboardingState, setOnboardingState] = useState<OnboardingState>("not-connected");
-
-  const filteredSavings = filterByPeriod(savingsRecords, period);
-  const totalSavings = filteredSavings.reduce((s, r) => s + r.verifiedSavings, 0);
-  const hasSavings = filteredSavings.length > 0;
-  const hasBaselineEver = savingsRecords.length > 0;
-
-  const filteredDailyTokens = period === "all" ? dailyTokenData : dailyTokenData.filter((d) => isWithinPeriod(d.date + "T00:00:00Z", period));
-
-  // Simulate onboarding flow for demo
-  const handleConnectRepo = () => {
-    setOnboardingState("connecting");
-    setTimeout(() => setOnboardingState("no-runs"), 2000);
-  };
-
-  const handleFirstRun = () => {
-    setOnboardingState("has-runs");
-    onNewRun();
-  };
-
-  // Total tokens this period
-  const totalTokens = filteredDailyTokens.reduce((s, d) => s + d.tokens, 0);
+  const counts = runs.reduce(
+    (acc, r) => {
+      acc.total += 1;
+      if (r.status === "complete") acc.complete += 1;
+      else if (r.status === "failed" || r.status === "rejected") acc.failed += 1;
+      else acc.active += 1;
+      return acc;
+    },
+    { total: 0, complete: 0, active: 0, failed: 0 }
+  );
 
   return (
-    <>
-      <div className="w-full max-w-3xl mx-auto px-4 md:px-8 py-8 md:py-10">
-        {/* Header */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-foreground">Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Compute usage, verified savings, and balance.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <PeriodSelector value={period} onChange={setPeriod} />
-            <Button
-              onClick={onNewRun}
-              className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs px-3"
-            >
-              <CirclePlus className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">New run</span>
-            </Button>
-          </div>
-        </div>
-
-        {/* GitHub onboarding card */}
-        <GitHubOnboardingCard
-          state={onboardingState}
-          onConnect={handleConnectRepo}
-          onNewRun={handleFirstRun}
-        />
-
-        {/* Three primary metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          {/* Compute used (tokens) */}
-          <div className="rounded-xl border border-border bg-white p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-muted-foreground/60" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Compute used
-              </span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">{totalTokens.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">tokens</span></p>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Across {recentRuns.length} runs this period</p>
-              <button
-                type="button"
-                onClick={() => setCostBreakdownOpen(true)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-foreground underline underline-offset-2 hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm"
-              >
-                View cost breakdown
-                <ArrowUpRight className="h-3 w-3" />
-              </button>
-            </div>
-          </div>
-
-          {/* Total compute savings */}
-          <div className="rounded-xl border border-border bg-white p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <TrendingDown className="h-4 w-4 text-emerald-500" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Verified savings
-              </span>
-            </div>
-            {hasSavings ? (
-              <>
-                <p className="text-2xl font-bold text-emerald-600">{formatUsd(totalSavings)}</p>
-                <button
-                  type="button"
-                  onClick={() => setSavingsPanelOpen(true)}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-foreground underline underline-offset-2 hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm"
-                >
-                  View {filteredSavings.length} verified {filteredSavings.length === 1 ? "record" : "records"}
-                  <ArrowUpRight className="h-3 w-3" />
-                </button>
-              </>
-            ) : hasBaselineEver ? (
-              <>
-                <p className="text-2xl font-bold text-foreground">{formatUsd(0)}</p>
-                <p className="text-xs text-muted-foreground">No verified savings during this period.</p>
-              </>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-muted-foreground">\u2014</p>
-                <p className="text-xs text-muted-foreground">
-                  Savings will appear after Genesis records a comparable baseline.
-                </p>
-              </>
-            )}
-          </div>
-
-          {/* Available budget */}
-          <div className="rounded-xl border border-border bg-white p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-muted-foreground/60" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Available budget
-              </span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">{formatUsd(12.40)}</p>
-            <p className="text-xs text-muted-foreground">Credits do not expire</p>
-          </div>
-        </div>
-
-        {/* Charts row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <TokensOverTimeChart data={filteredDailyTokens} />
-          <ModelUsageChart data={modelUsageData} />
-        </div>
-
-        {/* Recent runs (supporting, token-focused) */}
+    <div className="w-full max-w-3xl mx-auto px-4 md:px-8 py-8 md:py-10">
+      {/* Header */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-foreground mb-2">Recent runs</p>
-          <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", dashboardColumns)}>
-            <span>Run</span>
-            <span>Repository</span>
-            <span>Model</span>
-            <span>Status</span>
-            <span>Tokens</span>
-            <span>Source</span>
-            <span className="text-right">Time</span>
-          </div>
-          <div className="hidden md:block border-t border-border">
-            {recentRuns.map((run) => (
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Run activity across your repositories.</p>
+        </div>
+        <Button
+          onClick={onNewRun}
+          className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs px-3"
+        >
+          <CirclePlus className="h-3.5 w-3.5" />
+          <span className="hidden md:inline">New run</span>
+        </Button>
+      </div>
+
+      {/* GitHub onboarding card */}
+      <GitHubOnboardingCard hasRuns={runs.length > 0} onNewRun={onNewRun} />
+
+      {/* Run counts (real) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Total runs
+          </span>
+          <p className="text-2xl font-bold text-foreground">{counts.total}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            In progress
+          </span>
+          <p className="text-2xl font-bold text-foreground">{counts.active}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Completed
+          </span>
+          <p className="text-2xl font-bold text-foreground">{counts.complete}</p>
+        </div>
+      </div>
+
+      {/* Cost/usage tracking — not built yet, shown as unavailable rather than fabricated */}
+      <div className="rounded-xl border border-dashed border-border p-5 mb-8">
+        <p className="text-sm font-semibold text-foreground">Compute cost &amp; verified savings</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          The backend doesn't track token usage or cost yet, so this section isn't shown here. It'll
+          appear once that data is available.
+        </p>
+      </div>
+
+      {/* Recent runs (real) */}
+      <div>
+        <p className="text-sm font-semibold text-foreground mb-2">Recent runs</p>
+        <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", dashboardColumns)}>
+          <span>Run</span>
+          <span>Repository</span>
+          <span>Engine</span>
+          <span>Status</span>
+          <span className="text-right">Updated</span>
+        </div>
+        <div className="hidden md:block border-t border-border">
+          {runs.length === 0 ? (
+            <div className="px-3 py-8 text-center">
+              <p className="text-sm text-muted-foreground">No runs yet.</p>
+            </div>
+          ) : (
+            runs.map((run) => (
               <button
                 key={run.id}
                 type="button"
@@ -2969,16 +1798,20 @@ function DashboardView({
               >
                 <span className="text-sm text-foreground truncate">{run.title}</span>
                 <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-                <span className="text-xs text-muted-foreground truncate">{run.model}</span>
+                <span className="text-xs text-muted-foreground truncate">{run.engine}</span>
                 <span className="text-xs"><StatusLabel status={run.status} /></span>
-                <span className="text-xs font-mono text-muted-foreground">{run.tokens.toLocaleString()}</span>
-                <span className="text-xs text-muted-foreground">{run.source}</span>
-                <span className="text-xs text-muted-foreground/70 text-right">{run.status === "running" ? "Now" : run.time}</span>
+                <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
               </button>
-            ))}
-          </div>
-          <div className="md:hidden space-y-2 mt-2">
-            {recentRuns.map((run) => (
+            ))
+          )}
+        </div>
+        <div className="md:hidden space-y-2 mt-2">
+          {runs.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">No runs yet.</p>
+            </div>
+          ) : (
+            runs.map((run) => (
               <button
                 key={run.id}
                 type="button"
@@ -2987,29 +1820,21 @@ function DashboardView({
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
-                  <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{run.status === "running" ? "Now" : run.time}</span>
+                  <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="font-mono">{run.repo}</span>
-                  <span>\u00b7</span>
-                  <span>{run.model}</span>
-                  <span>\u00b7</span>
+                  <span>·</span>
+                  <span>{run.engine}</span>
+                  <span>·</span>
                   <StatusLabel status={run.status} />
                 </div>
-                <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
-                  <span>{formatTokensK(run.tokens)} tokens</span>
-                  <span>{run.source}</span>
-                </div>
               </button>
-            ))}
-          </div>
+            ))
+          )}
         </div>
       </div>
-
-      {/* Overlays */}
-      <CostBreakdownPanel open={costBreakdownOpen} onClose={() => setCostBreakdownOpen(false)} onSelectRun={onSelectRun} />
-      <VerifiedSavingsPanel open={savingsPanelOpen} onClose={() => setSavingsPanelOpen(false)} records={filteredSavings} />
-    </>
+    </div>
   );
 }
 
@@ -3019,16 +1844,20 @@ function DashboardView({
 
 function WorkspaceRegion({
   view,
+  runs,
   onSubmit,
-  onThreadChange,
+  onApprove,
+  onReject,
   onSelectRun,
   onNewRun,
   onSettingsBack,
   onBillingBack,
 }: {
   view: WorkspaceView;
-  onSubmit: (prompt: string, selection: ComposerSelection) => void;
-  onThreadChange: (updater: (t: ThreadState) => ThreadState) => void;
+  runs: RecentRun[];
+  onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
+  onApprove: () => void;
+  onReject: () => void;
   onSelectRun: (id: string) => void;
   onNewRun: () => void;
   onSettingsBack: () => void;
@@ -3048,22 +1877,23 @@ function WorkspaceRegion({
             <RunThread
               key={view.threadKey}
               thread={view.thread}
-              onThreadChange={onThreadChange}
+              onApprove={onApprove}
+              onReject={onReject}
             />
           </div>
-          <ThreadComposer phase={view.thread.phase} />
+          <ThreadComposer onNewRun={onNewRun} />
         </>
       )}
 
       {view.kind === "runs" && (
         <div className="flex-1 overflow-y-auto">
-          <RunsView onSelectRun={onSelectRun} />
+          <RunsView runs={runs} onSelectRun={onSelectRun} />
         </div>
       )}
 
       {view.kind === "dashboard" && (
         <div className="flex-1 overflow-y-auto">
-          <DashboardView onSelectRun={onSelectRun} onNewRun={onNewRun} />
+          <DashboardView runs={runs} onSelectRun={onSelectRun} onNewRun={onNewRun} />
         </div>
       )}
 
@@ -3105,6 +1935,14 @@ export function useAppShell() {
 // GNSIS WORKSPACE (main responsive shell)
 // =============================================================================
 
+function upsertJob(jobs: JobRecord[], updated: JobRecord): JobRecord[] {
+  const idx = jobs.findIndex((j) => j.id === updated.id);
+  if (idx === -1) return [updated, ...jobs];
+  const next = jobs.slice();
+  next[idx] = updated;
+  return next;
+}
+
 function GNSISWorkspacePreview() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [runPanelCollapsed, setRunPanelCollapsed] = useState(false);
@@ -3114,9 +1952,27 @@ function GNSISWorkspacePreview() {
   const [activeNav, setActiveNav] = useState<NavId>("new-run");
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [view, setView] = useState<WorkspaceView>({ kind: "composer" });
+  const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const runs = jobs.map(toRecentRun);
 
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
   const toggleRunPanel = () => setRunPanelCollapsed((v) => !v);
+
+  const refreshJobs = useCallback(async () => {
+    if (!isApiConfigured()) return;
+    try {
+      setJobs(await listJobs());
+    } catch {
+      // transient network error — keep showing the last known list
+    }
+  }, []);
+
+  // Background refresh of the run list (sidebar, runs, dashboard).
+  useEffect(() => {
+    refreshJobs();
+    const t = setInterval(refreshJobs, 8000);
+    return () => clearInterval(t);
+  }, [refreshJobs]);
 
   const handleNavSelect = (id: NavId) => {
     setActiveNav(id);
@@ -3128,24 +1984,24 @@ function GNSISWorkspacePreview() {
 
   const handleRunSelect = (runId: string) => {
     setActiveRunId(runId);
-    const run = recentRuns.find((r) => r.id === runId);
-    if (!run) return;
-    const thread = run.id === "run-1" ? buildFixNavbarThread() : buildGenericThread(run);
-    setView({ kind: "thread", thread, threadKey: runId });
+    const job = jobs.find((j) => j.id === runId);
+    if (!job) return;
+    setView({
+      kind: "thread",
+      thread: { job, logs: [], diff: null, actionPending: null, actionError: null },
+      threadKey: job.id,
+    });
   };
 
-  const handleComposerSubmit = (prompt: string, selection: ComposerSelection) => {
-    setActiveRunId(null);
-    const thread: ThreadState = {
-      task: prompt,
-      repo: selection.repo,
-      branch: selection.branch,
-      routing: selection.routing,
-      routingModel: selection.routingModel,
-      phase: "inspecting",
-      planSummary: defaultPlanSummary,
-    };
-    setView({ kind: "thread", thread, threadKey: `new-${Date.now()}` });
+  const handleComposerSubmit = async (prompt: string, selection: ComposerSelection) => {
+    const job = await createJob({ repo: selection.repo, instruction: prompt, base_branch: selection.branch });
+    setJobs((prev) => upsertJob(prev, job));
+    setActiveRunId(job.id);
+    setView({
+      kind: "thread",
+      thread: { job, logs: [], diff: null, actionPending: null, actionError: null },
+      threadKey: job.id,
+    });
   };
 
   const handleThreadChange = (updater: (t: ThreadState) => ThreadState) => {
@@ -3153,6 +2009,70 @@ function GNSISWorkspacePreview() {
       if (prev.kind !== "thread") return prev;
       return { ...prev, thread: updater(prev.thread) };
     });
+  };
+
+  // Poll the active thread's job for live status/logs/diff until it terminates.
+  useEffect(() => {
+    if (view.kind !== "thread") return;
+    const jobId = view.thread.job.id;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const poll = async () => {
+      try {
+        const [job, logs, diff] = await Promise.all([getJob(jobId), getJobLogs(jobId), getJobDiff(jobId)]);
+        if (cancelled) return;
+        handleThreadChange((t) => (t.job.id === job.id ? { ...t, job, logs, diff: diff ?? t.diff } : t));
+        setJobs((prev) => upsertJob(prev, job));
+        if (isTerminalStatus(job.status) && timer) clearInterval(timer);
+      } catch {
+        // transient network error — keep polling
+      }
+    };
+
+    poll();
+    if (!isTerminalStatus(view.thread.job.status)) {
+      timer = setInterval(poll, 2500);
+    }
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.kind === "thread" ? view.threadKey : null]);
+
+  const handleApproveJob = async () => {
+    if (view.kind !== "thread") return;
+    const jobId = view.thread.job.id;
+    handleThreadChange((t) => ({ ...t, actionPending: "approve", actionError: null }));
+    try {
+      const job = await approveJob(jobId);
+      handleThreadChange((t) => ({ ...t, job, actionPending: null }));
+      setJobs((prev) => upsertJob(prev, job));
+    } catch (err) {
+      handleThreadChange((t) => ({
+        ...t,
+        actionPending: null,
+        actionError: err instanceof ApiError ? err.message : "Failed to approve the run.",
+      }));
+    }
+  };
+
+  const handleRejectJob = async () => {
+    if (view.kind !== "thread") return;
+    const jobId = view.thread.job.id;
+    handleThreadChange((t) => ({ ...t, actionPending: "reject", actionError: null }));
+    try {
+      const job = await rejectJob(jobId);
+      handleThreadChange((t) => ({ ...t, job, actionPending: null }));
+      setJobs((prev) => upsertJob(prev, job));
+    } catch (err) {
+      handleThreadChange((t) => ({
+        ...t,
+        actionPending: null,
+        actionError: err instanceof ApiError ? err.message : "Failed to reject the run.",
+      }));
+    }
   };
 
   const handleNewRun = () => handleNavSelect("new-run");
@@ -3185,6 +2105,7 @@ function GNSISWorkspacePreview() {
             onToggle={toggleSidebar}
             activeNav={activeNav}
             activeRunId={activeRunId}
+            runs={runs}
             onNavSelect={handleNavSelect}
             onRunSelect={handleRunSelect}
             onSettings={handleSettings}
@@ -3205,6 +2126,7 @@ function GNSISWorkspacePreview() {
               onToggle={() => setMobileSidebarOpen(false)}
               activeNav={activeNav}
               activeRunId={activeRunId}
+              runs={runs}
               onNavSelect={(id) => { handleNavSelect(id); setMobileSidebarOpen(false); }}
               onRunSelect={(id) => { handleRunSelect(id); setMobileSidebarOpen(false); }}
               onSettings={() => { handleSettings(); setMobileSidebarOpen(false); }}
@@ -3252,8 +2174,10 @@ function GNSISWorkspacePreview() {
         <div className="flex-1 min-w-0 h-full pt-12 md:pt-0">
           <WorkspaceRegion
             view={view}
+            runs={runs}
             onSubmit={handleComposerSubmit}
-            onThreadChange={handleThreadChange}
+            onApprove={handleApproveJob}
+            onReject={handleRejectJob}
             onSelectRun={handleRunSelect}
             onNewRun={handleNewRun}
             onSettingsBack={handleSettingsBack}
