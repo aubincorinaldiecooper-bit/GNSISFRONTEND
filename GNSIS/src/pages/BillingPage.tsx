@@ -1,15 +1,13 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  CreditCard,
-  Plus,
-  FileText,
-  ChevronRight,
-  Check,
+  Wallet,
   AlertTriangle,
-  Zap,
-  Users,
-  Briefcase,
-  AlertCircle,
+  ChevronRight,
+  Loader2,
+  RefreshCw,
+  ArrowUpRight,
+  ArrowDownLeft,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,168 +19,215 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  ApiError,
+  createRefill,
+  getOverview,
+  getTransactions,
+  getUsageLedger,
+  isApiConfigured,
+  type DashboardOverview,
+  type LedgerEntry,
+  type TransactionType,
+  type UsageLedgerItem,
+} from "@/lib/api";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function formatUsd(value: number) {
-  return `$${value.toFixed(2)}`;
+/** Format an exact-decimal-string amount for display only (never for arithmetic). */
+function money(value: string | number | null | undefined, maxFrac = 2): string {
+  const n = typeof value === "string" ? Number(value) : value ?? 0;
+  if (!isFinite(n)) return "$0.00";
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: maxFrac,
+  });
+}
+
+function shortDate(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function shortModel(model: string): string {
+  if (!model) return "—";
+  const slash = model.indexOf("/");
+  return slash >= 0 ? model.slice(slash + 1) : model;
 }
 
 // =============================================================================
-// PLAN USAGE METER
+// BALANCE
 // =============================================================================
 
-function PlanUsageMeter({ used, total }: { used: number; total: number }) {
-  const percentUsed = Math.min((used / total) * 100, 100);
-  const isLow = percentUsed >= 85;
+function BalanceSection({ overview }: { overview: DashboardOverview }) {
+  const available = Number(overview.available);
+  const isLow = isFinite(available) && available < 5;
 
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
-          {formatUsd(used)} of {formatUsd(total)} used
-        </span>
-        {isLow && (
-          <span className="text-xs font-semibold text-amber-600">Running low</span>
-        )}
-      </div>
-      <div className="h-2 w-full rounded-full bg-neutral-200 overflow-hidden">
-        <div
-          className={cn(
-            "h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none",
-            isLow ? "bg-amber-500" : "bg-blue-500"
-          )}
-          style={{ width: `${percentUsed}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
-// CURRENT PLAN
-// =============================================================================
-
-function CurrentPlanSection() {
   return (
     <section className="border-b border-border pb-8 mb-8">
-      <h2 className="text-sm font-semibold text-foreground mb-5">Current plan</h2>
+      <h2 className="text-sm font-semibold text-foreground mb-5">Balance</h2>
 
       <div className="rounded-xl border border-border bg-white p-5 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Current plan
+              Available balance
             </p>
-            <p className="text-base font-semibold text-foreground">Mini</p>
+            <p
+              className={cn(
+                "text-2xl font-bold",
+                isLow ? "text-amber-600" : "text-foreground"
+              )}
+            >
+              {money(overview.available)}
+            </p>
           </div>
-          <Button variant="outline" size="sm" className="h-8 text-xs rounded-lg">
-            Manage plan
-          </Button>
-        </div>
-
-        <PlanUsageMeter used={7.6} total={20.0} />
-
-        <div className="grid grid-cols-3 gap-4 pt-1">
-          <div>
-            <p className="text-xs text-muted-foreground">Monthly allocation</p>
-            <p className="text-sm font-semibold text-foreground">{formatUsd(20.0)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Remaining</p>
-            <p className="text-sm font-semibold text-emerald-600">{formatUsd(12.4)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Used</p>
-            <p className="text-sm font-semibold text-foreground">{formatUsd(7.6)}</p>
+          <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-neutral-100 shrink-0">
+            <Wallet className="h-4 w-4 text-neutral-500" />
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          Next reset: <span className="font-semibold text-foreground">August 1</span>
-        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1">
+          <div>
+            <p className="text-xs text-muted-foreground">Balance</p>
+            <p className="text-sm font-semibold text-foreground">{money(overview.balance)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">On hold</p>
+            <p className="text-sm font-semibold text-foreground">{money(overview.on_hold)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Spent (30d)</p>
+            <p className="text-sm font-semibold text-foreground">{money(overview.spent_30d)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Spent (all time)</p>
+            <p className="text-sm font-semibold text-foreground">{money(overview.spent_total)}</p>
+          </div>
+        </div>
+
+        {isLow && (
+          <div className="flex items-center gap-2 pt-1">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+            <span className="text-xs font-semibold text-amber-600">
+              Running low — refill to keep runs going.
+            </span>
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
 // =============================================================================
-// REFILL BALANCE
+// REFILL
 // =============================================================================
 
 const refillAmounts = [10, 25, 50] as const;
 
-function RefillSection() {
+function RefillSection({ enabled }: { enabled: boolean }) {
   const [refillOpen, setRefillOpen] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number | "custom">(10);
   const [customValue, setCustomValue] = useState("");
-  const [refillError, setRefillError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleRefill = () => {
-    if (selectedAmount === "custom" && !customValue) return;
-    // Simulate occasional refill failure
-    if (Math.random() < 0.05) {
-      setRefillError(true);
-      setRefillOpen(false);
-      return;
+  const amount =
+    selectedAmount === "custom" ? customValue.trim() : String(selectedAmount);
+
+  const handleConfirm = async () => {
+    if (!amount || Number(amount) <= 0) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const session = await createRefill(amount);
+      // The webhook credits the balance after payment; send the user to Stripe.
+      window.location.href = session.url;
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not start the refill.");
+      setSubmitting(false);
     }
-    setRefillOpen(false);
-    setRefillError(false);
   };
 
   return (
     <section className="border-b border-border pb-8 mb-8">
       <h2 className="text-sm font-semibold text-foreground mb-2">Refill balance</h2>
       <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
-        One-time balance added to your workspace. Unused balance rolls over according
-        to your plan terms.
+        Add a one-time prepaid balance to your workspace. You'll be taken to Stripe to
+        complete payment; your balance updates once the payment is confirmed.
       </p>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {refillAmounts.map((amount) => (
+      {enabled ? (
+        <div className="flex flex-wrap gap-2">
+          {refillAmounts.map((amt) => (
+            <button
+              key={amt}
+              type="button"
+              onClick={() => {
+                setSelectedAmount(amt);
+                setError(null);
+                setRefillOpen(true);
+              }}
+              className={cn(
+                "h-9 px-4 rounded-lg border text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                "border-border bg-white text-foreground hover:bg-black/[0.03]"
+              )}
+            >
+              {money(amt)}
+            </button>
+          ))}
           <button
-            key={amount}
             type="button"
-            onClick={() => { setSelectedAmount(amount); setRefillOpen(true); }}
+            onClick={() => {
+              setSelectedAmount("custom");
+              setCustomValue("");
+              setError(null);
+              setRefillOpen(true);
+            }}
             className={cn(
               "h-9 px-4 rounded-lg border text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               "border-border bg-white text-foreground hover:bg-black/[0.03]"
             )}
           >
-            {formatUsd(amount)}
+            Custom
           </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => { setSelectedAmount("custom"); setCustomValue(""); setRefillOpen(true); }}
-          className={cn(
-            "h-9 px-4 rounded-lg border text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-            "border-border bg-white text-foreground hover:bg-black/[0.03]"
-          )}
-        >
-          Custom
-        </button>
-      </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border p-4">
+          <p className="text-sm text-muted-foreground">
+            Refills aren't enabled for this workspace yet.
+          </p>
+        </div>
+      )}
 
-      <Dialog open={refillOpen} onOpenChange={(v) => { setRefillOpen(v); setRefillError(false); }}>
+      <Dialog
+        open={refillOpen}
+        onOpenChange={(v) => {
+          if (!submitting) {
+            setRefillOpen(v);
+            setError(null);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-base">
-              Refill {selectedAmount === "custom" ? "balance" : formatUsd(selectedAmount)}
+              Refill {selectedAmount === "custom" ? "balance" : money(selectedAmount)}
             </DialogTitle>
             <DialogDescription className="leading-relaxed">
-              Add a one-time balance to your workspace. This will be charged to your
-              default payment method.
+              Continue to Stripe to add a one-time prepaid balance to your workspace.
             </DialogDescription>
           </DialogHeader>
 
           {selectedAmount === "custom" && (
             <div className="py-2">
-              <label className="text-xs text-muted-foreground mb-1.5 block">
-                Amount (USD)
-              </label>
+              <label className="text-xs text-muted-foreground mb-1.5 block">Amount (USD)</label>
               <Input
                 type="number"
                 min={1}
@@ -190,46 +235,29 @@ function RefillSection() {
                 onChange={(e) => setCustomValue(e.target.value)}
                 placeholder="Enter amount..."
                 className="h-9"
+                disabled={submitting}
               />
             </div>
           )}
 
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50/60 px-3 py-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+              <span className="text-xs text-red-700">{error}</span>
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRefillOpen(false)}>
+            <Button variant="outline" onClick={() => setRefillOpen(false)} disabled={submitting}>
               Cancel
             </Button>
             <Button
-              onClick={handleRefill}
-              disabled={selectedAmount === "custom" && !customValue}
-              className="bg-neutral-900 hover:bg-neutral-800 text-white"
+              onClick={handleConfirm}
+              disabled={submitting || !amount || Number(amount) <= 0}
+              className="bg-neutral-900 hover:bg-neutral-800 text-white gap-1.5"
             >
-              Confirm refill
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Refill error dialog */}
-      <Dialog open={refillError} onOpenChange={setRefillError}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-              <DialogTitle className="text-base">Payment failed</DialogTitle>
-            </div>
-            <DialogDescription className="leading-relaxed">
-              We couldn&apos;t process your refill. Please check your payment method and try again.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRefillError(false)}>
-              Close
-            </Button>
-            <Button
-              onClick={() => { setRefillError(false); setRefillOpen(true); }}
-              className="bg-neutral-900 hover:bg-neutral-800 text-white"
-            >
-              Try again
+              {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Continue to payment
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -239,343 +267,149 @@ function RefillSection() {
 }
 
 // =============================================================================
-// AUTO-REFILL
+// USAGE HISTORY (real metered calls)
 // =============================================================================
 
-function AutoRefillSection() {
-  const [enabled, setEnabled] = useState(false);
-  const [threshold, setThreshold] = useState("5");
-  const [amount, setAmount] = useState("10");
-
-  return (
-    <section className="border-b border-border pb-8 mb-8">
-      <div className="flex items-start justify-between gap-4 mb-2">
-        <h2 className="text-sm font-semibold text-foreground">Auto-refill</h2>
-        <button
-          type="button"
-          onClick={() => setEnabled((v) => !v)}
-          className={cn(
-            "relative shrink-0 inline-flex h-5 w-9 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-            enabled ? "bg-neutral-900" : "bg-neutral-300"
-          )}
-          aria-label={enabled ? "Disable auto-refill" : "Enable auto-refill"}
-        >
-          <span
-            className={cn(
-              "absolute top-0.5 left-0.5 inline-flex h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200",
-              enabled && "translate-x-4"
-            )}
-          />
-        </button>
-      </div>
-      <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
-        Automatically add balance when your remaining usage drops below a selected
-        amount.
-      </p>
-
-      {enabled && (
-        <div className="rounded-xl border border-border bg-white p-4 space-y-4">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">
-              Trigger threshold
-            </label>
-            <div className="flex gap-2">
-              {["2", "5", "10"].map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setThreshold(v)}
-                  className={cn(
-                    "h-8 px-3 rounded-md border text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                    threshold === v
-                      ? "border-foreground/20 bg-black/[0.04] font-semibold"
-                      : "border-border hover:bg-black/[0.03]"
-                  )}
-                >
-                  {formatUsd(Number(v))}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">
-              Refill amount
-            </label>
-            <div className="flex gap-2">
-              {["10", "25", "50"].map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setAmount(v)}
-                  className={cn(
-                    "h-8 px-3 rounded-md border text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                    amount === v
-                      ? "border-foreground/20 bg-black/[0.04] font-semibold"
-                      : "border-border hover:bg-black/[0.03]"
-                  )}
-                >
-                  {formatUsd(Number(v))}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">
-              Payment method
-            </label>
-            <p className="text-sm text-foreground">Visa ending in 4242</p>
-          </div>
-        </div>
-      )}
-
-      {!enabled && <p className="text-xs text-muted-foreground/60">Auto-refill is off.</p>}
-    </section>
-  );
-}
-
-// =============================================================================
-// PAYMENT METHODS
-// =============================================================================
-
-function PaymentMethodsSection() {
-  const hasPaymentMethod = true;
-
-  return (
-    <section className="border-b border-border pb-8 mb-8">
-      <h2 className="text-sm font-semibold text-foreground mb-5">Payment methods</h2>
-
-      {hasPaymentMethod ? (
-        <>
-          <div className="rounded-xl border border-border bg-white p-4 mb-3">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center h-8 w-12 rounded-md bg-neutral-100 shrink-0">
-                <CreditCard className="h-4 w-4 text-neutral-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-foreground font-semibold">
-                  Visa ending in 4242
-                </p>
-                <p className="text-xs text-muted-foreground">Expires 09/28</p>
-              </div>
-              <span className="shrink-0 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                Default
-              </span>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="h-8 text-xs rounded-lg gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              Add payment method
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 text-xs rounded-lg">
-              Update payment method
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 text-xs rounded-lg gap-1.5">
-              <FileText className="h-3.5 w-3.5" />
-              View invoices
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="rounded-xl border border-border bg-white p-4 flex items-center gap-3">
-          <AlertCircle className="h-4 w-4 text-muted-foreground/60" />
-          <p className="text-sm text-muted-foreground">No payment method on file.</p>
-          <Button variant="outline" size="sm" className="h-8 text-xs rounded-lg gap-1.5 ml-auto">
-            <Plus className="h-3.5 w-3.5" />
-            Add
-          </Button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-// =============================================================================
-// USAGE HISTORY
-// =============================================================================
-
-interface UsageHistoryRow {
-  date: string;
-  run: string;
-  repo: string;
-  agent: string;
-  tokens: number;
-  amount: number;
-}
-
-const usageHistoryRows: UsageHistoryRow[] = [
-  { date: "Jul 11", run: "Fix navbar positioning", repo: "gnsis/frontend", agent: "Claude Code", tokens: 42180, amount: 0.46 },
-  { date: "Jul 10", run: "Check Stripe webhook", repo: "gnsis/api", agent: "Custom Agent", tokens: 58400, amount: 0.63 },
-  { date: "Jul 9", run: "Add authentication guard", repo: "gnsis/frontend", agent: "Codex", tokens: 36920, amount: 0.40 },
-];
-
-function UsageHistorySection() {
+function UsageHistorySection({ items }: { items: UsageLedgerItem[] }) {
   return (
     <section className="border-b border-border pb-8 mb-8">
       <h2 className="text-sm font-semibold text-foreground mb-5">Usage history</h2>
 
-      {/* Desktop table */}
-      <div className="hidden md:block">
-        <div className="grid grid-cols-[0.8fr_1.6fr_1fr_1fr_0.8fr_0.8fr] gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <span>Date</span>
-          <span>Run</span>
-          <span>Repository</span>
-          <span>Agent</span>
-          <span>Tokens</span>
-          <span className="text-right">Amount</span>
+      {items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-5">
+          <p className="text-sm text-muted-foreground">
+            No metered usage yet. Model calls appear here once your runs use compute.
+          </p>
         </div>
-        <div className="border-t border-border">
-          {usageHistoryRows.map((row, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-[0.8fr_1.6fr_1fr_1fr_0.8fr_0.8fr] gap-3 px-3 py-2.5 border-b border-border last:border-b-0 items-center"
-            >
-              <span className="text-sm text-foreground">{row.date}</span>
-              <span className="text-sm text-foreground truncate">{row.run}</span>
-              <span className="text-xs font-mono text-muted-foreground truncate">{row.repo}</span>
-              <span className="text-xs text-muted-foreground">{row.agent}</span>
-              <span className="text-xs font-mono text-muted-foreground">{row.tokens.toLocaleString()}</span>
-              <span className="text-xs font-mono text-foreground text-right">{formatUsd(row.amount)}</span>
+      ) : (
+        <>
+          {/* Desktop table */}
+          <div className="hidden md:block">
+            <div className="grid grid-cols-[0.8fr_1.6fr_1fr_0.9fr_0.9fr] gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span>Date</span>
+              <span>Model</span>
+              <span>Run</span>
+              <span>Tokens</span>
+              <span className="text-right">Amount</span>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Mobile stacked */}
-      <div className="md:hidden space-y-2">
-        {usageHistoryRows.map((row, i) => (
-          <div key={i} className="rounded-lg border border-border bg-white p-3 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground font-semibold">{row.run}</span>
-              <span className="text-xs text-muted-foreground">{row.date}</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-mono">{row.repo}</span>
-              <span>·</span>
-              <span>{row.agent}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-mono text-muted-foreground">{row.tokens.toLocaleString()} tokens</span>
-              <span className="font-mono text-foreground font-semibold">{formatUsd(row.amount)}</span>
+            <div className="border-t border-border">
+              {items.map((row) => (
+                <div
+                  key={row.id}
+                  className="grid grid-cols-[0.8fr_1.6fr_1fr_0.9fr_0.9fr] gap-3 px-3 py-2.5 border-b border-border last:border-b-0 items-center"
+                >
+                  <span className="text-sm text-foreground">{shortDate(row.created_at)}</span>
+                  <span className="text-sm text-foreground truncate" title={row.model}>
+                    {shortModel(row.model)}
+                    {row.request_status !== "success" && (
+                      <span className="ml-1.5 text-[11px] font-semibold text-red-500">
+                        {row.request_status}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs font-mono text-muted-foreground truncate">
+                    {row.run_id ?? "—"}
+                  </span>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {row.total_tokens.toLocaleString()}
+                  </span>
+                  <span className="text-xs font-mono text-foreground text-right">
+                    {row.retail_cost != null ? money(row.retail_cost, 4) : "—"}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
-        ))}
-      </div>
+
+          {/* Mobile stacked */}
+          <div className="md:hidden space-y-2">
+            {items.map((row) => (
+              <div key={row.id} className="rounded-lg border border-border bg-white p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-foreground font-semibold truncate">
+                    {shortModel(row.model)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{shortDate(row.created_at)}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-mono truncate">{row.run_id ?? "—"}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-mono text-muted-foreground">
+                    {row.total_tokens.toLocaleString()} tokens
+                  </span>
+                  <span className="font-mono text-foreground font-semibold">
+                    {row.retail_cost != null ? money(row.retail_cost, 4) : "—"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }
 
 // =============================================================================
-// PLAN OPTIONS
+// TRANSACTIONS (real balance ledger)
 // =============================================================================
 
-interface PlanOption {
-  name: string;
-  description: string;
-  icon: React.ReactNode;
-  features: string[];
-  current?: boolean;
-}
+const txnLabel: Record<TransactionType, string> = {
+  top_up: "Refill",
+  usage_debit: "Usage",
+  refund: "Refund",
+  credit: "Credit",
+  adjustment: "Adjustment",
+};
 
-const planOptions: PlanOption[] = [
-  {
-    name: "Mini",
-    description: "For individual developers testing agent workflows.",
-    icon: <Zap className="h-4 w-4" />,
-    features: ["Monthly usage allocation", "Manual refills", "Run receipts", "Full activity history"],
-    current: true,
-  },
-  {
-    name: "Pro",
-    description: "For developers running agents regularly.",
-    icon: <Briefcase className="h-4 w-4" />,
-    features: ["Larger monthly allocation", "Auto-refill", "More connected repositories", "Longer run history"],
-  },
-  {
-    name: "Team",
-    description: "For teams managing shared agent usage.",
-    icon: <Users className="h-4 w-4" />,
-    features: ["Shared balance", "Team members", "Spending controls", "Centralized run history"],
-  },
-];
+function TransactionsSection({ items }: { items: LedgerEntry[] }) {
+  if (items.length === 0) return null;
 
-function PlanOptionsSection() {
   return (
     <section className="pb-4">
-      <h2 className="text-sm font-semibold text-foreground mb-5">Plan options</h2>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {planOptions.map((plan) => (
-          <div
-            key={plan.name}
-            className={cn(
-              "rounded-xl border p-4 space-y-3",
-              plan.current ? "border-foreground/15 bg-white" : "border-border bg-white"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">{plan.icon}</span>
-              <span className="text-sm font-semibold text-foreground">{plan.name}</span>
-              {plan.current && (
-                <span className="ml-auto text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                  Current
-                </span>
-              )}
+      <h2 className="text-sm font-semibold text-foreground mb-5">Transactions</h2>
+      <div className="border-t border-border">
+        {items.map((t) => {
+          const amount = Number(t.signed_amount);
+          const credit = amount >= 0;
+          return (
+            <div
+              key={t.id}
+              className="flex items-center gap-3 px-3 py-2.5 border-b border-border last:border-b-0"
+            >
+              <div
+                className={cn(
+                  "flex items-center justify-center h-7 w-7 rounded-full shrink-0",
+                  credit ? "bg-emerald-50" : "bg-neutral-100"
+                )}
+              >
+                {credit ? (
+                  <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600" />
+                ) : (
+                  <ArrowUpRight className="h-3.5 w-3.5 text-neutral-500" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-foreground">
+                  {txnLabel[t.transaction_type] ?? t.transaction_type}
+                </p>
+                <p className="text-xs text-muted-foreground">{shortDate(t.created_at)}</p>
+              </div>
+              <span
+                className={cn(
+                  "text-sm font-mono font-semibold shrink-0",
+                  credit ? "text-emerald-600" : "text-foreground"
+                )}
+              >
+                {credit ? "+" : "−"}
+                {money(Math.abs(amount), 4).replace("$", "$")}
+              </span>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">{plan.description}</p>
-            <ul className="space-y-1.5">
-              {plan.features.map((feature) => (
-                <li key={feature} className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                  <Check className="h-3 w-3 text-emerald-600 shrink-0 mt-0.5" />
-                  {feature}
-                </li>
-              ))}
-            </ul>
-            {!plan.current && (
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs rounded-lg mt-1">
-                Upgrade
-              </Button>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
-  );
-}
-
-// =============================================================================
-// LOW BALANCE WARNING
-// =============================================================================
-
-export function LowBalanceWarning({
-  onManageBilling,
-}: {
-  onManageBilling?: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 mb-8">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-semibold text-foreground">Running low</span>
-            <span className="text-xs text-muted-foreground">{formatUsd(2.1)} remaining</span>
-          </div>
-          {onManageBilling && (
-            <button
-              type="button"
-              onClick={onManageBilling}
-              className="text-xs font-semibold text-foreground underline underline-offset-2 hover:text-foreground/80 transition-colors"
-            >
-              Manage billing
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -585,15 +419,56 @@ export function LowBalanceWarning({
 
 interface BillingPageProps {
   onBack?: () => void;
-  showLowBalance?: boolean;
-  onManageBilling?: () => void;
 }
 
-export default function BillingPage({
-  onBack,
-  showLowBalance = false,
-  onManageBilling,
-}: BillingPageProps) {
+export default function BillingPage({ onBack }: BillingPageProps) {
+  const configured = isApiConfigured();
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [usage, setUsage] = useState<UsageLedgerItem[]>([]);
+  const [txns, setTxns] = useState<LedgerEntry[]>([]);
+  const [loading, setLoading] = useState(configured);
+  const [error, setError] = useState<string | null>(null);
+
+  // Surface the Stripe return status (?refill=success|cancelled) once on mount.
+  const [refillNotice, setRefillNotice] = useState<"success" | "cancelled" | null>(() => {
+    if (typeof window === "undefined") return null;
+    const p = new URLSearchParams(window.location.search).get("refill");
+    return p === "success" || p === "cancelled" ? p : null;
+  });
+
+  // Fetch after the first await (never a synchronous setState in the effect),
+  // mirroring the app's run-list refresh so re-renders don't cascade.
+  const load = useCallback(async () => {
+    if (!isApiConfigured()) return;
+    try {
+      const [ov, us, tx] = await Promise.all([
+        getOverview(),
+        getUsageLedger(25),
+        getTransactions(25),
+      ]);
+      setOverview(ov);
+      setUsage(us.items);
+      setTxns(tx.items);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load billing.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const reload = useCallback(() => {
+    setLoading(true);
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    // load() only calls setState after an await, so this is not a synchronous
+    // render cascade — the rule can't see past the await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
+
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-8 md:py-10">
       <div className="mb-8">
@@ -608,20 +483,90 @@ export default function BillingPage({
             </button>
           )}
           <h1 className="text-lg font-semibold tracking-tight text-foreground">Billing</h1>
+          <button
+            type="button"
+            onClick={reload}
+            className="ml-auto text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded"
+            aria-label="Refresh"
+            title="Refresh"
+          >
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          </button>
         </div>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Manage your plan, usage balance, refills, and payment methods.
+          Your prepaid balance, usage, and refills.
         </p>
       </div>
 
-      {showLowBalance && <LowBalanceWarning onManageBilling={onManageBilling} />}
+      {refillNotice === "success" && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 mb-8 flex items-start gap-3">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-foreground">Payment received</p>
+            <p className="text-xs text-muted-foreground">
+              Your balance updates once the payment is confirmed — this can take a moment.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRefillNotice(null)}
+            className="text-xs font-semibold text-foreground underline underline-offset-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {refillNotice === "cancelled" && (
+        <div className="rounded-xl border border-border bg-white p-4 mb-8 flex items-center gap-3">
+          <p className="text-sm text-muted-foreground flex-1">Refill cancelled — no charge was made.</p>
+          <button
+            type="button"
+            onClick={() => setRefillNotice(null)}
+            className="text-xs font-semibold text-foreground underline underline-offset-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
-      <CurrentPlanSection />
-      <RefillSection />
-      <AutoRefillSection />
-      <PaymentMethodsSection />
-      <UsageHistorySection />
-      <PlanOptionsSection />
+      {!configured && (
+        <div className="rounded-xl border border-dashed border-border p-5">
+          <p className="text-sm font-semibold text-foreground">Billing isn't connected</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Set <code className="font-mono">VITE_API_BASE_URL</code> to your GNSIS API to see your
+            balance and usage here.
+          </p>
+        </div>
+      )}
+
+      {configured && loading && !overview && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading billing…
+        </div>
+      )}
+
+      {configured && error && !loading && !overview && (
+        <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 mb-8 flex items-start gap-3">
+          <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-foreground">Couldn't load billing</p>
+            <p className="text-xs text-muted-foreground">{error}</p>
+          </div>
+          <Button variant="outline" size="sm" className="h-8 text-xs rounded-lg" onClick={reload}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {overview && (
+        <>
+          <BalanceSection overview={overview} />
+          <RefillSection enabled={overview.refill_enabled} />
+          <UsageHistorySection items={usage} />
+          <TransactionsSection items={txns} />
+        </>
+      )}
     </div>
   );
 }
