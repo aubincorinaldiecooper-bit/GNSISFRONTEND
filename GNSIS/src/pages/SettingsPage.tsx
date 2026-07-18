@@ -11,6 +11,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ApiKeysSection from "@/components/ApiKeysSection";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -274,6 +275,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
       </div>
 
       <AccountSection />
+      <ApiKeysSection />
       <AppearanceSection />
       <RepositorySection />
       <NotificationsSection />

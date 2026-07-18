@@ -238,3 +238,52 @@ export function createRefill(amountUsd: string): Promise<RefillSession> {
     body: JSON.stringify({ amount_usd: amountUsd }),
   });
 }
+
+// -- virtual keys (customer-issued, LiteLLM budget-enforced) -------------------
+// GNSIS returns the secret exactly once, at creation; afterwards only a display
+// prefix is available.
+
+export interface VirtualKey {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  key_alias: string;
+  application_name: string | null;
+  key_prefix: string;
+  max_budget: string | null;
+  budget_duration: string | null;
+  models: string[];
+  status: "active" | "revoked";
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export interface VirtualKeyList {
+  items: VirtualKey[];
+  enabled: boolean;
+}
+
+export interface CreatedVirtualKey {
+  key: string; // the secret — shown once, never returned again
+  virtual_key: VirtualKey;
+  warning: string;
+}
+
+export interface CreateKeyInput {
+  key_alias: string;
+  max_budget_usd?: string;
+  budget_duration?: string;
+  models?: string[];
+}
+
+export function listKeys(): Promise<VirtualKeyList> {
+  return request("/v1/dashboard/keys");
+}
+
+export function createKey(input: CreateKeyInput): Promise<CreatedVirtualKey> {
+  return request("/v1/dashboard/keys", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function revokeKey(id: string): Promise<VirtualKey> {
+  return request(`/v1/dashboard/keys/${id}`, { method: "DELETE" });
+}
