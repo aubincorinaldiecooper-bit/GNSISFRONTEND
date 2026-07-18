@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import AutoRefillSection from "@/components/AutoRefillSection";
 import {
   ApiError,
   createPortalSession,
@@ -554,6 +555,15 @@ export default function BillingPage({ onBack }: BillingPageProps) {
     void load();
   }, [load]);
 
+  const openPortal = useCallback(async () => {
+    try {
+      const { url } = await createPortalSession();
+      window.location.href = url;
+    } catch {
+      // surfaced by the payment-method section's own portal button
+    }
+  }, []);
+
   useEffect(() => {
     // load() only calls setState after an await — not a synchronous cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -655,6 +665,12 @@ export default function BillingPage({ onBack }: BillingPageProps) {
           <BalanceSection summary={summary} />
           <RefillSection enabled={summary.refill_enabled} />
           <PaymentMethodSection summary={summary} />
+          {summary.portal_available && (
+            <AutoRefillSection
+              hasCard={!!summary.default_card?.last4}
+              onManagePayment={openPortal}
+            />
+          )}
           <UsageHistorySection items={usage} />
           <BalanceActivitySection items={txns} />
         </>

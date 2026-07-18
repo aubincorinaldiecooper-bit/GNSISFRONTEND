@@ -272,6 +272,77 @@ export function createPortalSession(): Promise<{ url: string }> {
   return request("/v1/billing/portal", { method: "POST" });
 }
 
+// -- auto-refill --------------------------------------------------------------
+// `active` is authoritative: never show auto-refill as on unless the backend
+// says so (enabled + consent + saved card + not paused).
+
+export type AutoRefillStatus =
+  | "pending"
+  | "processing"
+  | "succeeded"
+  | "requires_action"
+  | "failed"
+  | "cancelled";
+
+export interface AutoRefillConfig {
+  workspace_id: string;
+  enabled: boolean;
+  threshold: string;
+  refill_amount: string;
+  max_refill_amount: string;
+  max_refills_per_day: number;
+  daily_cap: string;
+  monthly_cap: string | null;
+  payment_method_id: string | null;
+  consent: boolean;
+  consent_at: string | null;
+  paused: boolean;
+  pause_reason: string | null;
+  consecutive_failures: number;
+  cooldown_until: string | null;
+  last_attempt_at: string | null;
+  active: boolean;
+}
+
+export interface AutoRefillAttempt {
+  id: string;
+  workspace_id: string;
+  status: AutoRefillStatus;
+  trigger_balance: string;
+  threshold: string;
+  refill_amount: string;
+  currency: string;
+  stripe_payment_intent_id: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutoRefillState {
+  config: AutoRefillConfig;
+  attempts: AutoRefillAttempt[];
+}
+
+export interface SaveAutoRefillInput {
+  enabled: boolean;
+  threshold: string;
+  refill_amount: string;
+  max_refill_amount: string;
+  max_refills_per_day: number;
+  daily_cap: string;
+  monthly_cap?: string | null;
+  consent: boolean;
+}
+
+export function getAutoRefill(): Promise<AutoRefillState> {
+  return request("/v1/billing/auto-refill");
+}
+
+export function saveAutoRefill(input: SaveAutoRefillInput): Promise<AutoRefillConfig> {
+  return request("/v1/billing/auto-refill", { method: "PUT", body: JSON.stringify(input) });
+}
+
 // -- virtual keys (customer-issued, LiteLLM budget-enforced) -------------------
 // GNSIS returns the secret exactly once, at creation; afterwards only a display
 // prefix is available.
