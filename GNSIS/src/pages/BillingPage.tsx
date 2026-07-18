@@ -8,6 +8,9 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   CheckCircle2,
+  CreditCard,
+  ExternalLink,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,12 +24,13 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   ApiError,
+  createPortalSession,
   createRefill,
-  getOverview,
+  getBillingSummary,
   getTransactions,
   getUsageLedger,
   isApiConfigured,
-  type DashboardOverview,
+  type BillingSummary,
   type LedgerEntry,
   type TransactionType,
   type UsageLedgerItem,
@@ -65,9 +69,10 @@ function shortModel(model: string): string {
 // BALANCE
 // =============================================================================
 
-function BalanceSection({ overview }: { overview: DashboardOverview }) {
-  const available = Number(overview.available);
+function BalanceSection({ summary }: { summary: BillingSummary }) {
+  const available = Number(summary.available);
   const isLow = isFinite(available) && available < 5;
+  const hasReserved = Number(summary.reserved) > 0;
 
   return (
     <section className="border-b border-border pb-8 mb-8">
@@ -85,7 +90,7 @@ function BalanceSection({ overview }: { overview: DashboardOverview }) {
                 isLow ? "text-amber-600" : "text-foreground"
               )}
             >
-              {money(overview.available)}
+              {money(summary.available)}
             </p>
           </div>
           <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-neutral-100 shrink-0">
@@ -93,22 +98,20 @@ function BalanceSection({ overview }: { overview: DashboardOverview }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-1">
           <div>
             <p className="text-xs text-muted-foreground">Balance</p>
-            <p className="text-sm font-semibold text-foreground">{money(overview.balance)}</p>
+            <p className="text-sm font-semibold text-foreground">{money(summary.balance)}</p>
           </div>
+          {hasReserved && (
+            <div>
+              <p className="text-xs text-muted-foreground">Reserved (pending)</p>
+              <p className="text-sm font-semibold text-foreground">{money(summary.reserved)}</p>
+            </div>
+          )}
           <div>
-            <p className="text-xs text-muted-foreground">On hold</p>
-            <p className="text-sm font-semibold text-foreground">{money(overview.on_hold)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Spent (30d)</p>
-            <p className="text-sm font-semibold text-foreground">{money(overview.spent_30d)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Spent (all time)</p>
-            <p className="text-sm font-semibold text-foreground">{money(overview.spent_total)}</p>
+            <p className="text-xs text-muted-foreground">Spent this month</p>
+            <p className="text-sm font-semibold text-foreground">{money(summary.spent_this_month)}</p>
           </div>
         </div>
 
@@ -147,7 +150,6 @@ function RefillSection({ enabled }: { enabled: boolean }) {
     setError(null);
     try {
       const session = await createRefill(amount);
-      // The webhook credits the balance after payment; send the user to Stripe.
       window.location.href = session.url;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not start the refill.");
@@ -267,6 +269,99 @@ function RefillSection({ enabled }: { enabled: boolean }) {
 }
 
 // =============================================================================
+// PAYMENT METHOD + BILLING PORTAL
+// =============================================================================
+
+function PaymentMethodSection({ summary }: { summary: BillingSummary }) {
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const card = summary.default_card;
+
+  const openPortal = async () => {
+    setOpening(true);
+    setError(null);
+    try {
+      const { url } = await createPortalSession();
+      window.location.href = url;
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not open the billing portal.");
+      setOpening(false);
+    }
+  };
+
+  return (
+    <section className="border-b border-border pb-8 mb-8">
+      <h2 className="text-sm font-semibold text-foreground mb-5">Payment method</h2>
+
+      <div className="rounded-xl border border-border bg-white p-4 mb-3">
+        {card && card.last4 ? (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center h-8 w-12 rounded-md bg-neutral-100 shrink-0">
+              <CreditCard className="h-4 w-4 text-neutral-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-foreground font-semibold capitalize">
+                {card.brand ?? "Card"} •••• {card.last4}
+              </p>
+              {card.exp_month && card.exp_year && (
+                <p className="text-xs text-muted-foreground">
+                  Expires {String(card.exp_month).padStart(2, "0")}/{card.exp_year}
+                </p>
+              )}
+            </div>
+            <span className="shrink-0 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+              Default
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <CreditCard className="h-4 w-4 text-muted-foreground/60" />
+            <p className="text-sm text-muted-foreground">
+              No saved payment method. Add one in the billing portal.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {summary.portal_available && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openPortal}
+            disabled={opening}
+            className="h-8 text-xs rounded-lg gap-1.5"
+          >
+            {opening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+            Manage billing
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={openPortal}
+            disabled={opening}
+            className="h-8 text-xs rounded-lg gap-1.5"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Invoices &amp; receipts
+          </Button>
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-600 mt-2 flex items-center gap-1.5">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {error}
+        </p>
+      )}
+      <p className="text-[11px] text-muted-foreground/70 mt-3">
+        Payment methods, billing details, invoices, and receipts are managed securely by Stripe.
+      </p>
+    </section>
+  );
+}
+
+// =============================================================================
 // USAGE HISTORY (real metered calls)
 // =============================================================================
 
@@ -352,7 +447,7 @@ function UsageHistorySection({ items }: { items: UsageLedgerItem[] }) {
 }
 
 // =============================================================================
-// TRANSACTIONS (real balance ledger)
+// BALANCE ACTIVITY (real ledger)
 // =============================================================================
 
 const txnLabel: Record<TransactionType, string> = {
@@ -363,12 +458,12 @@ const txnLabel: Record<TransactionType, string> = {
   adjustment: "Adjustment",
 };
 
-function TransactionsSection({ items }: { items: LedgerEntry[] }) {
+function BalanceActivitySection({ items }: { items: LedgerEntry[] }) {
   if (items.length === 0) return null;
 
   return (
     <section className="pb-4">
-      <h2 className="text-sm font-semibold text-foreground mb-5">Transactions</h2>
+      <h2 className="text-sm font-semibold text-foreground mb-5">Balance activity</h2>
       <div className="border-t border-border">
         {items.map((t) => {
           const amount = Number(t.signed_amount);
@@ -403,7 +498,7 @@ function TransactionsSection({ items }: { items: LedgerEntry[] }) {
                 )}
               >
                 {credit ? "+" : "−"}
-                {money(Math.abs(amount), 4).replace("$", "$")}
+                {money(Math.abs(amount), 4)}
               </span>
             </div>
           );
@@ -423,30 +518,27 @@ interface BillingPageProps {
 
 export default function BillingPage({ onBack }: BillingPageProps) {
   const configured = isApiConfigured();
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [usage, setUsage] = useState<UsageLedgerItem[]>([]);
   const [txns, setTxns] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(configured);
   const [error, setError] = useState<string | null>(null);
 
-  // Surface the Stripe return status (?refill=success|cancelled) once on mount.
   const [refillNotice, setRefillNotice] = useState<"success" | "cancelled" | null>(() => {
     if (typeof window === "undefined") return null;
     const p = new URLSearchParams(window.location.search).get("refill");
     return p === "success" || p === "cancelled" ? p : null;
   });
 
-  // Fetch after the first await (never a synchronous setState in the effect),
-  // mirroring the app's run-list refresh so re-renders don't cascade.
   const load = useCallback(async () => {
     if (!isApiConfigured()) return;
     try {
-      const [ov, us, tx] = await Promise.all([
-        getOverview(),
+      const [sm, us, tx] = await Promise.all([
+        getBillingSummary(),
         getUsageLedger(25),
         getTransactions(25),
       ]);
-      setOverview(ov);
+      setSummary(sm);
       setUsage(us.items);
       setTxns(tx.items);
       setError(null);
@@ -463,8 +555,7 @@ export default function BillingPage({ onBack }: BillingPageProps) {
   }, [load]);
 
   useEffect(() => {
-    // load() only calls setState after an await, so this is not a synchronous
-    // render cascade — the rule can't see past the await.
+    // load() only calls setState after an await — not a synchronous cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
@@ -539,14 +630,14 @@ export default function BillingPage({ onBack }: BillingPageProps) {
         </div>
       )}
 
-      {configured && loading && !overview && (
+      {configured && loading && !summary && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading billing…
         </div>
       )}
 
-      {configured && error && !loading && !overview && (
+      {configured && error && !loading && !summary && (
         <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 mb-8 flex items-start gap-3">
           <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
@@ -559,12 +650,13 @@ export default function BillingPage({ onBack }: BillingPageProps) {
         </div>
       )}
 
-      {overview && (
+      {summary && (
         <>
-          <BalanceSection overview={overview} />
-          <RefillSection enabled={overview.refill_enabled} />
+          <BalanceSection summary={summary} />
+          <RefillSection enabled={summary.refill_enabled} />
+          <PaymentMethodSection summary={summary} />
           <UsageHistorySection items={usage} />
-          <TransactionsSection items={txns} />
+          <BalanceActivitySection items={txns} />
         </>
       )}
     </div>

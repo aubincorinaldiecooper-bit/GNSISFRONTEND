@@ -239,6 +239,39 @@ export function createRefill(amountUsd: string): Promise<RefillSession> {
   });
 }
 
+// -- wallet billing summary + Customer Portal ---------------------------------
+// GNSIS owns the balances/spend; Stripe owns the card + invoices. Only safe card
+// metadata (brand/last4/expiry) is ever returned.
+
+export interface DefaultCard {
+  brand: string | null;
+  last4: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+}
+
+export interface BillingSummary {
+  currency: string;
+  balance: string;
+  available: string;
+  reserved: string;
+  spent_this_month: string;
+  has_customer: boolean;
+  default_card: DefaultCard | null;
+  refill_enabled: boolean;
+  portal_available: boolean;
+  tax_enabled: boolean;
+}
+
+export function getBillingSummary(): Promise<BillingSummary> {
+  return request("/v1/billing/summary");
+}
+
+/** Open a Stripe Customer Portal session (payment methods, invoices, receipts). */
+export function createPortalSession(): Promise<{ url: string }> {
+  return request("/v1/billing/portal", { method: "POST" });
+}
+
 // -- virtual keys (customer-issued, LiteLLM budget-enforced) -------------------
 // GNSIS returns the secret exactly once, at creation; afterwards only a display
 // prefix is available.
