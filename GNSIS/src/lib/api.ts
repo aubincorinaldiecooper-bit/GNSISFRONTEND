@@ -145,3 +145,96 @@ export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
+
+// -- utility dashboard (see gnsisbackend docs/dashboard.md) --------------------
+// Read-only, workspace-scoped views over metering (PR 1) + billing (PR 2). Money
+// is returned as exact decimal strings — keep it as string until display, and
+// format for the UI only (never parse into a binary float for arithmetic).
+
+export interface DashboardOverview {
+  workspace_id: string;
+  currency: string;
+  balance: string;
+  available: string;
+  on_hold: string;
+  spent_30d: string;
+  spent_total: string;
+  usage_count: number;
+  run_count: number;
+  charge_count: number;
+  last_activity_at: string | null;
+  billing_enabled: boolean;
+  refill_enabled: boolean;
+}
+
+export interface UsageLedgerItem {
+  id: string;
+  created_at: string;
+  provider: string;
+  model: string;
+  engine: string | null;
+  phase: string | null;
+  run_id: string | null;
+  repository_id: string | null;
+  request_status: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  currency: string;
+  upstream_cost: string;
+  // From the immutable charge; null for failed / zero-cost calls.
+  retail_cost: string | null;
+  markup_rate: string | null;
+  service_fee: string | null;
+  billing_status: string | null;
+}
+
+export type TransactionType =
+  | "top_up"
+  | "usage_debit"
+  | "refund"
+  | "credit"
+  | "adjustment";
+
+export interface LedgerEntry {
+  id: string;
+  created_at: string;
+  transaction_type: TransactionType;
+  signed_amount: string;
+  currency: string;
+  reference: string | null;
+}
+
+export interface Paginated<T> {
+  items: T[];
+  limit: number;
+  offset: number;
+  total: number;
+}
+
+export interface RefillSession {
+  url: string;
+  session_id: string | null;
+  amount_usd: string;
+  currency: string;
+}
+
+export function getOverview(): Promise<DashboardOverview> {
+  return request("/v1/dashboard/overview");
+}
+
+export function getUsageLedger(limit = 50, offset = 0): Promise<Paginated<UsageLedgerItem>> {
+  return request(`/v1/dashboard/usage?limit=${limit}&offset=${offset}`);
+}
+
+export function getTransactions(limit = 50, offset = 0): Promise<Paginated<LedgerEntry>> {
+  return request(`/v1/dashboard/transactions?limit=${limit}&offset=${offset}`);
+}
+
+/** Open a Stripe Checkout Session for a prepaid refill; returns the URL to redirect to. */
+export function createRefill(amountUsd: string): Promise<RefillSession> {
+  return request("/v1/billing/refill", {
+    method: "POST",
+    body: JSON.stringify({ amount_usd: amountUsd }),
+  });
+}

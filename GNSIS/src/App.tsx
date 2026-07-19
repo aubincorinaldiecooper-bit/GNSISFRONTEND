@@ -48,11 +48,13 @@ import {
   isApiConfigured,
   ApiError,
   isTerminalStatus,
+  getOverview,
   type JobRecord,
   type JobStatus,
   type LogRecord,
   type DiffRecord,
   type EngineInfo,
+  type DashboardOverview,
 } from "@/lib/api";
 import {
   Tooltip,
@@ -1781,12 +1783,20 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
 
 const dashboardColumns = "grid-cols-[1.8fr_1.2fr_0.9fr_0.9fr_0.9fr]";
 
+function usd(value: string | number | null | undefined): string {
+  const n = typeof value === "string" ? Number(value) : value ?? 0;
+  if (!isFinite(n)) return "$0.00";
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
 function DashboardView({
   runs,
+  overview,
   onSelectRun,
   onNewRun,
 }: {
   runs: RecentRun[];
+  overview: DashboardOverview | null;
   onSelectRun: (id: string) => void;
   onNewRun: () => void;
 }) {
@@ -1843,14 +1853,45 @@ function DashboardView({
         </div>
       </div>
 
-      {/* Cost/usage tracking — not built yet, shown as unavailable rather than fabricated */}
-      <div className="rounded-xl border border-dashed border-border p-5 mb-8">
-        <p className="text-sm font-semibold text-foreground">Compute cost &amp; verified savings</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          The backend doesn't track token usage or cost yet, so this section isn't shown here. It'll
-          appear once that data is available.
-        </p>
-      </div>
+      {/* Compute cost & balance (real — from the utility dashboard) */}
+      {overview ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Available balance
+            </span>
+            <p
+              className={cn(
+                "text-2xl font-bold",
+                Number(overview.available) < 5 ? "text-amber-600" : "text-foreground"
+              )}
+            >
+              {usd(overview.available)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Spent (30d)
+            </span>
+            <p className="text-2xl font-bold text-foreground">{usd(overview.spent_30d)}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Model calls
+            </span>
+            <p className="text-2xl font-bold text-foreground">
+              {overview.usage_count.toLocaleString()}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border p-5 mb-8">
+          <p className="text-sm font-semibold text-foreground">Compute cost &amp; balance</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Balance and spend appear here once your workspace has usage.
+          </p>
+        </div>
+      )}
 
       {/* Recent runs (real) */}
       <div>
@@ -1928,6 +1969,7 @@ function DashboardView({
 function WorkspaceRegion({
   view,
   runs,
+  overview,
   onSubmit,
   onApprove,
   onReject,
@@ -1938,6 +1980,7 @@ function WorkspaceRegion({
 }: {
   view: WorkspaceView;
   runs: RecentRun[];
+  overview: DashboardOverview | null;
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
   onApprove: () => void;
   onReject: () => void;
@@ -1976,7 +2019,7 @@ function WorkspaceRegion({
 
       {view.kind === "dashboard" && (
         <div className="flex-1 overflow-y-auto">
-          <DashboardView runs={runs} onSelectRun={onSelectRun} onNewRun={onNewRun} />
+          <DashboardView runs={runs} overview={overview} onSelectRun={onSelectRun} onNewRun={onNewRun} />
         </div>
       )}
 
@@ -2036,6 +2079,7 @@ function GNSISWorkspacePreview() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [view, setView] = useState<WorkspaceView>({ kind: "composer" });
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const runs = jobs.map(toRecentRun);
 
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
@@ -2047,6 +2091,11 @@ function GNSISWorkspacePreview() {
       setJobs(await listJobs());
     } catch {
       // transient network error — keep showing the last known list
+    }
+    try {
+      setOverview(await getOverview());
+    } catch {
+      // billing may be unconfigured, or a transient error — keep the last value
     }
   }, []);
 
@@ -2263,6 +2312,7 @@ function GNSISWorkspacePreview() {
           <WorkspaceRegion
             view={view}
             runs={runs}
+            overview={overview}
             onSubmit={handleComposerSubmit}
             onApprove={handleApproveJob}
             onReject={handleRejectJob}
