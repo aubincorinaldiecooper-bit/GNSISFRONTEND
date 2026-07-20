@@ -18,6 +18,13 @@ interface CachedToken {
 
 let cached: CachedToken | null = null;
 let inflight: Promise<string | null> | null = null;
+// Bumped on every invalidation (sign-out, or a confirmed-invalid session). An
+// in-flight exchange captures the generation it started in and refuses to write
+// its result back into `cached` once the generation has moved on — so a token
+// minted for a previous user can never survive a sign-out that raced with the
+// fetch, and can't be reused by the next user in the same tab.
+let generation = 0;
+let inflightController: AbortController | null = null;
 
 /** Decode a JWT's `exp` (seconds) without verifying — for local expiry only. */
 function decodeExpMs(jwt: string): number {
@@ -33,20 +40,26 @@ function decodeExpMs(jwt: string): number {
   return Date.now() + 60_000;
 }
 
-async function fetchFreshToken(): Promise<string | null> {
+async function fetchFreshToken(gen: number): Promise<string | null> {
   const base = authBaseUrl();
   if (!base) return null;
+  const controller = new AbortController();
+  inflightController = controller;
   let res: Response;
   try {
     res = await fetch(`${base}/api/auth/token`, {
       method: "GET",
       credentials: "include",
       headers: { Accept: "application/json" },
+      signal: controller.signal,
     });
   } catch {
-    // Network / CORS failure — no token available.
+    // Network / CORS failure, or aborted by an invalidation — no token.
     return null;
   }
+  // Invalidated (sign-out) while the request was in flight → discard the result
+  // rather than writing another user's JWT into the cache.
+  if (gen !== generation) return null;
   if (!res.ok) {
     cached = null;
     return null;
@@ -58,6 +71,8 @@ async function fetchFreshToken(): Promise<string | null> {
   } catch {
     token = undefined;
   }
+  // Re-check after the async body read, which is another suspension point.
+  if (gen !== generation) return null;
   if (!token) {
     cached = null;
     return null;
@@ -76,16 +91,29 @@ export async function getBackendToken(force = false): Promise<string | null> {
     return cached.value;
   }
   if (!inflight) {
-    inflight = fetchFreshToken().finally(() => {
-      inflight = null;
+    const gen = generation;
+    inflight = fetchFreshToken(gen).finally(() => {
+      // Only release the shared handle if a later invalidation hasn't already
+      // replaced it — otherwise we'd null out a fresh, still-valid promise.
+      if (gen === generation) inflight = null;
     });
   }
   return inflight;
 }
 
-/** Drop the cached JWT (sign-out, or a confirmed-invalid session). */
+/**
+ * Drop the cached JWT and cancel any in-flight exchange (sign-out, or
+ * a confirmed-invalid session). Bumping the generation makes a still-running
+ * `fetchFreshToken()` discard its result instead of repopulating the cache.
+ */
 export function clearBackendToken(): void {
+  generation += 1;
   cached = null;
+  inflight = null;
+  if (inflightController) {
+    inflightController.abort();
+    inflightController = null;
+  }
 }
 
 // -- unauthorized signal ------------------------------------------------------
