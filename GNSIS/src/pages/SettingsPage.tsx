@@ -1,16 +1,22 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Monitor,
   Moon,
   Sun,
-  Check,
   FolderGit,
-  Link2,
-  Unlink,
-  ChevronRight,
+  Lock,
   AlertCircle,
+  ChevronRight,
+  Loader2,
+  Github,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
+import ApiKeysSection from "@/components/ApiKeysSection";
+import { useSession } from "@/lib/session";
+import { ApiError, listRepositories, type RepositoryRecord } from "@/lib/api";
+import { backendConnection, githubConnection, toneClasses, toneDotClasses } from "@/lib/connection";
+import { githubAppSlug } from "@/lib/env";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -20,56 +26,90 @@ type ThemeOption = "light" | "dark" | "system";
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-b border-border last:border-b-0 pb-8 mb-8">
-      <h2 className="text-sm font-semibold text-foreground mb-5">{title}</h2>
+    <section className="mb-8 border-b border-border pb-8 last:border-b-0">
+      <h2 className="mb-5 text-sm font-semibold text-foreground">{title}</h2>
       {children}
     </section>
   );
 }
 
-function SettingsRow({ label, value }: { label: string; value?: string }) {
+function SettingsRow({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="flex items-center justify-between py-3 gap-4">
+    <div className="flex items-center justify-between gap-4 py-3">
       <p className="text-sm text-foreground">{label}</p>
-      {value && <p className="text-xs text-muted-foreground">{value}</p>}
+      {value && <p className="truncate text-xs text-muted-foreground">{value}</p>}
     </div>
   );
 }
 
-// ---- Account ----
+function StatusPill({ tone, label }: { tone: keyof typeof toneClasses; label: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", toneClasses[tone])}>
+      <span className={cn("h-1.5 w-1.5 rounded-full", toneDotClasses[tone])} />
+      {label}
+    </span>
+  );
+}
+
+// ---- Account (real, from Better Auth + /v1/me) ----
 
 function AccountSection() {
+  const { authUser, me, status, backendState } = useSession();
+  const conn = backendConnection(status, backendState);
+  const gh = githubConnection(backendState, me?.github.connected);
+
+  const name = authUser?.name || authUser?.githubLogin || "—";
+  const initial = (name.trim()[0] || "?").toUpperCase();
+
   return (
     <SettingsSection title="Account">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="flex items-center justify-center h-10 w-10 rounded-full bg-neutral-200 text-sm font-semibold text-neutral-600 shrink-0">
-          A
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-foreground">Aubin</p>
-          <p className="text-xs text-muted-foreground">Workspace owner</p>
+      <div className="mb-5 flex items-center gap-3">
+        {authUser?.image ? (
+          <img
+            src={authUser.image}
+            alt=""
+            className="h-10 w-10 rounded-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-sm font-semibold text-neutral-600">
+            {initial}
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">{name}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {me?.workspace?.name ?? "Personal workspace"}
+          </p>
         </div>
       </div>
       <div className="divide-y divide-border">
-        <SettingsRow label="Name" value="Aubin" />
-        <SettingsRow label="Workspace" value="Aubin" />
-        <SettingsRow label="Email" value="aubin@gnsis.io" />
+        <SettingsRow label="Name" value={authUser?.name} />
+        <SettingsRow label="Email" value={authUser?.email} />
+        {authUser?.githubLogin && <SettingsRow label="GitHub" value={`@${authUser.githubLogin}`} />}
+        <SettingsRow label="Workspace" value={me?.workspace?.id} />
+        <div className="flex items-center justify-between gap-4 py-3">
+          <p className="text-sm text-foreground">Backend session</p>
+          <StatusPill tone={conn.tone} label={conn.label} />
+        </div>
+        <div className="flex items-center justify-between gap-4 py-3">
+          <p className="text-sm text-foreground">GitHub App</p>
+          <StatusPill tone={gh.tone} label={gh.label} />
+        </div>
       </div>
     </SettingsSection>
   );
 }
 
-// ---- Appearance ----
+// ---- Appearance (local UI preference; no backend) ----
 
 function AppearanceSection() {
   const [theme, setTheme] = useState<ThemeOption>("light");
-
   const options: { value: ThemeOption; label: string; icon: React.ReactNode }[] = [
     { value: "light", label: "Light", icon: <Sun className="h-4 w-4" /> },
     { value: "dark", label: "Dark", icon: <Moon className="h-4 w-4" /> },
     { value: "system", label: "System", icon: <Monitor className="h-4 w-4" /> },
   ];
-
   return (
     <SettingsSection title="Appearance">
       <div className="flex gap-2">
@@ -79,10 +119,10 @@ function AppearanceSection() {
             type="button"
             onClick={() => setTheme(opt.value)}
             className={cn(
-              "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               theme === opt.value
-                ? "border-foreground/20 bg-black/[0.04] text-foreground font-semibold"
-                : "border-border text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
+                ? "border-foreground/20 bg-black/[0.04] font-semibold text-foreground"
+                : "border-border text-muted-foreground hover:bg-black/[0.03] hover:text-foreground",
             )}
           >
             {opt.icon}
@@ -94,150 +134,104 @@ function AppearanceSection() {
   );
 }
 
-// ---- Repository connections ----
+// ---- Repositories (real, from /v1/repositories) ----
 
-interface RepoConnection {
-  name: string;
-  connected: boolean;
-}
+type ReposState =
+  | { kind: "checking" }
+  | { kind: "ok"; repos: RepositoryRecord[] }
+  | { kind: "unauthorized" }
+  | { kind: "unavailable"; message: string };
 
 function RepositorySection() {
-  const [repos, setRepos] = useState<RepoConnection[]>([
-    { name: "gnsis/frontend", connected: true },
-    { name: "gnsis/api", connected: true },
-    { name: "gnsis/docs", connected: true },
-  ]);
+  const { status } = useSession();
+  const [state, setState] = useState<ReposState>({ kind: "checking" });
+  const slug = githubAppSlug();
 
-  const toggleRepo = (index: number) => {
-    setRepos((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, connected: !r.connected } : r))
-    );
-  };
+  const load = useCallback(async () => {
+    setState({ kind: "checking" });
+    try {
+      const repos = await listRepositories();
+      setState({ kind: "ok", repos });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) setState({ kind: "unauthorized" });
+      else
+        setState({
+          kind: "unavailable",
+          message: err instanceof ApiError ? err.message : "Couldn't reach the backend.",
+        });
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load on mount
+    if (status === "authenticated") void load();
+  }, [status, load]);
 
   return (
     <SettingsSection title="Repository connections">
-      {repos.length === 0 ? (
-        <div className="flex items-center gap-2 py-4 text-muted-foreground">
-          <AlertCircle className="h-4 w-4" />
-          <span className="text-sm">No connected repositories.</span>
+      {state.kind === "checking" && (
+        <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Checking connected repositories…
         </div>
-      ) : (
+      )}
+
+      {state.kind === "unauthorized" && (
+        <StatusPill tone="error" label="Session expired — sign in again" />
+      )}
+
+      {state.kind === "unavailable" && (
+        <div className="flex items-center gap-2 py-2 text-sm text-red-600">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {state.message}
+        </div>
+      )}
+
+      {state.kind === "ok" && state.repos.length === 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 py-1 text-muted-foreground">
+            <AlertCircle className="h-4 w-4" />
+            <span className="text-sm">No repositories connected yet.</span>
+          </div>
+          {slug && (
+            <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+              <a
+                href={`https://github.com/apps/${slug}/installations/new`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Github className="h-3.5 w-3.5" />
+                Install the GNSIS GitHub App
+              </a>
+            </Button>
+          )}
+        </div>
+      )}
+
+      {state.kind === "ok" && state.repos.length > 0 && (
         <div className="space-y-0.5">
-          {repos.map((repo, i) => (
-            <div
-              key={repo.name}
-              className="flex items-center justify-between py-2.5 gap-3"
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <FolderGit className="h-4 w-4 text-muted-foreground/60 shrink-0" />
-                <span className="text-sm font-mono text-foreground truncate">
-                  {repo.name}
-                </span>
-                {repo.connected && (
-                  <span className="shrink-0 inline-flex items-center gap-1 text-xs text-emerald-600">
-                    <Check className="h-3 w-3" />
-                    Connected
+          {state.repos.map((repo) => (
+            <div key={repo.id} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <FolderGit className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <span className="truncate font-mono text-sm text-foreground">{repo.full_name}</span>
+                {repo.private && (
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                    <Lock className="h-3 w-3" />
+                    Private
                   </span>
                 )}
               </div>
-              <Button
-                size="sm"
-                variant={repo.connected ? "outline" : "secondary"}
-                onClick={() => toggleRepo(i)}
-                className="h-7 text-xs shrink-0"
-              >
-                {repo.connected ? (
-                  <>
-                    <Unlink className="h-3 w-3 mr-1" />
-                    Disconnect
-                  </>
-                ) : (
-                  <>
-                    <Link2 className="h-3 w-3 mr-1" />
-                    Connect
-                  </>
-                )}
-              </Button>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {repo.default_branch}
+              </span>
             </div>
           ))}
+          <p className="pt-3 text-xs text-muted-foreground">
+            Repository access is managed through the GNSIS GitHub App, not toggled here.
+          </p>
         </div>
       )}
-    </SettingsSection>
-  );
-}
-
-// ---- Notifications ----
-
-interface NotificationSetting {
-  id: string;
-  label: string;
-  description: string;
-  enabled: boolean;
-}
-
-function NotificationsSection() {
-  const [settings, setSettings] = useState<NotificationSetting[]>([
-    {
-      id: "run-completed",
-      label: "Run completed",
-      description: "Get notified when an agent finishes a task.",
-      enabled: true,
-    },
-    {
-      id: "run-failed",
-      label: "Run failed",
-      description: "Get notified when a run stops before completion.",
-      enabled: true,
-    },
-    {
-      id: "smart-mode",
-      label: "Smart Mode availability",
-      description: "Get notified when Smart Mode becomes available.",
-      enabled: false,
-    },
-  ]);
-
-  const toggleSetting = (id: string) => {
-    setSettings((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s))
-    );
-  };
-
-  return (
-    <SettingsSection title="Notifications">
-      <div className="space-y-0.5">
-        {settings.map((setting) => (
-          <div
-            key={setting.id}
-            className="flex items-start justify-between py-3 gap-4"
-          >
-            <div className="min-w-0">
-              <p className="text-sm text-foreground">{setting.label}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {setting.description}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => toggleSetting(setting.id)}
-              className={cn(
-                "relative shrink-0 inline-flex h-5 w-9 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                setting.enabled ? "bg-neutral-900" : "bg-neutral-300"
-              )}
-              aria-label={
-                setting.enabled ? `Disable ${setting.label}` : `Enable ${setting.label}`
-              }
-            >
-              <span
-                className={cn(
-                  "absolute top-0.5 left-0.5 inline-flex h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200",
-                  setting.enabled && "translate-x-4"
-                )}
-              />
-            </button>
-          </div>
-        ))}
-      </div>
     </SettingsSection>
   );
 }
@@ -246,37 +240,32 @@ function NotificationsSection() {
 // SettingsPage
 // =============================================================================
 
-interface SettingsPageProps {
-  onBack?: () => void;
-}
-
-export default function SettingsPage({ onBack }: SettingsPageProps) {
+export default function SettingsPage({ onBack }: { onBack?: () => void }) {
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-8 md:py-10">
+    <div className="mx-auto w-full max-w-2xl px-4 py-8 md:px-6 md:py-10">
       <div className="mb-8">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="mb-1 flex items-center gap-2">
           {onBack && (
             <button
               type="button"
               onClick={onBack}
-              className="text-muted-foreground hover:text-foreground transition-colors md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded"
+              className="rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:hidden"
+              aria-label="Back"
             >
               <ChevronRight className="h-4 w-4 rotate-180" />
             </button>
           )}
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">
-            Settings
-          </h1>
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">Settings</h1>
         </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Manage your account, appearance, and preferences.
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Manage your account, API keys, and connected repositories.
         </p>
       </div>
 
       <AccountSection />
-      <AppearanceSection />
+      <ApiKeysSection />
       <RepositorySection />
-      <NotificationsSection />
+      <AppearanceSection />
     </div>
   );
 }
