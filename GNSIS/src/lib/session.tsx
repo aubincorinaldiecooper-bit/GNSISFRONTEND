@@ -117,6 +117,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setBackendState("idle");
     try {
       await authClient.signOut();
+    } catch {
+      // A failed remote sign-out (network / CORS from Better Auth's fetch) must
+      // still resolve: local secrets + token are already cleared, and the sole
+      // caller invokes `void signOut()` without a rejection handler, so throwing
+      // here would surface as an unhandled promise rejection.
     } finally {
       // Re-clear once the session is actually invalidated: a token could have
       // been minted in the brief window between the first clear and the cookie
