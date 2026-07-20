@@ -108,16 +108,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    // Wipe every client-held secret BEFORE the network round-trip, so nothing
-    // lingers even if sign-out is slow or fails.
+    // Wipe every client-held secret + token BEFORE the network round-trip, so
+    // nothing lingers even if sign-out is slow or fails. clearBackendToken also
+    // cancels any in-flight token exchange.
     clearAllSecrets();
     clearBackendToken();
     setMe(null);
     setBackendState("idle");
     try {
       await authClient.signOut();
-    } catch {
-      // Even if the sign-out call fails, local state + secrets are already gone.
+    } finally {
+      // Re-clear once the session is actually invalidated: a token could have
+      // been minted in the brief window between the first clear and the cookie
+      // dying, when it was still valid. This guarantees it can't be reused by the
+      // next user in this tab.
+      clearBackendToken();
+      clearAllSecrets();
     }
   }, []);
 
