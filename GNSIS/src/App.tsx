@@ -14,10 +14,10 @@ import {
   Terminal,
   ListChecks,
   LayoutGrid,
+  FlaskConical,
   CirclePlus,
   Settings2,
   CreditCard,
-  CircleHelp,
   LogOut,
   ChevronsUpDown,
   FolderGit,
@@ -34,8 +34,12 @@ import {
   Menu,
   X,
 } from "lucide-react";
+import { useNavigate, useLocation } from "react-router";
 import SettingsPage from "@/pages/SettingsPage";
 import BillingPage from "@/pages/BillingPage";
+import IntegrationTestPage from "@/pages/IntegrationTestPage";
+import { useSession } from "@/lib/session";
+import { integrationLabEnabled } from "@/lib/env";
 import {
   createJob,
   listJobs,
@@ -48,13 +52,13 @@ import {
   isApiConfigured,
   ApiError,
   isTerminalStatus,
-  getOverview,
+  getBalances,
   type JobRecord,
   type JobStatus,
   type LogRecord,
   type DiffRecord,
   type EngineInfo,
-  type DashboardOverview,
+  type Balances,
 } from "@/lib/api";
 import {
   Tooltip,
@@ -237,7 +241,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // =============================================================================
 
 type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed";
-type NavId = "new-run" | "runs" | "dashboard";
+type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
 
 function jobStatusToRunStatus(status: JobStatus): RunStatus {
   switch (status) {
@@ -443,13 +447,15 @@ function SidebarRunRow({
 // USAGE METER (backend does not track cost/usage yet — shown as unavailable)
 // =============================================================================
 
-function UsageMeter() {
+function UsageMeter({ available }: { available: string | null }) {
   return (
     <div className="px-3 pb-2.5 pt-3 space-y-1">
       <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Usage balance
+        Available balance
       </span>
-      <p className="text-xs text-muted-foreground">Not tracked yet</p>
+      <p className="text-xs text-muted-foreground">
+        {available !== null ? usd(available) : "—"}
+      </p>
     </div>
   );
 }
@@ -484,6 +490,25 @@ function AccountRow({
   onSettings: () => void;
   onBilling: () => void;
 }) {
+  const { authUser, me, signOut } = useSession();
+
+  const displayName = authUser?.name || authUser?.githubLogin || "Account";
+  const workspaceName = me?.workspace?.name || "Personal workspace";
+  const initial = (displayName.trim()[0] || "?").toUpperCase();
+
+  const avatar = authUser?.image ? (
+    <img
+      src={authUser.image}
+      alt=""
+      className="h-6 w-6 shrink-0 rounded-full object-cover"
+      referrerPolicy="no-referrer"
+    />
+  ) : (
+    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-semibold text-neutral-600 shrink-0">
+      {initial}
+    </div>
+  );
+
   const trigger = (
     <button
       type="button"
@@ -493,17 +518,15 @@ function AccountRow({
         collapsed && "justify-center px-0"
       )}
     >
-      <div className="flex items-center justify-center h-6 w-6 rounded-full bg-neutral-200 text-[10px] font-semibold text-neutral-600 shrink-0">
-        A
-      </div>
+      {avatar}
       {!collapsed && (
         <>
           <span className="ml-2 min-w-0 flex-1 text-left">
             <span className="block text-xs font-semibold text-foreground truncate">
-              Aubin
+              {displayName}
             </span>
             <span className="block text-[11px] text-muted-foreground truncate">
-              Workspace
+              {workspaceName}
             </span>
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
@@ -520,7 +543,7 @@ function AccountRow({
             <Tooltip>
               <TooltipTrigger asChild>{trigger}</TooltipTrigger>
               <TooltipContent side="right" className="text-xs">
-                Aubin · Workspace
+                {displayName} · {workspaceName}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -528,7 +551,16 @@ function AccountRow({
           trigger
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-48">
+      <DropdownMenuContent align="end" side="top" className="w-56">
+        {authUser?.email && (
+          <>
+            <div className="px-2 py-1.5">
+              <p className="text-xs font-medium text-foreground truncate">{displayName}</p>
+              <p className="text-[11px] text-muted-foreground truncate">{authUser.email}</p>
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem onClick={onSettings}>
           <Settings2 className="h-4 w-4" />
           Settings
@@ -537,12 +569,8 @@ function AccountRow({
           <CreditCard className="h-4 w-4" />
           Billing
         </DropdownMenuItem>
-        <DropdownMenuItem>
-          <CircleHelp className="h-4 w-4" />
-          Help
-        </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive">
+        <DropdownMenuItem variant="destructive" onClick={() => void signOut()}>
           <LogOut className="h-4 w-4" />
           Sign out
         </DropdownMenuItem>
@@ -561,6 +589,7 @@ interface SidebarRegionProps {
   activeNav: NavId;
   activeRunId: string | null;
   runs: RecentRun[];
+  available: string | null;
   onNavSelect: (id: NavId) => void;
   onRunSelect: (id: string) => void;
   onSettings: () => void;
@@ -574,6 +603,7 @@ function SidebarRegion({
   activeNav,
   activeRunId,
   runs,
+  available,
   onNavSelect,
   onRunSelect,
   onSettings,
@@ -584,6 +614,9 @@ function SidebarRegion({
     { id: "new-run", label: "New run", icon: <CirclePlus /> },
     { id: "runs", label: "Runs", icon: <ListChecks /> },
     { id: "dashboard", label: "Dashboard", icon: <LayoutGrid /> },
+    ...(integrationLabEnabled()
+      ? [{ id: "integration-test" as NavId, label: "Integration test", icon: <FlaskConical /> }]
+      : []),
   ];
 
   return (
@@ -681,7 +714,7 @@ function SidebarRegion({
       <Divider orientation="horizontal" />
 
       {/* Usage meter — fixed */}
-      {collapsed ? <CollapsedUsageIndicator /> : <UsageMeter />}
+      {collapsed ? <CollapsedUsageIndicator /> : <UsageMeter available={available} />}
 
       <Divider orientation="horizontal" />
 
@@ -1466,7 +1499,8 @@ type WorkspaceView =
   | { kind: "runs" }
   | { kind: "dashboard" }
   | { kind: "settings" }
-  | { kind: "billing" };
+  | { kind: "billing" }
+  | { kind: "integration-test" };
 
 function RunPanelRegion({
   collapsed,
@@ -1514,6 +1548,7 @@ function RunPanelRegion({
   useEffect(() => {
     if (!hasThread) {
       prevStatusRef.current = null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets view state when the selected thread changes
       setTab("activity");
       activityScrollPos.current = 0;
       receiptScrollPos.current = 0;
@@ -1791,12 +1826,12 @@ function usd(value: string | number | null | undefined): string {
 
 function DashboardView({
   runs,
-  overview,
+  balances,
   onSelectRun,
   onNewRun,
 }: {
   runs: RecentRun[];
-  overview: DashboardOverview | null;
+  balances: Balances | null;
   onSelectRun: (id: string) => void;
   onNewRun: () => void;
 }) {
@@ -1853,42 +1888,40 @@ function DashboardView({
         </div>
       </div>
 
-      {/* Compute cost & balance (real — from the utility dashboard) */}
-      {overview ? (
+      {/* Prepaid balance (real — from GET /v1/balances) */}
+      {balances ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
           <div className="rounded-xl border border-border bg-white p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Available balance
+              Available
             </span>
             <p
               className={cn(
                 "text-2xl font-bold",
-                Number(overview.available) < 5 ? "text-amber-600" : "text-foreground"
+                Number(balances.available) < 5 ? "text-amber-600" : "text-foreground"
               )}
             >
-              {usd(overview.available)}
+              {usd(balances.available)}
             </p>
           </div>
           <div className="rounded-xl border border-border bg-white p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Spent (30d)
+              On hold
             </span>
-            <p className="text-2xl font-bold text-foreground">{usd(overview.spent_30d)}</p>
+            <p className="text-2xl font-bold text-foreground">{usd(balances.reserved)}</p>
           </div>
           <div className="rounded-xl border border-border bg-white p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Model calls
+              Balance
             </span>
-            <p className="text-2xl font-bold text-foreground">
-              {overview.usage_count.toLocaleString()}
-            </p>
+            <p className="text-2xl font-bold text-foreground">{usd(balances.balance)}</p>
           </div>
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-border p-5 mb-8">
-          <p className="text-sm font-semibold text-foreground">Compute cost &amp; balance</p>
+          <p className="text-sm font-semibold text-foreground">Prepaid balance</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Balance and spend appear here once your workspace has usage.
+            Your available balance appears here once the workspace is reachable.
           </p>
         </div>
       )}
@@ -1969,7 +2002,7 @@ function DashboardView({
 function WorkspaceRegion({
   view,
   runs,
-  overview,
+  balances,
   onSubmit,
   onApprove,
   onReject,
@@ -1980,7 +2013,7 @@ function WorkspaceRegion({
 }: {
   view: WorkspaceView;
   runs: RecentRun[];
-  overview: DashboardOverview | null;
+  balances: Balances | null;
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
   onApprove: () => void;
   onReject: () => void;
@@ -2019,7 +2052,13 @@ function WorkspaceRegion({
 
       {view.kind === "dashboard" && (
         <div className="flex-1 overflow-y-auto">
-          <DashboardView runs={runs} overview={overview} onSelectRun={onSelectRun} onNewRun={onNewRun} />
+          <DashboardView runs={runs} balances={balances} onSelectRun={onSelectRun} onNewRun={onNewRun} />
+        </div>
+      )}
+
+      {view.kind === "integration-test" && (
+        <div className="flex-1 overflow-y-auto">
+          <IntegrationTestPage onBack={onNewRun} />
         </div>
       )}
 
@@ -2051,6 +2090,7 @@ interface AppShellContextValue {
 
 const AppShellContext = createContext<AppShellContextValue | null>(null);
 
+// eslint-disable-next-line react-refresh/only-export-components -- shell hook co-located with its provider
 export function useAppShell() {
   const ctx = useContext(AppShellContext);
   if (!ctx) throw new Error("useAppShell must be used within AppShell");
@@ -2070,16 +2110,21 @@ function upsertJob(jobs: JobRecord[], updated: JobRecord): JobRecord[] {
 }
 
 function GNSISWorkspacePreview() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [runPanelCollapsed, setRunPanelCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
 
-  const [activeNav, setActiveNav] = useState<NavId>("new-run");
+  const onIntegrationRoute = location.pathname === "/integration-test";
+  const [activeNav, setActiveNav] = useState<NavId>(onIntegrationRoute ? "integration-test" : "new-run");
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [view, setView] = useState<WorkspaceView>({ kind: "composer" });
+  const [view, setView] = useState<WorkspaceView>(
+    onIntegrationRoute ? { kind: "integration-test" } : { kind: "composer" },
+  );
   const [jobs, setJobs] = useState<JobRecord[]>([]);
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [balances, setBalances] = useState<Balances | null>(null);
   const runs = jobs.map(toRecentRun);
 
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
@@ -2093,9 +2138,9 @@ function GNSISWorkspacePreview() {
       // transient network error — keep showing the last known list
     }
     try {
-      setOverview(await getOverview());
+      setBalances(await getBalances());
     } catch {
-      // billing may be unconfigured, or a transient error — keep the last value
+      // transient error / not yet reachable — keep the last value
     }
   }, []);
 
@@ -2106,12 +2151,27 @@ function GNSISWorkspacePreview() {
     return () => clearInterval(t);
   }, [refreshJobs]);
 
+  // Keep the /integration-test URL and the internal view in sync when the URL
+  // changes (deep-link, back/forward), without turning the whole shell into
+  // route-driven views.
+  useEffect(() => {
+    if (onIntegrationRoute) {
+      setActiveNav("integration-test");
+      setActiveRunId(null);
+      setView({ kind: "integration-test" });
+    }
+  }, [onIntegrationRoute]);
+
   const handleNavSelect = (id: NavId) => {
     setActiveNav(id);
     setActiveRunId(null);
     if (id === "new-run") setView({ kind: "composer" });
     else if (id === "runs") setView({ kind: "runs" });
     else if (id === "dashboard") setView({ kind: "dashboard" });
+    else if (id === "integration-test") setView({ kind: "integration-test" });
+    // Reflect the integration lab in the URL; leave other views on "/".
+    if (id === "integration-test" && !onIntegrationRoute) navigate("/integration-test");
+    else if (id !== "integration-test" && onIntegrationRoute) navigate("/");
   };
 
   const handleRunSelect = (runId: string) => {
@@ -2243,6 +2303,7 @@ function GNSISWorkspacePreview() {
             activeNav={activeNav}
             activeRunId={activeRunId}
             runs={runs}
+            available={balances?.available ?? null}
             onNavSelect={handleNavSelect}
             onRunSelect={handleRunSelect}
             onSettings={handleSettings}
@@ -2264,6 +2325,7 @@ function GNSISWorkspacePreview() {
               activeNav={activeNav}
               activeRunId={activeRunId}
               runs={runs}
+              available={balances?.available ?? null}
               onNavSelect={(id) => { handleNavSelect(id); setMobileSidebarOpen(false); }}
               onRunSelect={(id) => { handleRunSelect(id); setMobileSidebarOpen(false); }}
               onSettings={() => { handleSettings(); setMobileSidebarOpen(false); }}
@@ -2312,7 +2374,7 @@ function GNSISWorkspacePreview() {
           <WorkspaceRegion
             view={view}
             runs={runs}
-            overview={overview}
+            balances={balances}
             onSubmit={handleComposerSubmit}
             onApprove={handleApproveJob}
             onReject={handleRejectJob}
