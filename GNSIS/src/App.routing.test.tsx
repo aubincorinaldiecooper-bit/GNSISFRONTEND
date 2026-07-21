@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -53,12 +54,15 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
+    claimGitHubInstallationMock: vi.fn(),
+    listRepositoriesMock: vi.fn(),
   };
 });
 
 vi.mock("@/lib/api", () => ({
   ApiError: apiMocks.MockApiError,
   approveJob: vi.fn(),
+  claimGitHubInstallation: (...args: unknown[]) => apiMocks.claimGitHubInstallationMock(...args),
   createJob: vi.fn(),
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...args: unknown[]) => apiMocks.getJobMock(...args),
@@ -69,7 +73,7 @@ vi.mock("@/lib/api", () => ({
   isTerminalStatus: (status: string) => ["completed", "rejected", "failed"].includes(status),
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...args: unknown[]) => apiMocks.listJobsMock(...args),
-  listRepositories: vi.fn(async () => []),
+  listRepositories: (...args: unknown[]) => apiMocks.listRepositoriesMock(...args),
   listUsageEvents: vi.fn(async () => []),
   matchesGatewayRequest: vi.fn(() => false),
   rejectJob: vi.fn(),
@@ -119,14 +123,16 @@ function BackButton() {
   return <button type="button" onClick={() => navigate(-1)}>Browser back</button>;
 }
 
-function renderWorkspace(initialPath: string) {
-  return render(
+function renderWorkspace(initialPath: string, options: { strict?: boolean } = {}) {
+  const content = (
     <MemoryRouter initialEntries={[initialPath]}>
       <App />
       <BackButton />
       <LocationProbe />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+
+  return render(options.strict ? <StrictMode>{content}</StrictMode> : content);
 }
 
 function renderProtected(initialPath: string, status: "authenticated" | "unauthenticated" = "authenticated") {
@@ -155,6 +161,20 @@ beforeEach(() => {
   });
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
+  apiMocks.claimGitHubInstallationMock.mockResolvedValue(undefined);
+  apiMocks.listRepositoriesMock.mockResolvedValue([
+    {
+      id: "repo-1",
+      github_repository_id: 123,
+      owner: "owner",
+      name: "repo",
+      full_name: "owner/repo",
+      default_branch: "main",
+      private: true,
+      enabled: true,
+      archived: false,
+    },
+  ]);
 });
 
 describe("workspace routing", () => {
@@ -247,6 +267,47 @@ describe("workspace routing", () => {
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByTestId("pathname")).toHaveTextContent("/settings");
+  });
+
+
+  it("submits exactly one numeric GitHub installation claim under StrictMode", async () => {
+    renderWorkspace("/onboarding/github?installation_id=12345&setup_action=install", { strict: true });
+
+    expect(await screen.findByText(/Connecting your GitHub repositories/i)).toBeInTheDocument();
+    await waitFor(() => expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(1));
+    expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledWith(12345);
+  });
+
+  it("replaces the URL with Settings and refreshes user and repositories on GitHub claim success", async () => {
+    renderWorkspace("/onboarding/github?installation_id=67890&setup_action=install");
+
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
+    expect(await screen.findByText(/GitHub repositories connected successfully/i)).toBeInTheDocument();
+    expect(sessionValue.refreshMe).toHaveBeenCalledTimes(1);
+    expect(apiMocks.listRepositoriesMock).toHaveBeenCalled();
+    expect(await screen.findByText("owner/repo")).toBeInTheDocument();
+  });
+
+  it("shows an invalid callback screen when installation_id is missing", async () => {
+    renderWorkspace("/onboarding/github?setup_action=install");
+
+    expect(await screen.findByRole("heading", { name: "Invalid GitHub callback" })).toBeInTheDocument();
+    expect(apiMocks.claimGitHubInstallationMock).not.toHaveBeenCalled();
+  });
+
+  it("shows backend errors and retries the GitHub installation claim", async () => {
+    const user = userEvent.setup();
+    apiMocks.claimGitHubInstallationMock
+      .mockRejectedValueOnce(new apiMocks.MockApiError(400, "installation already claimed"))
+      .mockResolvedValueOnce(undefined);
+
+    renderWorkspace("/onboarding/github?installation_id=13579&setup_action=install");
+
+    expect(await screen.findByText("installation already claimed")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
   });
 
   it("unauthenticated access still redirects through ProtectedRoute", async () => {

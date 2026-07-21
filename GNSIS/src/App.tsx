@@ -38,6 +38,7 @@ import { useNavigate, useLocation, matchPath } from "react-router";
 import SettingsPage from "@/pages/SettingsPage";
 import BillingPage from "@/pages/BillingPage";
 import IntegrationTestPage from "@/pages/IntegrationTestPage";
+import GitHubOnboardingPage from "@/pages/GitHubOnboardingPage";
 import { useSession } from "@/lib/session";
 import { integrationLabEnabled } from "@/lib/env";
 import {
@@ -242,7 +243,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 
 type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed";
 type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
-type RouteViewKind = NavId | "settings" | "billing" | "run";
+type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
 function jobStatusToRunStatus(status: JobStatus): RunStatus {
   switch (status) {
@@ -1503,7 +1504,8 @@ type WorkspaceView =
   | { kind: "dashboard" }
   | { kind: "settings" }
   | { kind: "billing" }
-  | { kind: "integration-test" };
+  | { kind: "integration-test" }
+  | { kind: "github-onboarding" };
 
 function RunPanelRegion({
   collapsed,
@@ -2084,7 +2086,13 @@ function WorkspaceRegion({
 
       {view.kind === "settings" && (
         <div className="flex-1 overflow-y-auto">
-          <SettingsPage onBack={onSettingsBack} />
+          <SettingsPage onBack={onSettingsBack} githubConnected={new URLSearchParams(location.search).get("github") === "connected"} />
+        </div>
+      )}
+
+      {view.kind === "github-onboarding" && (
+        <div className="flex-1 overflow-y-auto">
+          <GitHubOnboardingPage />
         </div>
       )}
 
@@ -2127,6 +2135,7 @@ function routeFromPathname(pathname: string): { route: RouteViewKind; runId: str
   if (pathname === "/settings") return { route: "settings", runId: null };
   if (pathname === "/billing") return { route: "billing", runId: null };
   if (pathname === "/integration-test") return { route: "integration-test", runId: null };
+  if (pathname === "/onboarding/github") return { route: "github-onboarding", runId: null };
   return { route: "new-run", runId: null };
 }
 
@@ -2207,6 +2216,7 @@ function GNSISWorkspacePreview() {
     else if (route === "settings") setView({ kind: "settings" });
     else if (route === "billing") setView({ kind: "billing" });
     else if (route === "integration-test") setView({ kind: "integration-test" });
+    else if (route === "github-onboarding") setView({ kind: "github-onboarding" });
   }, [route]);
 
   useEffect(() => {

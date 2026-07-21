@@ -252,6 +252,13 @@ export function listRepositories(): Promise<RepositoryRecord[]> {
   return request("/v1/repositories");
 }
 
+export function claimGitHubInstallation(installationId: number): Promise<void> {
+  return request("/v1/github/installations/claim", {
+    method: "POST",
+    body: JSON.stringify({ installation_id: installationId }),
+  });
+}
+
 // =============================================================================
 // BALANCES — GET /v1/balances (money as exact decimal strings)
 // =============================================================================
