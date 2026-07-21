@@ -34,7 +34,7 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { useNavigate, useLocation } from "react-router";
+import { useNavigate, useLocation, matchPath } from "react-router";
 import SettingsPage from "@/pages/SettingsPage";
 import BillingPage from "@/pages/BillingPage";
 import IntegrationTestPage from "@/pages/IntegrationTestPage";
@@ -242,6 +242,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 
 type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed";
 type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
+type RouteViewKind = NavId | "settings" | "billing" | "run";
 
 function jobStatusToRunStatus(status: JobStatus): RunStatus {
   switch (status) {
@@ -1496,6 +1497,8 @@ function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
 type WorkspaceView =
   | { kind: "composer" }
   | { kind: "thread"; thread: ThreadState; threadKey: string }
+  | { kind: "thread-loading"; runId: string }
+  | { kind: "thread-error"; runId: string; message: string }
   | { kind: "runs" }
   | { kind: "dashboard" }
   | { kind: "settings" }
@@ -2044,6 +2047,23 @@ function WorkspaceRegion({
         </>
       )}
 
+      {view.kind === "thread-loading" && (
+        <EmptyState
+          icon={<Loader2 className="h-8 w-8 animate-spin" />}
+          title="Loading run"
+          description={`Fetching run ${view.runId}…`}
+        />
+      )}
+
+      {view.kind === "thread-error" && (
+        <EmptyState
+          icon={<AlertTriangle className="h-8 w-8" />}
+          title="Run not found"
+          description={view.message}
+          action={{ label: "View all runs", onClick: () => onSelectRun("") }}
+        />
+      )}
+
       {view.kind === "runs" && (
         <div className="flex-1 overflow-y-auto">
           <RunsView runs={runs} onSelectRun={onSelectRun} />
@@ -2097,6 +2117,34 @@ export function useAppShell() {
   return ctx;
 }
 
+
+function routeFromPathname(pathname: string): { route: RouteViewKind; runId: string | null } {
+  const runMatch = matchPath({ path: "/runs/:runId", end: true }, pathname);
+  if (runMatch?.params.runId) return { route: "run", runId: runMatch.params.runId };
+
+  if (pathname === "/runs") return { route: "runs", runId: null };
+  if (pathname === "/dashboard") return { route: "dashboard", runId: null };
+  if (pathname === "/settings") return { route: "settings", runId: null };
+  if (pathname === "/billing") return { route: "billing", runId: null };
+  if (pathname === "/integration-test") return { route: "integration-test", runId: null };
+  return { route: "new-run", runId: null };
+}
+
+function navIdFromRoute(route: RouteViewKind): NavId {
+  if (route === "runs" || route === "run") return "runs";
+  if (route === "dashboard") return "dashboard";
+  if (route === "integration-test") return "integration-test";
+  return "new-run";
+}
+
+function threadFromJob(job: JobRecord, logs: LogRecord[] = [], diff: DiffRecord | null = null): WorkspaceView {
+  return {
+    kind: "thread",
+    thread: { job, logs, diff, actionPending: null, actionError: null },
+    threadKey: job.id,
+  };
+}
+
 // =============================================================================
 // GNSIS WORKSPACE (main responsive shell)
 // =============================================================================
@@ -2117,12 +2165,10 @@ function GNSISWorkspacePreview() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
 
-  const onIntegrationRoute = location.pathname === "/integration-test";
-  const [activeNav, setActiveNav] = useState<NavId>(onIntegrationRoute ? "integration-test" : "new-run");
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [view, setView] = useState<WorkspaceView>(
-    onIntegrationRoute ? { kind: "integration-test" } : { kind: "composer" },
-  );
+  const { route, runId: routeRunId } = routeFromPathname(location.pathname);
+  const activeNav = navIdFromRoute(route);
+  const activeRunId = routeRunId;
+  const [view, setView] = useState<WorkspaceView>({ kind: "composer" });
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
   const runs = jobs.map(toRecentRun);
@@ -2151,38 +2197,71 @@ function GNSISWorkspacePreview() {
     return () => clearInterval(t);
   }, [refreshJobs]);
 
-  // Keep the /integration-test URL and the internal view in sync when the URL
-  // changes (deep-link, back/forward), without turning the whole shell into
-  // route-driven views.
+  // The URL is the source of truth for the workspace screen. Static routes can
+  // render immediately; run routes hydrate a thread by ID so direct refreshes do
+  // not depend on the sidebar/list request completing first.
   useEffect(() => {
-    if (onIntegrationRoute) {
-      setActiveNav("integration-test");
-      setActiveRunId(null);
-      setView({ kind: "integration-test" });
+    if (route === "new-run") setView({ kind: "composer" });
+    else if (route === "runs") setView({ kind: "runs" });
+    else if (route === "dashboard") setView({ kind: "dashboard" });
+    else if (route === "settings") setView({ kind: "settings" });
+    else if (route === "billing") setView({ kind: "billing" });
+    else if (route === "integration-test") setView({ kind: "integration-test" });
+  }, [route]);
+
+  useEffect(() => {
+    if (route !== "run" || !routeRunId) return;
+
+    setView({ kind: "thread-loading", runId: routeRunId });
+
+    if (!isApiConfigured()) {
+      setView({
+        kind: "thread-error",
+        runId: routeRunId,
+        message: "Run details cannot be loaded because VITE_API_BASE_URL is not configured.",
+      });
+      return;
     }
-  }, [onIntegrationRoute]);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [job, logs, diff] = await Promise.all([getJob(routeRunId), getJobLogs(routeRunId), getJobDiff(routeRunId)]);
+        if (cancelled) return;
+        setJobs((prev) => upsertJob(prev, job));
+        setView(threadFromJob(job, logs, diff));
+      } catch (err) {
+        if (cancelled) return;
+        const detail = err instanceof ApiError ? err.message : "The requested run could not be loaded.";
+        setView({
+          kind: "thread-error",
+          runId: routeRunId,
+          message: `Run ${routeRunId} was not found or is not accessible. ${detail}`,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [route, routeRunId]);
 
   const handleNavSelect = (id: NavId) => {
-    setActiveNav(id);
-    setActiveRunId(null);
-    if (id === "new-run") setView({ kind: "composer" });
-    else if (id === "runs") setView({ kind: "runs" });
-    else if (id === "dashboard") setView({ kind: "dashboard" });
-    else if (id === "integration-test") setView({ kind: "integration-test" });
-    // Reflect the integration lab in the URL; leave other views on "/".
-    if (id === "integration-test" && !onIntegrationRoute) navigate("/integration-test");
-    else if (id !== "integration-test" && onIntegrationRoute) navigate("/");
+    const nextPath: Record<NavId, string> = {
+      "new-run": "/",
+      runs: "/runs",
+      dashboard: "/dashboard",
+      "integration-test": "/integration-test",
+    };
+    navigate(nextPath[id]);
   };
 
-  const handleRunSelect = (runId: string) => {
-    setActiveRunId(runId);
-    const job = jobs.find((j) => j.id === runId);
-    if (!job) return;
-    setView({
-      kind: "thread",
-      thread: { job, logs: [], diff: null, actionPending: null, actionError: null },
-      threadKey: job.id,
-    });
+  const handleRunSelect = (selectedRunId: string) => {
+    if (!selectedRunId) {
+      navigate("/runs");
+      return;
+    }
+    navigate(`/runs/${encodeURIComponent(selectedRunId)}`);
   };
 
   const handleComposerSubmit = async (prompt: string, selection: ComposerSelection) => {
@@ -2193,12 +2272,8 @@ function GNSISWorkspacePreview() {
       engine: selection.engine,
     });
     setJobs((prev) => upsertJob(prev, job));
-    setActiveRunId(job.id);
-    setView({
-      kind: "thread",
-      thread: { job, logs: [], diff: null, actionPending: null, actionError: null },
-      threadKey: job.id,
-    });
+    setView(threadFromJob(job));
+    navigate(`/runs/${encodeURIComponent(job.id)}`);
   };
 
   const handleThreadChange = (updater: (t: ThreadState) => ThreadState) => {
@@ -2272,11 +2347,13 @@ function GNSISWorkspacePreview() {
     }
   };
 
-  const handleNewRun = () => handleNavSelect("new-run");
-  const handleSettings = () => { setView({ kind: "settings" }); setActiveRunId(null); };
-  const handleBilling = () => { setView({ kind: "billing" }); setActiveRunId(null); };
-  const handleSettingsBack = () => { setView({ kind: "composer" }); setActiveNav("new-run"); };
-  const handleBillingBack = () => { setView({ kind: "composer" }); setActiveNav("new-run"); };
+  const handleNewRun = () => navigate("/");
+  const handleSettings = () => navigate("/settings");
+  const handleBilling = () => navigate("/billing");
+  const navigateBackOrHome = () => {
+    if (location.key === "default") navigate("/");
+    else navigate(-1);
+  };
 
   // Escape to close overlays
   useEffect(() => {
@@ -2380,8 +2457,8 @@ function GNSISWorkspacePreview() {
             onReject={handleRejectJob}
             onSelectRun={handleRunSelect}
             onNewRun={handleNewRun}
-            onSettingsBack={handleSettingsBack}
-            onBillingBack={handleBillingBack}
+            onSettingsBack={navigateBackOrHome}
+            onBillingBack={navigateBackOrHome}
           />
         </div>
 
