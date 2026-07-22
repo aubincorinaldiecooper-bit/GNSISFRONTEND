@@ -24,9 +24,17 @@ FROM caddy:2-alpine AS runtime
 
 ENV PORT=8080
 
+# jq encodes the runtime config as real JSON in the entrypoint (no hand-rolled
+# escaping, no eval), so arbitrary values can never break the generated /env.js.
+RUN apk add --no-cache jq
+
 COPY Caddyfile /etc/caddy/Caddyfile
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 COPY --from=build /app/dist /usr/share/caddy
 
 EXPOSE 8080
 
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+# The entrypoint writes /env.js from the runtime environment, then `exec`s Caddy
+# so the server replaces the shell and receives signals directly.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
