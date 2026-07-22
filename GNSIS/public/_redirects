@@ -1,3 +1,0 @@
-# SPA history fallback for production static hosts.
-# Keep BrowserRouter clean URLs working on refresh/deep links.
-/* /index.html 200

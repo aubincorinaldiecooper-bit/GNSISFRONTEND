@@ -8,8 +8,20 @@
 
 type Env = ImportMetaEnv & Record<string, string | undefined>;
 
+declare global {
+  interface Window {
+    __GNSIS_CONFIG__?: Record<string, string | undefined>;
+  }
+}
+
 function readEnv(): Env {
   return import.meta.env as Env;
+}
+
+function readPublicConfig(name: string): string | undefined {
+  const runtimeValue = window.__GNSIS_CONFIG__?.[name];
+  if (runtimeValue) return runtimeValue;
+  return readEnv()[name];
 }
 
 function trimTrailingSlash(value: string | undefined): string {
@@ -25,26 +37,27 @@ function trimTrailingSlash(value: string | undefined): string {
  * `VITE_API_BASE_URL`.
  */
 export function apiBaseUrl(): string {
-  const env = readEnv();
-  const canonical = trimTrailingSlash(env.VITE_API_BASE_URL);
+  const canonical = trimTrailingSlash(readPublicConfig("VITE_API_BASE_URL"));
   if (canonical) return canonical;
-  return trimTrailingSlash(env.VITE_API_URL); // deprecated fallback
+  return trimTrailingSlash(readPublicConfig("VITE_API_URL")); // deprecated fallback
 }
 
 /** True when the deprecated `VITE_API_URL` is the only source configured. */
 export function usingDeprecatedApiUrl(): boolean {
-  const env = readEnv();
-  return !trimTrailingSlash(env.VITE_API_BASE_URL) && !!trimTrailingSlash(env.VITE_API_URL);
+  return (
+    !trimTrailingSlash(readPublicConfig("VITE_API_BASE_URL")) &&
+    !!trimTrailingSlash(readPublicConfig("VITE_API_URL"))
+  );
 }
 
 /** Base URL of the Better Auth service (no trailing slash). */
 export function authBaseUrl(): string {
-  return trimTrailingSlash(readEnv().VITE_AUTH_URL);
+  return trimTrailingSlash(readPublicConfig("VITE_AUTH_URL"));
 }
 
 /** GitHub App slug — used only for display / "install the app" links. */
 export function githubAppSlug(): string {
-  return readEnv().VITE_GITHUB_APP_SLUG ?? "";
+  return readPublicConfig("VITE_GITHUB_APP_SLUG") ?? "";
 }
 
 /**
@@ -53,7 +66,7 @@ export function githubAppSlug(): string {
  * `VITE_ENABLE_INTEGRATION_LAB=false` to hide it in a locked-down deployment.
  */
 export function integrationLabEnabled(): boolean {
-  const raw = (readEnv().VITE_ENABLE_INTEGRATION_LAB ?? "true").toLowerCase();
+  const raw = (readPublicConfig("VITE_ENABLE_INTEGRATION_LAB") ?? "true").toLowerCase();
   return raw !== "false" && raw !== "0" && raw !== "off";
 }
 
