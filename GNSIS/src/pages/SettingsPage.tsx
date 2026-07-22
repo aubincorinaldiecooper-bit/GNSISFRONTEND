@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   Monitor,
   Moon,
@@ -240,7 +241,16 @@ function RepositorySection() {
 // SettingsPage
 // =============================================================================
 
-export default function SettingsPage({ onBack }: { onBack?: () => void }) {
+export default function SettingsPage({
+  onBack,
+  githubConnected: githubConnectedProp = false,
+}: {
+  onBack?: () => void;
+  githubConnected?: boolean;
+}) {
+  const [params] = useSearchParams();
+  const githubConnected = githubConnectedProp || params.get("github") === "connected";
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8 md:px-6 md:py-10">
       <div className="mb-8">
@@ -261,6 +271,12 @@ export default function SettingsPage({ onBack }: { onBack?: () => void }) {
           Manage your account, API keys, and connected repositories.
         </p>
       </div>
+
+      {githubConnected && (
+        <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          GitHub repositories connected successfully.
+        </div>
+      )}
 
       <AccountSection />
       <ApiKeysSection />
