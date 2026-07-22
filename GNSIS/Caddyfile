@@ -10,6 +10,12 @@
 		respond "ok" 200
 	}
 
+	# The runtime config is regenerated on every container start and must never be
+	# cached by the browser or any intermediary — otherwise a redeploy could serve
+	# stale API/auth URLs from cache.
+	@envjs path /env.js
+	header @envjs Cache-Control "no-store"
+
 	try_files {path} /index.html
 	file_server
 }

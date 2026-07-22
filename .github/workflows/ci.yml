@@ -39,6 +39,106 @@ jobs:
       - name: Build
         run: npm run build
 
+  frontend-container:
+    name: Frontend container smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Build production image
+        run: docker build -t gnsis-frontend:ci GNSIS
+
+      - name: Start container with runtime config
+        run: |
+          docker run -d --name gnsis-fe -p 8080:8080 \
+            -e VITE_API_BASE_URL='https://api.gnsis.test' \
+            -e VITE_AUTH_URL='https://auth.gnsis.test' \
+            -e VITE_GITHUB_APP_SLUG='gnsis-app' \
+            -e VITE_ENABLE_INTEGRATION_LAB='false' \
+            gnsis-frontend:ci
+
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then
+              echo "healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "container did not become healthy"; docker logs gnsis-fe; exit 1
+
+      - name: /health returns 200
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health)
+          echo "GET /health -> $code"; test "$code" = "200"
+
+      - name: /env.js is valid JS, no-store, and carries the runtime values
+        run: |
+          curl -sD headers.txt http://localhost:8080/env.js -o env.js
+          echo "--- headers ---"; cat headers.txt
+          grep -iq '^cache-control:[[:space:]]*no-store' headers.txt || {
+            echo "missing Cache-Control: no-store on /env.js"; exit 1; }
+          # Must be syntactically valid JavaScript.
+          node --check env.js
+          # Runtime values must be present and win over the (empty) build-time bundle.
+          node -e "global.window={};require('./env.js');const c=global.window.__GNSIS_CONFIG__;
+            if(c.VITE_API_BASE_URL!=='https://api.gnsis.test')throw new Error('api base missing: '+JSON.stringify(c));
+            if(c.VITE_AUTH_URL!=='https://auth.gnsis.test')throw new Error('auth url missing');
+            if(c.VITE_ENABLE_INTEGRATION_LAB!=='false')throw new Error('flag missing');
+            console.log('env.js ok:', JSON.stringify(c));"
+
+      - name: Nested routes return index.html (SPA fallback)
+        run: |
+          for path in "/settings" "/dashboard" "/runs/example-id" "/onboarding/github?installation_id=123"; do
+            body=$(curl -s "http://localhost:8080${path}")
+            echo "$body" | grep -q '<div id="root">' || { echo "no SPA fallback for ${path}"; exit 1; }
+            echo "SPA fallback ok: ${path}"
+          done
+
+      - name: Real JS asset is served (not index.html)
+        run: |
+          index=$(curl -s http://localhost:8080/)
+          asset=$(echo "$index" | grep -oE '/assets/[^"]+\.js' | head -1)
+          test -n "$asset" || { echo "no JS asset referenced by index.html"; exit 1; }
+          ct=$(curl -s -o body.js -D - "http://localhost:8080${asset}" | grep -i '^content-type:' | tr -d '\r')
+          echo "${asset} -> ${ct}"
+          echo "$ct" | grep -qiE 'javascript|ecmascript' || { echo "asset not served as JS"; exit 1; }
+          grep -q '<div id="root">' body.js && { echo "asset fell through to index.html"; exit 1; } || true
+
+      - name: Real CSS asset is served where present
+        run: |
+          index=$(curl -s http://localhost:8080/)
+          css=$(echo "$index" | grep -oE '/assets/[^"]+\.css' | head -1 || true)
+          if [ -n "$css" ]; then
+            ct=$(curl -s -o /dev/null -w '%{content_type}' "http://localhost:8080${css}")
+            echo "${css} -> ${ct}"; echo "$ct" | grep -qi 'css' || { echo "css not served as text/css"; exit 1; }
+          else
+            echo "no stylesheet asset emitted (acceptable)"
+          fi
+
+      - name: Unsafe characters do not break the generated /env.js
+        run: |
+          docker rm -f gnsis-fe >/dev/null 2>&1 || true
+          VAL="$(printf 'a"b\\c\td\ne-end')"   # quote, backslash, tab, newline
+          docker run -d --name gnsis-fe-unsafe -p 8081:8080 \
+            -e VITE_GITHUB_APP_SLUG="$VAL" gnsis-frontend:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8081/health >/dev/null 2>&1 && break; sleep 1; done
+          curl -s http://localhost:8081/env.js -o env-unsafe.js
+          cat env-unsafe.js
+          node --check env-unsafe.js   # would fail if escaping were broken
+          node -e "global.window={};require('./env-unsafe.js');
+            const s=global.window.__GNSIS_CONFIG__.VITE_GITHUB_APP_SLUG;
+            if(typeof s!=='string')throw new Error('slug not a string');
+            console.log('unsafe slug preserved, length='+s.length);"
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          docker logs gnsis-fe 2>&1 || true
+          docker logs gnsis-fe-unsafe 2>&1 || true
+
   react-frontend:
     name: React frontend
     runs-on: ubuntu-latest

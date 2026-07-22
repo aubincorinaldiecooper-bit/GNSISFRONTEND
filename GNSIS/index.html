@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GNSIS Workspace</title>
+    <!-- Public runtime config. A classic (non-module) script, so it executes
+         before the deferred module bundle and window.__GNSIS_CONFIG__ is set by
+         the time the app reads it. Overwritten at container startup; a no-op
+         empty object in local/non-container builds. -->
+    <script src="/env.js"></script>
   </head>
   <body>
     <div id="root"></div>
