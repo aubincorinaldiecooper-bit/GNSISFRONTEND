@@ -142,6 +142,7 @@ export interface JobRecord {
   base_branch: string;
   engine: string;
   model: string | null;
+  advisor_model: string | null;
   status: JobStatus;
   branch: string | null;
   error: string | null;
@@ -171,8 +172,10 @@ export interface CreateJobInput {
   repository_id: string;
   instruction: string;
   base_branch?: string;
-  /** OpenRouter model id from the backend catalog; omitted → server default. */
-  model?: string;
+  /** Required primary model id from the backend catalog. */
+  model: string;
+  /** Optional Advisor model. Omitted means no Advisor is pinned. */
+  advisor_model?: string;
 }
 
 export function health(): Promise<{ status: string }> {

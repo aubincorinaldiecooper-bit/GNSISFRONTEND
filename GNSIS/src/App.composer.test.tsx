@@ -85,6 +85,7 @@ beforeEach(() => {
     base_branch: "main",
     engine: "gnsis",
     model: "anthropic/claude-opus-4.8",
+    advisor_model: null,
     status: "queued",
     branch: null,
     error: null,
@@ -99,6 +100,7 @@ beforeEach(() => {
     base_branch: "main",
     engine: "gnsis",
     model: "anthropic/claude-opus-4.8",
+    advisor_model: null,
     status: "queued",
     branch: null,
     error: null,
@@ -124,6 +126,7 @@ beforeEach(() => {
     items: [
       { id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8", provider: "anthropic", default: true },
       { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5", provider: "anthropic", default: false },
+      { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai", default: false },
     ],
   });
 });
@@ -186,12 +189,13 @@ describe("NewRunComposer", () => {
     await waitFor(() => expect(model).toHaveTextContent("Claude Opus 4.8"));
 
     await user.click(model);
-    // Both catalog entries appear, with no invented Sonnet-4 / Haiku / etc.
+    // Catalog entries appear with labels only and no invented Sonnet-4 / Haiku / etc.
     const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(2);
+    expect(options).toHaveLength(3);
     expect(options.map((option) => option.textContent)).toEqual([
       "Claude Opus 4.8",
       "Claude Sonnet 5",
+      "GPT-5.6 Sol",
     ]);
     expect(screen.getByRole("option", { name: "Claude Opus 4.8" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: "Claude Sonnet 5" })).toHaveAttribute("aria-selected", "false");
@@ -208,6 +212,128 @@ describe("NewRunComposer", () => {
       "Claude Sonnet 5",
     ]);
     expect(screen.queryByText("anthropic")).not.toBeInTheDocument();
+  });
+
+  it("submits a primary-only desktop run without advisor_model", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("combobox", { name: "Repository" });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent("main"));
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Claude Opus 4.8");
+    expect(screen.queryByRole("combobox", { name: "Advisor" })).not.toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/Describe the change/i), "Primary only launch");
+    await user.click(screen.getAllByRole("button", { name: /Start run/i })[0]);
+
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    expect(apiMocks.createJobMock).toHaveBeenCalledWith({
+      repository_id: "repo-alpha",
+      instruction: "Primary only launch",
+      base_branch: "main",
+      model: "anthropic/claude-opus-4.8",
+    });
+    expect(apiMocks.createJobMock.mock.calls[0][0]).not.toHaveProperty("advisor_model");
+  });
+
+  it("adds, independently changes, searches, and submits an Advisor model on desktop", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("combobox", { name: "Model" });
+    await user.click(screen.getByRole("button", { name: "+ Add Advisor" }));
+
+    const advisor = screen.getByRole("combobox", { name: "Advisor" });
+    expect(advisor).toHaveTextContent("Select Advisor");
+    await user.click(advisor);
+    expect(screen.getByRole("option", { name: "Claude Opus 4.8" })).toBeInTheDocument();
+    expect(screen.queryByText("Default")).not.toBeInTheDocument();
+    expect(screen.queryByText("openai")).not.toBeInTheDocument();
+
+    const search = within(screen.getByRole("listbox")).getByRole("textbox");
+    await user.type(search, "openai");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["GPT-5.6 Sol"]);
+    expect(screen.queryByText("openai")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "GPT-5.6 Sol" }));
+
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Claude Opus 4.8");
+    expect(screen.getByRole("combobox", { name: "Advisor" })).toHaveTextContent("GPT-5.6 Sol");
+
+    await user.type(screen.getByPlaceholderText(/Describe the change/i), "Use an advisor");
+    await user.click(screen.getAllByRole("button", { name: /Start run/i })[0]);
+
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    expect(apiMocks.createJobMock).toHaveBeenCalledWith({
+      repository_id: "repo-alpha",
+      instruction: "Use an advisor",
+      base_branch: "main",
+      model: "anthropic/claude-opus-4.8",
+      advisor_model: "openai/gpt-5.6-sol",
+    });
+  });
+
+  it("allows the same model for primary and Advisor, then omits Advisor after removal", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const primary = await screen.findByRole("combobox", { name: "Model" });
+    await user.click(screen.getByRole("button", { name: "+ Add Advisor" }));
+    await user.click(screen.getByRole("combobox", { name: "Advisor" }));
+    await user.click(screen.getByRole("option", { name: "Claude Opus 4.8" }));
+
+    expect(primary).toHaveTextContent("Claude Opus 4.8");
+    expect(screen.getByRole("combobox", { name: "Advisor" })).toHaveTextContent("Claude Opus 4.8");
+
+    await user.click(screen.getByRole("button", { name: "Remove Advisor" }));
+    expect(screen.queryByRole("combobox", { name: "Advisor" })).not.toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/Describe the change/i), "Remove advisor");
+    await user.click(screen.getAllByRole("button", { name: /Start run/i })[0]);
+
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    expect(apiMocks.createJobMock.mock.calls[0][0]).not.toHaveProperty("advisor_model");
+  });
+
+  it("supports primary-only and Advisor submission from the mobile composer", async () => {
+    const user = userEvent.setup();
+    const primaryOnly = renderApp();
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent("main"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Claude Opus 4.8"));
+    await user.type(screen.getByPlaceholderText(/Describe the change/i), "Mobile primary only");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    expect(apiMocks.createJobMock.mock.calls[0][0]).not.toHaveProperty("advisor_model");
+
+    primaryOnly.unmount();
+    apiMocks.createJobMock.mockClear();
+    renderApp();
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent("main"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Claude Opus 4.8"));
+    const mobileConfigToggle = screen
+      .getAllByRole("button")
+      .find((button) =>
+        button.textContent?.includes("owner/alpha") &&
+        button.textContent.includes("Claude Opus 4.8"),
+      );
+    expect(mobileConfigToggle).toBeDefined();
+    await user.click(mobileConfigToggle!);
+    await user.click(screen.getAllByRole("button", { name: "+ Add Advisor" }).at(-1)!);
+    await user.click(screen.getAllByRole("combobox", { name: "Advisor" }).at(-1)!);
+    await user.click(screen.getByRole("option", { name: "Claude Sonnet 5" }));
+    await user.type(screen.getByPlaceholderText(/Describe the change/i), "Mobile advisor");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    expect(apiMocks.createJobMock).toHaveBeenCalledWith({
+      repository_id: "repo-alpha",
+      instruction: "Mobile advisor",
+      base_branch: "main",
+      model: "anthropic/claude-opus-4.8",
+      advisor_model: "anthropic/claude-sonnet-5",
+    });
   });
 
   it("submits repository_id + selected model to createJob", async () => {
