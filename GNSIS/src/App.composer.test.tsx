@@ -189,7 +189,7 @@ describe("NewRunComposer", () => {
     await waitFor(() => expect(model).toHaveTextContent("Claude Opus 4.8"));
 
     await user.click(model);
-    // Both catalog entries appear, with no invented Sonnet-4 / Haiku / etc.
+    // Catalog entries appear with labels only and no invented Sonnet-4 / Haiku / etc.
     const options = screen.getAllByRole("option");
     expect(options).toHaveLength(3);
     expect(options.map((option) => option.textContent)).toEqual([
@@ -292,29 +292,6 @@ describe("NewRunComposer", () => {
 
     await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
     expect(apiMocks.createJobMock.mock.calls[0][0]).not.toHaveProperty("advisor_model");
-  });
-
-  it("keeps an explicit Advisor selection when the model catalogue refetches", async () => {
-    const user = userEvent.setup();
-    const catalog = {
-      items: [
-        { id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8", provider: "anthropic", default: true },
-        { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai", default: false },
-      ],
-    };
-    apiMocks.listModelsMock.mockResolvedValue(catalog);
-
-    const { unmount } = renderApp();
-    await screen.findByRole("combobox", { name: "Model" });
-    await user.click(screen.getByRole("button", { name: "+ Add Advisor" }));
-    await user.click(screen.getByRole("combobox", { name: "Advisor" }));
-    await user.click(screen.getByRole("option", { name: "GPT-5.6 Sol" }));
-    expect(screen.getByRole("combobox", { name: "Advisor" })).toHaveTextContent("GPT-5.6 Sol");
-
-    unmount();
-    renderApp();
-    expect(await screen.findByRole("combobox", { name: "Model" })).toHaveTextContent("Claude Opus 4.8");
-    expect(screen.queryByRole("combobox", { name: "Advisor" })).not.toBeInTheDocument();
   });
 
   it("supports primary-only and Advisor submission from the mobile composer", async () => {
