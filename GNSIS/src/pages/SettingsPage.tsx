@@ -1,23 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "react-router";
-import {
-  Monitor,
-  Moon,
-  Sun,
-  FolderGit,
-  Lock,
-  AlertCircle,
-  ChevronRight,
-  Loader2,
-  Github,
-} from "lucide-react";
+import { ChevronRight, Monitor, Moon, Sun } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import ApiKeysSection from "@/components/ApiKeysSection";
+import RepositoryPicker from "@/components/RepositoryPicker";
 import { useSession } from "@/lib/session";
-import { ApiError, listRepositories, type RepositoryRecord } from "@/lib/api";
+import { useRepositoryPicker } from "@/lib/useRepositoryPicker";
 import { backendConnection, githubConnection, toneClasses, toneDotClasses } from "@/lib/connection";
-import { githubAppSlug } from "@/lib/env";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -88,7 +77,9 @@ function AccountSection() {
         <SettingsRow label="Name" value={authUser?.name} />
         <SettingsRow label="Email" value={authUser?.email} />
         {authUser?.githubLogin && <SettingsRow label="GitHub" value={`@${authUser.githubLogin}`} />}
-        <SettingsRow label="Workspace" value={me?.workspace?.id} />
+        {/* The full workspace ID is intentionally not shown here — it remains
+            available via internal operator tooling / a future developer-details
+            view, but has no place in the ordinary account screen. */}
         <div className="flex items-center justify-between gap-4 py-3">
           <p className="text-sm text-foreground">Backend session</p>
           <StatusPill tone={conn.tone} label={conn.label} />
@@ -135,104 +126,23 @@ function AppearanceSection() {
   );
 }
 
-// ---- Repositories (real, from /v1/repositories) ----
-
-type ReposState =
-  | { kind: "checking" }
-  | { kind: "ok"; repos: RepositoryRecord[] }
-  | { kind: "unauthorized" }
-  | { kind: "unavailable"; message: string };
+// ---- Connected repositories (real, from /v1/repositories) ----
+//
+// GitHub App access is the permission — this section is a read-only view of
+// the repositories the App can currently reach, plus a "Manage GitHub access"
+// action for changing that access through GitHub itself. There is no in-GNSIS
+// enable/disable step.
 
 function RepositorySection() {
-  const { status } = useSession();
-  const [state, setState] = useState<ReposState>({ kind: "checking" });
-  const slug = githubAppSlug();
-
-  const load = useCallback(async () => {
-    setState({ kind: "checking" });
-    try {
-      const repos = await listRepositories();
-      setState({ kind: "ok", repos });
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) setState({ kind: "unauthorized" });
-      else
-        setState({
-          kind: "unavailable",
-          message: err instanceof ApiError ? err.message : "Couldn't reach the backend.",
-        });
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load on mount
-    if (status === "authenticated") void load();
-  }, [status, load]);
+  const picker = useRepositoryPicker();
 
   return (
-    <SettingsSection title="Repository connections">
-      {state.kind === "checking" && (
-        <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Checking connected repositories…
-        </div>
-      )}
-
-      {state.kind === "unauthorized" && (
-        <StatusPill tone="error" label="Session expired — sign in again" />
-      )}
-
-      {state.kind === "unavailable" && (
-        <div className="flex items-center gap-2 py-2 text-sm text-red-600">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {state.message}
-        </div>
-      )}
-
-      {state.kind === "ok" && state.repos.length === 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 py-1 text-muted-foreground">
-            <AlertCircle className="h-4 w-4" />
-            <span className="text-sm">No repositories connected yet.</span>
-          </div>
-          {slug && (
-            <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
-              <a
-                href={`https://github.com/apps/${slug}/installations/new`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Github className="h-3.5 w-3.5" />
-                Install the GNSIS GitHub App
-              </a>
-            </Button>
-          )}
-        </div>
-      )}
-
-      {state.kind === "ok" && state.repos.length > 0 && (
-        <div className="space-y-0.5">
-          {state.repos.map((repo) => (
-            <div key={repo.id} className="flex items-center justify-between gap-3 py-2.5">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <FolderGit className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                <span className="truncate font-mono text-sm text-foreground">{repo.full_name}</span>
-                {repo.private && (
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                    <Lock className="h-3 w-3" />
-                    Private
-                  </span>
-                )}
-              </div>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {repo.default_branch}
-              </span>
-            </div>
-          ))}
-          <p className="pt-3 text-xs text-muted-foreground">
-            Repository access is managed through the GNSIS GitHub App, not toggled here.
-          </p>
-        </div>
-      )}
+    <SettingsSection title="Connected repositories">
+      <RepositoryPicker
+        picker={picker}
+        emptyTitle="No repositories are available."
+        showManageLink
+      />
     </SettingsSection>
   );
 }

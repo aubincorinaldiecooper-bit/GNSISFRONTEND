@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { ApiError, claimGitHubInstallation, listRepositories } from "@/lib/api";
+import { ApiError, claimGitHubInstallation } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
 type ClaimState =
@@ -36,7 +36,12 @@ export default function GitHubOnboardingPage() {
     setState({ kind: "processing" });
     try {
       await claimGitHubInstallation(installationId);
-      await Promise.all([refreshMe(), listRepositories()]);
+      await refreshMe();
+      // GitHub App access itself is the permission — there is no separate
+      // in-GNSIS approval step. The successful claim delivers the user
+      // straight into Settings; the accessible repositories are already
+      // available for runs. Changing which repositories are accessible is
+      // done through GitHub via the "Manage GitHub access" action.
       navigate("/settings?github=connected", { replace: true });
     } catch (err) {
       setState({
@@ -91,7 +96,6 @@ export default function GitHubOnboardingPage() {
         <p className="mt-2 text-sm text-muted-foreground">
           We are claiming the GitHub App installation and synchronizing your repository access.
         </p>
-        <CheckCircle2 className="mx-auto mt-5 h-5 w-5 text-muted-foreground/40" />
       </div>
     </div>
   );

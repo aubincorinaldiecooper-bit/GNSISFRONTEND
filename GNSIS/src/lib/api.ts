@@ -141,6 +141,7 @@ export interface JobRecord {
   instruction: string;
   base_branch: string;
   engine: string;
+  model: string | null;
   status: JobStatus;
   branch: string | null;
   error: string | null;
@@ -167,10 +168,11 @@ export interface DiffRecord {
 }
 
 export interface CreateJobInput {
-  repo: string;
+  repository_id: string;
   instruction: string;
   base_branch?: string;
-  engine?: string;
+  /** OpenRouter model id from the backend catalog; omitted → server default. */
+  model?: string;
 }
 
 export function health(): Promise<{ status: string }> {
@@ -225,7 +227,14 @@ export function isTerminalStatus(status: JobStatus): boolean {
 export interface MePayload {
   user: { id: string; email: string | null; name: string | null; avatar_url: string | null };
   workspace: { id: string; name: string };
-  github: { connected: boolean; installation_count: number; repository_count: number };
+  github: {
+    connected: boolean;
+    installation_count: number;
+    // Repositories currently accessible through the GitHub App installation.
+    // GitHub App access IS the permission — there is no second in-GNSIS
+    // enablement layer, so no separate "enabled" counter.
+    repository_count: number;
+  };
 }
 
 export function getMe(): Promise<MePayload> {
@@ -244,12 +253,43 @@ export interface RepositoryRecord {
   full_name: string;
   default_branch: string;
   private: boolean;
+  // Mirrors GitHub App access after the last sync. The frontend never toggles
+  // this — the field is exposed for legacy compatibility and diagnostics only,
+  // never as a user permission surface.
   enabled: boolean;
   archived: boolean;
 }
 
-export function listRepositories(): Promise<RepositoryRecord[]> {
-  return request("/v1/repositories");
+export interface ListRepositoriesOptions {
+  /** Case-insensitive substring of full_name. */
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function listRepositories(opts: ListRepositoriesOptions = {}): Promise<RepositoryRecord[]> {
+  const p = new URLSearchParams();
+  if (opts.q) p.set("q", opts.q);
+  if (opts.limit != null) p.set("limit", String(opts.limit));
+  if (opts.offset != null) p.set("offset", String(opts.offset));
+  const qs = p.toString();
+  return request(`/v1/repositories${qs ? `?${qs}` : ""}`);
+}
+
+export interface BranchInfo {
+  name: string;
+  is_default: boolean;
+}
+
+export interface BranchList {
+  default_branch: string;
+  branches: BranchInfo[];
+}
+
+/** Branches for a selected repository (server-side; the GitHub token never leaves the backend). */
+export function listBranches(repositoryId: string, q = ""): Promise<BranchList> {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : "";
+  return request(`/v1/repositories/${repositoryId}/branches${qs}`);
 }
 
 export function claimGitHubInstallation(installationId: number): Promise<void> {
@@ -257,6 +297,25 @@ export function claimGitHubInstallation(installationId: number): Promise<void> {
     method: "POST",
     body: JSON.stringify({ installation_id: installationId }),
   });
+}
+
+// =============================================================================
+// MODELS — GET /v1/models (server-controlled OpenRouter allowlist)
+// =============================================================================
+
+export interface ModelInfo {
+  id: string;
+  label: string;
+  provider: string;
+  default: boolean;
+  description?: string;
+  speed_tier?: string;
+  cost_tier?: string;
+  context_window?: number;
+}
+
+export function listModels(): Promise<{ items: ModelInfo[] }> {
+  return request("/v1/models");
 }
 
 // =============================================================================
