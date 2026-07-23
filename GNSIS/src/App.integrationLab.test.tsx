@@ -51,7 +51,6 @@ vi.mock("@/lib/api", () => ({
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: vi.fn(async () => []),
   listRepositories: vi.fn(async () => []),
-  setRepositoryEnabled: vi.fn(),
   listBranches: vi.fn(async () => ({ default_branch: "main", branches: [{ name: "main", is_default: true }] })),
   listModels: vi.fn(async () => ({ items: [{ id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8", provider: "anthropic", default: true }] })),
   listUsageEvents: vi.fn(async () => []),

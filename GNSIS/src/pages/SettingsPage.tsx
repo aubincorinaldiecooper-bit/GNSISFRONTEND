@@ -128,19 +128,19 @@ function AppearanceSection() {
 
 // ---- Connected repositories (real, from /v1/repositories) ----
 //
-// GitHub App access ("GNSIS can see it") and enabled-in-GNSIS ("available for
-// runs") are distinct — this section lists everything the App can see and lets
-// the user toggle which of those are enabled. A compact searchable picker
-// rather than a long settings table, per the guided-run redesign.
+// GitHub App access is the permission — this section is a read-only view of
+// the repositories the App can currently reach, plus a "Manage GitHub access"
+// action for changing that access through GitHub itself. There is no in-GNSIS
+// enable/disable step.
 
 function RepositorySection() {
-  const picker = useRepositoryPicker(false);
+  const picker = useRepositoryPicker();
 
   return (
     <SettingsSection title="Connected repositories">
       <RepositoryPicker
         picker={picker}
-        emptyTitle="No repositories connected yet."
+        emptyTitle="No repositories are available."
         showManageLink
       />
     </SettingsSection>

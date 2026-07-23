@@ -25,14 +25,12 @@ vi.mock("@/lib/env", () => ({
 }));
 
 const listRepositories = vi.fn();
-const setRepositoryEnabled = vi.fn();
 const listKeys = vi.fn();
 const createKey = vi.fn();
 const rotateKey = vi.fn();
 const disableKey = vi.fn();
 vi.mock("@/lib/api", () => ({
   listRepositories: (...a: unknown[]) => listRepositories(...a),
-  setRepositoryEnabled: (...a: unknown[]) => setRepositoryEnabled(...a),
   listKeys: (...a: unknown[]) => listKeys(...a),
   createKey: (...a: unknown[]) => createKey(...a),
   rotateKey: (...a: unknown[]) => rotateKey(...a),
@@ -83,12 +81,12 @@ describe("SettingsPage", () => {
     expect(screen.queryByText("workspace-super-secret-id-123")).not.toBeInTheDocument();
   });
 
-  it("shows an empty state with an install link when no repositories are connected", async () => {
+  it('shows "No repositories are available." with a Manage GitHub access action when none are accessible', async () => {
     listRepositories.mockResolvedValue([]);
     renderSettings();
 
-    expect(await screen.findByText("No repositories connected yet.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Install the GNSIS GitHub App/i })).toHaveAttribute(
+    expect(await screen.findByText("No repositories are available.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Manage GitHub access/i })).toHaveAttribute(
       "href",
       "https://github.com/apps/gnsis-test-app/installations/new",
     );
@@ -104,24 +102,22 @@ describe("SettingsPage", () => {
 
     await user.type(screen.getByLabelText("Search repositories"), "zzz");
 
+    // No enabledOnly — GitHub App access itself is the permission.
     await waitFor(() =>
-      expect(listRepositories).toHaveBeenCalledWith({ enabledOnly: false, q: "zzz", limit: 30, offset: 0 }),
+      expect(listRepositories).toHaveBeenCalledWith({ q: "zzz", limit: 30, offset: 0 }),
     );
   });
 
-  it("toggling a repository calls setRepositoryEnabled and flips the switch", async () => {
-    const user = userEvent.setup();
-    listRepositories.mockResolvedValue([repo({ enabled: false })]);
-    setRepositoryEnabled.mockResolvedValue(repo({ enabled: true }));
+  it("lists connected repositories read-only, with no enable/disable toggle", async () => {
+    listRepositories.mockResolvedValue([repo({ enabled: true })]);
     renderSettings();
 
-    const toggle = await screen.findByRole("switch", { name: "Enable owner/repo" });
-    expect(toggle).not.toBeChecked();
-
-    await user.click(toggle);
-
-    await waitFor(() => expect(setRepositoryEnabled).toHaveBeenCalledWith("repo-1", true));
-    expect(await screen.findByRole("switch", { name: "Disable owner/repo" })).toBeChecked();
+    await screen.findByText("owner/repo");
+    // The repo appears; there is no per-row switch to drive.
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Manage GitHub access/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows only the active keys the backend returns, with no key-history control", async () => {

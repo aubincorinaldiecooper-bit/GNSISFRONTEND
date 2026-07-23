@@ -230,8 +230,10 @@ export interface MePayload {
   github: {
     connected: boolean;
     installation_count: number;
+    // Repositories currently accessible through the GitHub App installation.
+    // GitHub App access IS the permission — there is no second in-GNSIS
+    // enablement layer, so no separate "enabled" counter.
     repository_count: number;
-    enabled_repository_count?: number;
   };
 }
 
@@ -251,13 +253,14 @@ export interface RepositoryRecord {
   full_name: string;
   default_branch: string;
   private: boolean;
+  // Mirrors GitHub App access after the last sync. The frontend never toggles
+  // this — the field is exposed for legacy compatibility and diagnostics only,
+  // never as a user permission surface.
   enabled: boolean;
   archived: boolean;
 }
 
 export interface ListRepositoriesOptions {
-  /** Only repositories the user enabled in GNSIS (the New Run source). */
-  enabledOnly?: boolean;
   /** Case-insensitive substring of full_name. */
   q?: string;
   limit?: number;
@@ -266,20 +269,11 @@ export interface ListRepositoriesOptions {
 
 export function listRepositories(opts: ListRepositoriesOptions = {}): Promise<RepositoryRecord[]> {
   const p = new URLSearchParams();
-  if (opts.enabledOnly) p.set("enabled_only", "true");
   if (opts.q) p.set("q", opts.q);
   if (opts.limit != null) p.set("limit", String(opts.limit));
   if (opts.offset != null) p.set("offset", String(opts.offset));
   const qs = p.toString();
   return request(`/v1/repositories${qs ? `?${qs}` : ""}`);
-}
-
-/** Enable or disable a repository for new runs (tenant-scoped, 404 if unknown). */
-export function setRepositoryEnabled(repositoryId: string, enabled: boolean): Promise<RepositoryRecord> {
-  return request(`/v1/repositories/${repositoryId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ enabled }),
-  });
 }
 
 export interface BranchInfo {

@@ -56,7 +56,6 @@ const apiMocks = vi.hoisted(() => {
     getJobDiffMock: vi.fn(),
     claimGitHubInstallationMock: vi.fn(),
     listRepositoriesMock: vi.fn(),
-    setRepositoryEnabledMock: vi.fn(),
     listBranchesMock: vi.fn(),
     listModelsMock: vi.fn(),
   };
@@ -77,7 +76,6 @@ vi.mock("@/lib/api", () => ({
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...args: unknown[]) => apiMocks.listJobsMock(...args),
   listRepositories: (...args: unknown[]) => apiMocks.listRepositoriesMock(...args),
-  setRepositoryEnabled: (...args: unknown[]) => apiMocks.setRepositoryEnabledMock(...args),
   listBranches: (...args: unknown[]) => apiMocks.listBranchesMock(...args),
   listModels: (...args: unknown[]) => apiMocks.listModelsMock(...args),
   listUsageEvents: vi.fn(async () => []),
@@ -183,10 +181,6 @@ beforeEach(() => {
       archived: false,
     },
   ]);
-  apiMocks.setRepositoryEnabledMock.mockImplementation(async (id: string, enabled: boolean) => ({
-    id, enabled, github_repository_id: 123, owner: "owner", name: "repo",
-    full_name: "owner/repo", default_branch: "main", private: true, archived: false,
-  }));
   apiMocks.listBranchesMock.mockResolvedValue({
     default_branch: "main",
     branches: [{ name: "main", is_default: true }],
@@ -292,28 +286,27 @@ describe("workspace routing", () => {
   it("submits exactly one numeric GitHub installation claim under StrictMode", async () => {
     renderWorkspace("/onboarding/github?installation_id=12345&setup_action=install", { strict: true });
 
-    // The claim resolves quickly against mocks and moves straight into the
-    // repository-selection step, so the transient "Connecting…" text isn't a
-    // reliable thing to assert on here. What this test actually guards is
-    // StrictMode's double-invoke of effects not producing a duplicate claim.
-    expect(await screen.findByRole("heading", { name: "Choose repositories for GNSIS" })).toBeInTheDocument();
+    // The claim resolves against mocks and navigates straight into Settings —
+    // there is no interstitial "choose repositories" step to catch, and the
+    // transient "Connecting…" text is not reliable to assert on. What this
+    // test actually guards is StrictMode's double-invoke of effects not
+    // producing a duplicate claim submission.
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
     expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(1);
     expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledWith(12345);
   });
 
-  it("shows repository selection after a successful claim, then continues to Settings", async () => {
-    const user = userEvent.setup();
+  it("goes straight from a successful GitHub claim to Settings — no in-GNSIS approval step", async () => {
     renderWorkspace("/onboarding/github?installation_id=67890&setup_action=install");
 
-    // Connection is already successful here — the repo-selection step is a
-    // deliberate next step, not a gate on success.
-    expect(await screen.findByRole("heading", { name: "Choose repositories for GNSIS" })).toBeInTheDocument();
-    expect(sessionValue.refreshMe).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("owner/repo")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /Continue/i }));
-
+    // GitHub App access IS the permission — the successful claim delivers
+    // the user directly into Settings, with no "Choose repositories" step
+    // in between.
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
+    expect(sessionValue.refreshMe).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("heading", { name: /Choose repositories for GNSIS/i }),
+    ).not.toBeInTheDocument();
     expect(await screen.findByText(/GitHub repositories connected successfully/i)).toBeInTheDocument();
   });
 
@@ -336,9 +329,6 @@ describe("workspace routing", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole("heading", { name: "Choose repositories for GNSIS" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /Continue/i }));
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
   });
 

@@ -40,7 +40,7 @@ import BillingPage from "@/pages/BillingPage";
 import IntegrationTestPage from "@/pages/IntegrationTestPage";
 import GitHubOnboardingPage from "@/pages/GitHubOnboardingPage";
 import { useSession } from "@/lib/session";
-import { integrationLabEnabled } from "@/lib/env";
+import { githubAppSlug, integrationLabEnabled } from "@/lib/env";
 import {
   createJob,
   listJobs,
@@ -772,11 +772,13 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Enabled repositories only — the New Run source of truth.
+  // Repositories currently accessible through GitHub App access — the New
+  // Run source of truth. There is no in-GNSIS enable step: what the App can
+  // reach is what the user can run against.
   useEffect(() => {
     if (!isApiConfigured()) return;
     let cancelled = false;
-    listRepositories({ enabledOnly: true })
+    listRepositories()
       .then((list) => {
         if (cancelled) return;
         setRepos(list);
@@ -898,8 +900,10 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     }
   }, [canSubmit, selectedRepo, branch, model, prompt, onSubmit]);
 
-  const noReposEnabled = repos !== null && repos.length === 0 && !reposError;
+  const noReposAvailable = repos !== null && repos.length === 0 && !reposError;
   const selectedModelLabel = models?.find((m) => m.id === model)?.label ?? model ?? "";
+  const slug = githubAppSlug();
+  const manageAccessLink = slug ? `https://github.com/apps/${slug}/installations/new` : null;
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
@@ -912,12 +916,24 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         </p>
       </div>
 
-      {noReposEnabled ? (
+      {noReposAvailable ? (
         <div className="rounded-2xl border border-dashed border-border bg-neutral-50/50 px-6 py-10 text-center">
-          <p className="text-sm font-medium text-foreground">No repositories enabled</p>
+          <p className="text-sm font-medium text-foreground">No repositories are available.</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Enable a repository in Settings before starting a run.
+            Grant GNSIS access to a repository through GitHub to start your first run.
           </p>
+          {manageAccessLink && (
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="mt-4 h-8 gap-1.5 text-xs"
+            >
+              <a href={manageAccessLink} target="_blank" rel="noreferrer">
+                Manage GitHub access
+              </a>
+            </Button>
+          )}
         </div>
       ) : (
         <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">

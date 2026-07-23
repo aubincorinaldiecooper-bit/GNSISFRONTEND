@@ -58,7 +58,6 @@ vi.mock("@/lib/api", () => ({
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...a: unknown[]) => apiMocks.listJobsMock(...a),
   listRepositories: (...a: unknown[]) => apiMocks.listRepositoriesMock(...a),
-  setRepositoryEnabled: vi.fn(),
   listBranches: (...a: unknown[]) => apiMocks.listBranchesMock(...a),
   listModels: (...a: unknown[]) => apiMocks.listModelsMock(...a),
   listUsageEvents: vi.fn(async () => []),
@@ -130,20 +129,30 @@ beforeEach(() => {
 });
 
 describe("NewRunComposer", () => {
-  it("only requests enabled repositories from the API", async () => {
+  it("requests repositories without any enable-only filter — GitHub access is the permission", async () => {
     renderApp();
     await waitFor(() =>
-      expect(apiMocks.listRepositoriesMock).toHaveBeenCalledWith({ enabledOnly: true }),
+      expect(apiMocks.listRepositoriesMock).toHaveBeenCalled(),
     );
+    // Called with no options (or a bare object that carries no enabledOnly).
+    const call = apiMocks.listRepositoriesMock.mock.calls[0];
+    const opts = (call && call[0]) ?? {};
+    expect((opts as Record<string, unknown>).enabledOnly).toBeUndefined();
+    expect((opts as Record<string, unknown>).enabled_only).toBeUndefined();
   });
 
-  it("shows an empty state when no repositories are enabled", async () => {
+  it('shows "No repositories are available." with a Manage GitHub access action when nothing is accessible', async () => {
     apiMocks.listRepositoriesMock.mockResolvedValue([]);
     renderApp();
 
-    expect(await screen.findByText("No repositories enabled")).toBeInTheDocument();
-    expect(screen.getByText(/Enable a repository in Settings before starting a run/i)).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /describe/i })).not.toBeInTheDocument();
+    expect(await screen.findByText("No repositories are available.")).toBeInTheDocument();
+    // The instruction is now to manage access through GitHub, never "enable
+    // a repository in Settings".
+    expect(screen.queryByText(/Enable a repository in Settings/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Manage GitHub access/i })).toHaveAttribute(
+      "href",
+      "https://github.com/apps/gnsis-test-app/installations/new",
+    );
   });
 
   it("selects the default branch automatically once the branch list arrives", async () => {

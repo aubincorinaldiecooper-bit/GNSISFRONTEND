@@ -1,18 +1,22 @@
-// A compact, searchable repository picker — the enable/disable surface shared
-// by Settings' "Connected repositories" and the first-connection selection
-// step. Shows only full_name, a private indicator, and the default branch —
-// never an installation ID or the internal repository row ID.
+// A compact, searchable, READ-ONLY repository list used by Settings'
+// "Connected repositories" section. Shows only full_name, a private
+// indicator, and the default branch — never an installation ID or the
+// internal repository row ID.
+//
+// GitHub App access itself IS the permission, so there is no per-repo
+// enable/disable toggle to drive from this surface. Changing which
+// repositories are available is done through GitHub via the "Manage
+// GitHub access" action.
 
 import { AlertCircle, FolderGit, Github, Loader2, Lock, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { githubAppSlug } from "@/lib/env";
 import type { RepositoryPickerApi } from "@/lib/useRepositoryPicker";
 
 export default function RepositoryPicker({
   picker,
-  emptyTitle = "No repositories connected yet",
+  emptyTitle = "No repositories are available.",
   emptySubtitle,
   showManageLink = false,
 }: {
@@ -21,7 +25,7 @@ export default function RepositoryPicker({
   emptySubtitle?: string;
   showManageLink?: boolean;
 }) {
-  const { repos, query, setQuery, loading, loadingMore, error, hasMore, loadMore, mutatingId, toggle } = picker;
+  const { repos, query, setQuery, loading, loadingMore, error, hasMore, loadMore } = picker;
   const slug = githubAppSlug();
   const manageLink = slug ? `https://github.com/apps/${slug}/installations/new` : null;
 
@@ -61,11 +65,11 @@ export default function RepositoryPicker({
             </span>
           </div>
           {!query && emptySubtitle && <p className="text-xs text-muted-foreground">{emptySubtitle}</p>}
-          {!query && showManageLink && manageLink && (
+          {!query && manageLink && (
             <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
               <a href={manageLink} target="_blank" rel="noreferrer">
                 <Github className="h-3.5 w-3.5" />
-                Install the GNSIS GitHub App
+                Manage GitHub access
               </a>
             </Button>
           )}
@@ -87,17 +91,6 @@ export default function RepositoryPicker({
                   </div>
                   <span className="font-mono text-xs text-muted-foreground">{repo.default_branch}</span>
                 </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {mutatingId === repo.id && (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                )}
-                <Switch
-                  checked={repo.enabled}
-                  disabled={mutatingId === repo.id}
-                  onCheckedChange={(checked) => void toggle(repo.id, checked)}
-                  aria-label={`${repo.enabled ? "Disable" : "Enable"} ${repo.full_name}`}
-                />
               </div>
             </div>
           ))}

@@ -2,10 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
 const listRepositories = vi.fn();
-const setRepositoryEnabled = vi.fn();
 vi.mock("@/lib/api", () => ({
   listRepositories: (...a: unknown[]) => listRepositories(...a),
-  setRepositoryEnabled: (...a: unknown[]) => setRepositoryEnabled(...a),
   ApiError: class ApiError extends Error {},
 }));
 
@@ -21,7 +19,7 @@ function repo(overrides: Partial<RepositoryRecord> = {}): RepositoryRecord {
     full_name: "owner/repo",
     default_branch: "main",
     private: true,
-    enabled: false,
+    enabled: true,
     archived: false,
     ...overrides,
   };
@@ -39,18 +37,19 @@ beforeEach(() => {
 });
 
 describe("useRepositoryPicker", () => {
-  it("loads the first page on mount, honoring enabledOnly", async () => {
+  it("loads the first page on mount, requesting only the currently accessible repos", async () => {
     listRepositories.mockResolvedValue([repo()]);
-    const { result } = renderHook(() => useRepositoryPicker(true));
+    const { result } = renderHook(() => useRepositoryPicker());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(listRepositories).toHaveBeenCalledWith({ enabledOnly: true, q: "", limit: 30, offset: 0 });
+    // No enabledOnly parameter — GitHub App access is the permission.
+    expect(listRepositories).toHaveBeenCalledWith({ q: "", limit: 30, offset: 0 });
     expect(result.current.repos).toEqual([repo()]);
   });
 
   it("debounces search input and refetches from the top", async () => {
-    const { result } = renderHook(() => useRepositoryPicker(false));
+    const { result } = renderHook(() => useRepositoryPicker());
     await waitFor(() => expect(result.current.loading).toBe(false));
     listRepositories.mockClear();
     listRepositories.mockResolvedValue([repo({ full_name: "owner/found" })]);
@@ -61,13 +60,13 @@ describe("useRepositoryPicker", () => {
     expect(listRepositories).not.toHaveBeenCalled();
 
     await waitFor(() => expect(listRepositories).toHaveBeenCalledWith({
-      enabledOnly: false, q: "found", limit: 30, offset: 0,
+      q: "found", limit: 30, offset: 0,
     }));
     await waitFor(() => expect(result.current.repos).toEqual([repo({ full_name: "owner/found" })]));
   });
 
   it("discards a stale response when a newer search supersedes it", async () => {
-    const { result } = renderHook(() => useRepositoryPicker(false));
+    const { result } = renderHook(() => useRepositoryPicker());
     await waitFor(() => expect(result.current.loading).toBe(false));
     listRepositories.mockClear();
 
@@ -89,49 +88,17 @@ describe("useRepositoryPicker", () => {
     expect(result.current.repos).toEqual([repo({ full_name: "owner/fast" })]);
   });
 
-  it("toggle optimistically flips the row before the request resolves", async () => {
-    let resolveToggle: (v: RepositoryRecord) => void = () => {};
-    setRepositoryEnabled.mockImplementation(
-      () => new Promise((resolve) => { resolveToggle = resolve; }),
-    );
-    listRepositories.mockResolvedValue([repo({ enabled: false })]);
-    const { result } = renderHook(() => useRepositoryPicker(false));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    let togglePromise!: Promise<void>;
-    act(() => {
-      togglePromise = result.current.toggle("repo-1", true);
-    });
-
-    expect(result.current.repos[0].enabled).toBe(true);
-    expect(result.current.mutatingId).toBe("repo-1");
-
-    await act(async () => {
-      resolveToggle(repo({ enabled: true }));
-      await togglePromise;
-    });
-
-    expect(result.current.mutatingId).toBeNull();
-    expect(result.current.repos[0].enabled).toBe(true);
-  });
-
-  it("reverts the row and surfaces an error when the toggle request fails", async () => {
-    setRepositoryEnabled.mockRejectedValue(new Error("network down"));
-    listRepositories.mockResolvedValue([repo({ enabled: false })]);
-    const { result } = renderHook(() => useRepositoryPicker(false));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    await act(async () => {
-      await result.current.toggle("repo-1", true);
-    });
-
-    expect(result.current.repos[0].enabled).toBe(false);
-    expect(result.current.error).toBeTruthy();
+  it("does not expose any toggle / mutation surface — the hook is read-only", () => {
+    const { result } = renderHook(() => useRepositoryPicker());
+    // GitHub App access is the permission surface; there is no per-repo
+    // enable/disable toggle to drive from the frontend.
+    expect((result.current as Record<string, unknown>).toggle).toBeUndefined();
+    expect((result.current as Record<string, unknown>).mutatingId).toBeUndefined();
   });
 
   it("loadMore appends the next page and stops once a short page arrives", async () => {
     listRepositories.mockResolvedValueOnce(page(30, 0));
-    const { result } = renderHook(() => useRepositoryPicker(false));
+    const { result } = renderHook(() => useRepositoryPicker());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.hasMore).toBe(true);
@@ -141,7 +108,7 @@ describe("useRepositoryPicker", () => {
     act(() => result.current.loadMore());
 
     await waitFor(() => expect(result.current.loadingMore).toBe(false));
-    expect(listRepositories).toHaveBeenLastCalledWith({ enabledOnly: false, q: "", limit: 30, offset: 30 });
+    expect(listRepositories).toHaveBeenLastCalledWith({ q: "", limit: 30, offset: 30 });
     expect(result.current.repos).toHaveLength(35);
     expect(result.current.hasMore).toBe(false);
   });
