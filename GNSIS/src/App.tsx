@@ -295,6 +295,11 @@ function displayModel(job: JobRecord): string {
   return job.model ?? "—";
 }
 
+// Historical and primary-only jobs may have no Advisor pinned — never invent one.
+function displayAdvisorModel(job: JobRecord): string {
+  return job.advisor_model ?? "—";
+}
+
 function toRecentRun(job: JobRecord): RecentRun {
   return {
     id: job.id,
@@ -747,6 +752,7 @@ interface ComposerSelection {
   repositoryFullName: string;
   branch: string;
   model: string;
+  advisorModel: string | null;
 }
 
 interface NewRunComposerProps {
@@ -767,6 +773,8 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [models, setModels] = useState<ModelInfo[] | null>(null);
   const [modelsError, setModelsError] = useState(false);
   const [model, setModel] = useState<string | null>(null);
+  const [advisorModel, setAdvisorModel] = useState<string | null>(null);
+  const [showAdvisor, setShowAdvisor] = useState(false);
 
   const [showMobileConfig, setShowMobileConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -807,7 +815,14 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
       .then(({ items }) => {
         if (cancelled) return;
         setModels(items);
-        setModel(items.find((m) => m.default)?.id ?? items[0]?.id ?? null);
+        setModel((current) =>
+          current && items.some((m) => m.id === current)
+            ? current
+            : (items.find((m) => m.default)?.id ?? items[0]?.id ?? null),
+        );
+        setAdvisorModel((current) =>
+          current && items.some((m) => m.id === current) ? current : null,
+        );
       })
       .catch(() => {
         if (!cancelled) {
@@ -873,7 +888,6 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     value: m.id,
     label: m.label,
     keywords: [m.provider],
-    hint: m.default ? "Default" : undefined,
   }));
 
   const canSubmit =
@@ -893,15 +907,22 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         repositoryFullName: selectedRepo.full_name,
         branch,
         model,
+        advisorModel: showAdvisor ? advisorModel : null,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start the run.");
       setIsSubmitting(false);
     }
-  }, [canSubmit, selectedRepo, branch, model, prompt, onSubmit]);
+  }, [canSubmit, selectedRepo, branch, model, showAdvisor, advisorModel, prompt, onSubmit]);
 
   const noReposAvailable = repos !== null && repos.length === 0 && !reposError;
   const selectedModelLabel = models?.find((m) => m.id === model)?.label ?? model ?? "";
+  const selectedAdvisorLabel = models?.find((m) => m.id === advisorModel)?.label ?? advisorModel ?? "";
+
+  const handleRemoveAdvisor = () => {
+    setShowAdvisor(false);
+    setAdvisorModel(null);
+  };
   const slug = githubAppSlug();
   const manageAccessLink = slug ? `https://github.com/apps/${slug}/installations/new` : null;
 
@@ -997,6 +1018,40 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs"
                 />
               </div>
+              {showAdvisor ? (
+                <div className="flex items-center gap-1.5 min-w-0 w-48">
+                  <Circle className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                  <Combobox
+                    ariaLabel="Advisor"
+                    options={modelOptions}
+                    value={advisorModel}
+                    onChange={setAdvisorModel}
+                    placeholder={modelsError ? "No models available" : "Select Advisor"}
+                    searchPlaceholder="Search Advisor models…"
+                    emptyText="No matching models."
+                    disabled={(models ?? []).length === 0}
+                    className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove Advisor"
+                    onClick={handleRemoveAdvisor}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-neutral-100 hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAdvisor(true)}
+                  className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  + Add Advisor
+                </Button>
+              )}
             </div>
 
             <Button
@@ -1020,6 +1075,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
               <span className="font-mono">{selectedRepo?.full_name ?? "Select repository"}</span>
               {branch ? ` · ${branch}` : ""}
               {selectedModelLabel ? ` · ${selectedModelLabel}` : ""}
+              {showAdvisor && selectedAdvisorLabel ? ` · Advisor: ${selectedAdvisorLabel}` : ""}
             </button>
             <Button
               size="sm"
@@ -1068,6 +1124,39 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 disabled={(models ?? []).length === 0}
                 className="h-8 text-xs"
               />
+              {showAdvisor ? (
+                <div className="flex items-center gap-2">
+                  <Combobox
+                    ariaLabel="Advisor"
+                    options={modelOptions}
+                    value={advisorModel}
+                    onChange={setAdvisorModel}
+                    placeholder={modelsError ? "No models available" : "Select Advisor"}
+                    searchPlaceholder="Search Advisor models…"
+                    emptyText="No matching models."
+                    disabled={(models ?? []).length === 0}
+                    className="h-8 text-xs"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove Advisor"
+                    onClick={handleRemoveAdvisor}
+                    className="rounded-md p-2 text-muted-foreground hover:bg-neutral-100 hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAdvisor(true)}
+                  className="h-8 justify-start text-xs"
+                >
+                  + Add Advisor
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -1130,7 +1219,9 @@ function ThreadContextRow({ job }: { job: JobRecord }) {
       <span className="text-muted-foreground/40">·</span>
       <span className="font-mono">{job.branch || job.base_branch}</span>
       <span className="text-muted-foreground/40">·</span>
-      <span>{displayModel(job)}</span>
+      <span>Model: {displayModel(job)}</span>
+      <span className="text-muted-foreground/40">·</span>
+      <span>Advisor: {displayAdvisorModel(job)}</span>
     </div>
   );
 }
@@ -2430,6 +2521,7 @@ function GNSISWorkspacePreview() {
       instruction: prompt,
       base_branch: selection.branch,
       model: selection.model,
+      ...(selection.advisorModel ? { advisor_model: selection.advisorModel } : {}),
     });
     setJobs((prev) => upsertJob(prev, job));
     setView(threadFromJob(job));
