@@ -178,18 +178,36 @@ describe("NewRunComposer", () => {
     expect(branch).not.toHaveTextContent("main");
   });
 
-  it("populates the Model picker from the backend catalog and auto-selects the default", async () => {
+  it("renders minimal model options while keeping the default selected and provider search", async () => {
+    const user = userEvent.setup();
     renderApp();
+
     const model = await screen.findByRole("combobox", { name: "Model" });
     await waitFor(() => expect(model).toHaveTextContent("Claude Opus 4.8"));
 
-    const user = userEvent.setup();
     await user.click(model);
     // Both catalog entries appear, with no invented Sonnet-4 / Haiku / etc.
-    expect(screen.getByRole("option", { name: /Claude Opus 4.8/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /Claude Sonnet 5/ })).toBeInTheDocument();
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options.map((option) => option.textContent)).toEqual([
+      "Claude Opus 4.8",
+      "Claude Sonnet 5",
+    ]);
+    expect(screen.getByRole("option", { name: "Claude Opus 4.8" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "Claude Sonnet 5" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.queryByText("Default")).not.toBeInTheDocument();
+    expect(screen.queryByText("anthropic")).not.toBeInTheDocument();
     // The picker doesn't show "gpt-4" or similar hallucinated models.
     expect(screen.queryByRole("option", { name: /gpt-4/i })).not.toBeInTheDocument();
+
+    const search = within(screen.getByRole("listbox")).getByRole("textbox");
+    await user.clear(search);
+    await user.type(search, "anthropic");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Claude Opus 4.8",
+      "Claude Sonnet 5",
+    ]);
+    expect(screen.queryByText("anthropic")).not.toBeInTheDocument();
   });
 
   it("submits repository_id + selected model to createJob", async () => {
