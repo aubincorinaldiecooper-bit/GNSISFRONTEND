@@ -142,6 +142,8 @@ export interface JobRecord {
   base_branch: string;
   engine: string;
   model: string | null;
+  /** The Advisor model the run was pinned with. Null for legacy jobs. */
+  advisor_model: string | null;
   status: JobStatus;
   branch: string | null;
   error: string | null;
@@ -173,6 +175,12 @@ export interface CreateJobInput {
   base_branch?: string;
   /** OpenRouter model id from the backend catalog; omitted → server default. */
   model?: string;
+  /**
+   * Advisor model id from the same backend catalog; omitted → server default.
+   * A distinct field from ``model`` so a lightweight primary can consult a
+   * stronger reviewer via the openrouter:advisor server tool.
+   */
+  advisor_model?: string;
 }
 
 export function health(): Promise<{ status: string }> {

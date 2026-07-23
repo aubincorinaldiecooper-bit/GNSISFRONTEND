@@ -23,6 +23,7 @@ import {
   FolderGit,
   GitBranch,
   Cpu,
+  Users,
   Send,
   Loader2,
   CircleCheck,
@@ -293,6 +294,11 @@ interface RecentRun {
 // Legacy jobs created before model selection carry no model — never invent one.
 function displayModel(job: JobRecord): string {
   return job.model ?? "—";
+}
+
+// Same rule for the Advisor: legacy jobs carry no Advisor and we render "—".
+function displayAdvisor(job: JobRecord): string {
+  return job.advisor_model ?? "—";
 }
 
 function toRecentRun(job: JobRecord): RecentRun {
@@ -746,7 +752,15 @@ interface ComposerSelection {
   repositoryId: string;
   repositoryFullName: string;
   branch: string;
+  /** Primary model — powers the OpenHands coding agent. */
   model: string;
+  /**
+   * Advisor model — powers the openrouter:advisor server tool that the
+   * primary consults for architecture, unfamiliar APIs, or before shipping
+   * a security-sensitive change. Distinct from ``model`` so a lightweight
+   * primary can consult a stronger reviewer.
+   */
+  advisor_model: string;
 }
 
 interface NewRunComposerProps {
@@ -767,6 +781,11 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [models, setModels] = useState<ModelInfo[] | null>(null);
   const [modelsError, setModelsError] = useState(false);
   const [model, setModel] = useState<string | null>(null);
+  // Advisor model — initialized from the first allowed model on the catalog
+  // and freely changed by the user afterwards. Never hardcoded on the frontend
+  // (a drifted list becomes a run rejection), and always sent as a distinct
+  // field from `model`.
+  const [advisorModel, setAdvisorModel] = useState<string | null>(null);
 
   const [showMobileConfig, setShowMobileConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -799,7 +818,11 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     };
   }, []);
 
-  // The server-controlled model catalog.
+  // The server-controlled model catalog. Both the primary model and the
+  // Advisor initialize from the FIRST allowed model returned by the backend
+  // — never hardcoded on the frontend (a stale hardcoded default would drift
+  // from the authoritative allowlist and cause runs to be rejected at
+  // creation). Both selectors are independently mutable afterwards.
   useEffect(() => {
     if (!isApiConfigured()) return;
     let cancelled = false;
@@ -807,7 +830,17 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
       .then(({ items }) => {
         if (cancelled) return;
         setModels(items);
-        setModel(items.find((m) => m.default)?.id ?? items[0]?.id ?? null);
+        const primaryDefault =
+          items.find((m) => m.default)?.id ?? items[0]?.id ?? null;
+        // Only initialize the Advisor when nothing valid has been picked yet —
+        // never clobber an existing valid user selection on a background
+        // refresh of the catalog.
+        setModel((current) =>
+          current && items.some((m) => m.id === current) ? current : primaryDefault,
+        );
+        setAdvisorModel((current) =>
+          current && items.some((m) => m.id === current) ? current : primaryDefault,
+        );
       })
       .catch(() => {
         if (!cancelled) {
@@ -869,11 +902,13 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     label: b,
   }));
 
+  // Primary + Advisor share the same options: they are both validated
+  // against the same server allowlist. The "Default" hint is intentionally
+  // NOT surfaced to the user — the initial value is enough of a hint.
   const modelOptions: ComboboxOption[] = (models ?? []).map((m) => ({
     value: m.id,
     label: m.label,
     keywords: [m.provider],
-    hint: m.default ? "Default" : undefined,
   }));
 
   const canSubmit =
@@ -881,10 +916,11 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     !!repositoryId &&
     !!branch &&
     !!model &&
+    !!advisorModel &&
     !isSubmitting;
 
   const handleSubmit = useCallback(async () => {
-    if (!canSubmit || !selectedRepo || !branch || !model) return;
+    if (!canSubmit || !selectedRepo || !branch || !model || !advisorModel) return;
     setIsSubmitting(true);
     setError(null);
     try {
@@ -893,12 +929,13 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         repositoryFullName: selectedRepo.full_name,
         branch,
         model,
+        advisor_model: advisorModel,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start the run.");
       setIsSubmitting(false);
     }
-  }, [canSubmit, selectedRepo, branch, model, prompt, onSubmit]);
+  }, [canSubmit, selectedRepo, branch, model, advisorModel, prompt, onSubmit]);
 
   const noReposAvailable = repos !== null && repos.length === 0 && !reposError;
   const selectedModelLabel = models?.find((m) => m.id === model)?.label ?? model ?? "";
@@ -983,7 +1020,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs font-mono"
                 />
               </div>
-              <div className="flex items-center gap-1.5 min-w-0 w-48">
+              <div className="flex items-center gap-1.5 min-w-0 w-44">
                 <Cpu className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
                 <Combobox
                   ariaLabel="Model"
@@ -991,6 +1028,20 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   value={model}
                   onChange={setModel}
                   placeholder={modelsError ? "No models available" : "Select model"}
+                  searchPlaceholder="Search models…"
+                  emptyText="No matching models."
+                  disabled={(models ?? []).length === 0}
+                  className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0 w-44">
+                <Users className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                <Combobox
+                  ariaLabel="Advisor"
+                  options={modelOptions}
+                  value={advisorModel}
+                  onChange={setAdvisorModel}
+                  placeholder={modelsError ? "No models available" : "Select advisor"}
                   searchPlaceholder="Search models…"
                   emptyText="No matching models."
                   disabled={(models ?? []).length === 0}
@@ -1063,6 +1114,17 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 value={model}
                 onChange={setModel}
                 placeholder={modelsError ? "No models available" : "Select model"}
+                searchPlaceholder="Search models…"
+                emptyText="No matching models."
+                disabled={(models ?? []).length === 0}
+                className="h-8 text-xs"
+              />
+              <Combobox
+                ariaLabel="Advisor"
+                options={modelOptions}
+                value={advisorModel}
+                onChange={setAdvisorModel}
+                placeholder={modelsError ? "No models available" : "Select advisor"}
                 searchPlaceholder="Search models…"
                 emptyText="No matching models."
                 disabled={(models ?? []).length === 0}
@@ -1512,6 +1574,7 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
           <SummaryItem label="Spent" value="Not tracked yet" />
           <SummaryItem label="Files changed" value={String(diff?.files_changed.length ?? 0)} />
           <SummaryItem label="Model" value={displayModel(job)} />
+          <SummaryItem label="Advisor" value={displayAdvisor(job)} />
         </div>
       </div>
 
@@ -2429,7 +2492,12 @@ function GNSISWorkspacePreview() {
       repository_id: selection.repositoryId,
       instruction: prompt,
       base_branch: selection.branch,
+      // model powers the OpenHands coding agent; advisor_model powers the
+      // openrouter:advisor server tool the primary can consult. The two are
+      // submitted as distinct fields; the backend validates them
+      // independently against the same allowlist.
       model: selection.model,
+      advisor_model: selection.advisor_model,
     });
     setJobs((prev) => upsertJob(prev, job));
     setView(threadFromJob(job));
