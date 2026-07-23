@@ -85,6 +85,7 @@ beforeEach(() => {
     base_branch: "main",
     engine: "gnsis",
     model: "anthropic/claude-opus-4.8",
+    advisor_model: "anthropic/claude-opus-4.8",
     status: "queued",
     branch: null,
     error: null,
@@ -99,6 +100,7 @@ beforeEach(() => {
     base_branch: "main",
     engine: "gnsis",
     model: "anthropic/claude-opus-4.8",
+    advisor_model: "anthropic/claude-opus-4.8",
     status: "queued",
     branch: null,
     error: null,
@@ -210,7 +212,7 @@ describe("NewRunComposer", () => {
     expect(screen.queryByText("anthropic")).not.toBeInTheDocument();
   });
 
-  it("submits repository_id + selected model to createJob", async () => {
+  it("submits repository_id + selected primary + advisor model to createJob", async () => {
     const user = userEvent.setup();
     renderApp();
 
@@ -229,12 +231,100 @@ describe("NewRunComposer", () => {
     await user.click(startButtons[0]);
 
     await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    // Advisor defaulted to the first allowed model (Claude Opus 4.8) — the
+    // primary and Advisor are two distinct fields, both sent verbatim.
     expect(apiMocks.createJobMock).toHaveBeenCalledWith({
       repository_id: "repo-alpha",
       instruction: "Refactor the router",
       base_branch: "main",
       model: "anthropic/claude-sonnet-5",
+      advisor_model: "anthropic/claude-opus-4.8",
     });
+  });
+
+  it("submits a user-changed Advisor model as a distinct field", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("combobox", { name: "Repository" });
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Advisor" })).toHaveTextContent("Claude Opus 4.8"),
+    );
+
+    // Change ONLY the Advisor to prove the two selectors are independent.
+    await user.click(screen.getByRole("combobox", { name: "Advisor" }));
+    await user.click(screen.getByRole("option", { name: /Claude Sonnet 5/ }));
+
+    await user.type(screen.getByPlaceholderText(/Describe the change/i), "review this");
+    await user.click(screen.getAllByRole("button", { name: /Start run/i })[0]);
+
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    const call = apiMocks.createJobMock.mock.calls[0][0];
+    // Primary stays on the default; Advisor swapped to the picked value.
+    expect(call.model).toBe("anthropic/claude-opus-4.8");
+    expect(call.advisor_model).toBe("anthropic/claude-sonnet-5");
+  });
+
+
+  it("keeps primary and Advisor selections independent after changing each selector", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const primary = await screen.findByRole("combobox", { name: "Model" });
+    const advisor = await screen.findByRole("combobox", { name: "Advisor" });
+    await waitFor(() => expect(primary).toHaveTextContent("Claude Opus 4.8"));
+    expect(advisor).toHaveTextContent("Claude Opus 4.8");
+
+    await user.click(advisor);
+    await user.click(screen.getByRole("option", { name: "Claude Sonnet 5" }));
+    expect(primary).toHaveTextContent("Claude Opus 4.8");
+    expect(advisor).toHaveTextContent("Claude Sonnet 5");
+
+    await user.click(primary);
+    await user.click(screen.getByRole("option", { name: "Claude Sonnet 5" }));
+    expect(primary).toHaveTextContent("Claude Sonnet 5");
+    expect(advisor).toHaveTextContent("Claude Sonnet 5");
+  });
+
+  it("the model selectors reject free-typed values and only submit catalog IDs", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const model = await screen.findByRole("combobox", { name: "Model" });
+    expect(model.tagName).toBe("BUTTON");
+    await user.click(model);
+
+    const search = within(screen.getByRole("listbox")).getByRole("textbox");
+    await user.type(search, "openai/not-in-catalog");
+    expect(screen.getByText("No matching models.")).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(model).toHaveTextContent("Claude Opus 4.8");
+
+    await user.type(screen.getByPlaceholderText(/Describe the change/i), "Use exact ids");
+    await user.click(screen.getAllByRole("button", { name: /Start run/i })[0]);
+
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+    expect(apiMocks.createJobMock.mock.calls[0][0]).toMatchObject({
+      model: "anthropic/claude-opus-4.8",
+      advisor_model: "anthropic/claude-opus-4.8",
+    });
+  });
+
+  it("Advisor selector initializes from the backend catalog, not a hardcoded value", async () => {
+    // A backend allowlist WITHOUT the marketing-common opus id proves the
+    // Advisor is initialised from the catalogue rather than a hardcoded
+    // default the frontend picked itself.
+    apiMocks.listModelsMock.mockResolvedValueOnce({
+      items: [
+        { id: "vendor-x/model-1", label: "Vendor X 1", provider: "vendor-x", default: true },
+        { id: "vendor-x/model-2", label: "Vendor X 2", provider: "vendor-x", default: false },
+      ],
+    });
+    renderApp();
+    const advisor = await screen.findByRole("combobox", { name: "Advisor" });
+    await waitFor(() => expect(advisor).toHaveTextContent("Vendor X 1"));
+    expect(advisor).not.toHaveTextContent("Opus");
+    expect(advisor).not.toHaveTextContent("Sonnet");
   });
 
   it('labels the third selector "Model", never "Agent harness" or "Executor"', async () => {

@@ -96,6 +96,7 @@ const jobs: JobRecord[] = [
     base_branch: "main",
     engine: "gnsis",
     model: "anthropic/claude-opus-4.8",
+    advisor_model: "anthropic/claude-opus-4.8",
     status: "completed",
     branch: "fix-routing",
     error: null,
@@ -110,6 +111,7 @@ const jobs: JobRecord[] = [
     base_branch: "main",
     engine: "gnsis",
     model: "anthropic/claude-opus-4.8",
+    advisor_model: "anthropic/claude-opus-4.8",
     status: "completed",
     branch: "direct-run",
     error: null,
@@ -250,6 +252,25 @@ describe("workspace routing", () => {
 
     expect((await screen.findAllByText("Directly loaded run")).length).toBeGreaterThan(0);
     expect(apiMocks.getJobMock).toHaveBeenCalledWith("run-2");
+  });
+
+
+  it("renders historical jobs without an Advisor model as a neutral missing value", async () => {
+    const historicalJob: JobRecord = {
+      ...jobs[0],
+      id: "run-legacy",
+      instruction: "Legacy run without advisor",
+      advisor_model: null,
+    };
+    apiMocks.listJobsMock.mockResolvedValueOnce([historicalJob]);
+    apiMocks.getJobMock.mockResolvedValueOnce(historicalJob);
+
+    renderWorkspace("/runs/run-legacy");
+
+    expect((await screen.findAllByText("Legacy run without advisor")).length).toBeGreaterThan(0);
+    const advisorLabel = screen.getByText("Advisor");
+    expect(advisorLabel.parentElement).toHaveTextContent("—");
+    expect(advisorLabel.parentElement).not.toHaveTextContent("Claude Opus 4.8");
   });
 
   it("browser back navigation restores the prior screen", async () => {
