@@ -873,7 +873,6 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     value: m.id,
     label: m.label,
     keywords: [m.provider],
-    hint: m.default ? "Default" : undefined,
   }));
 
   const canSubmit =
