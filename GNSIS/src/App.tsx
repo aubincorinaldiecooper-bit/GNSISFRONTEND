@@ -44,7 +44,9 @@ import { integrationLabEnabled } from "@/lib/env";
 import {
   createJob,
   listJobs,
-  listEngines,
+  listRepositories,
+  listBranches,
+  listModels,
   getJob,
   getJobLogs,
   getJobDiff,
@@ -58,9 +60,11 @@ import {
   type JobStatus,
   type LogRecord,
   type DiffRecord,
-  type EngineInfo,
+  type RepositoryRecord,
+  type ModelInfo,
   type Balances,
 } from "@/lib/api";
+import { Combobox, type ComboboxOption } from "@/components/Combobox";
 import {
   Tooltip,
   TooltipContent,
@@ -281,9 +285,14 @@ interface RecentRun {
   id: string;
   title: string;
   repo: string;
-  engine: string;
+  model: string;
   status: RunStatus;
   updatedAt: string;
+}
+
+// Legacy jobs created before model selection carry no model — never invent one.
+function displayModel(job: JobRecord): string {
+  return job.model ?? "—";
 }
 
 function toRecentRun(job: JobRecord): RecentRun {
@@ -291,7 +300,7 @@ function toRecentRun(job: JobRecord): RecentRun {
     id: job.id,
     title: job.instruction.split("\n")[0].slice(0, 140) || job.instruction,
     repo: job.repo,
-    engine: job.engine,
+    model: displayModel(job),
     status: jobStatusToRunStatus(job.status),
     updatedAt: job.updated_at,
   };
@@ -728,74 +737,169 @@ function SidebarRegion({
 
 
 // =============================================================================
-// NEW RUN COMPOSER (with duplicate submission prevention)
+// NEW RUN COMPOSER — repository / branch / model, sourced entirely from the
+// backend (enabled repos, that repo's real branches, the server model
+// allowlist). No free-text repo/branch entry, no executor/harness choice.
 // =============================================================================
 
 interface ComposerSelection {
-  repo: string;
+  repositoryId: string;
+  repositoryFullName: string;
   branch: string;
-  engine: string;
+  model: string;
 }
 
 interface NewRunComposerProps {
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
 }
 
-const knownRepos = [
-  "aubincorinaldiecooper-bit/gnsisfrontend",
-  "aubincorinaldiecooper-bit/gnsisbackend",
-];
-
-// Fallback if GET /engines hasn't loaded yet (or fails) — kept in sync with
-// the backend's own AVAILABLE_ENGINES by hand, same as the backend does for
-// the engine registry itself.
-const fallbackEngines: EngineInfo[] = [
-  { id: "claude", label: "Claude Agent SDK" },
-  { id: "gnsis", label: "GNSIS (OpenRouter, native)" },
-  { id: "openhands", label: "OpenHands" },
-];
-
 function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [prompt, setPrompt] = useState("");
-  const [repo, setRepo] = useState(knownRepos[0]);
-  const [branch, setBranch] = useState("main");
-  const [engines, setEngines] = useState<EngineInfo[]>(fallbackEngines);
-  const [engine, setEngine] = useState(fallbackEngines[0].id);
+
+  const [repos, setRepos] = useState<RepositoryRecord[] | null>(null);
+  const [reposError, setReposError] = useState(false);
+  const [repositoryId, setRepositoryId] = useState<string | null>(null);
+
+  const [branches, setBranches] = useState<string[] | null>(null);
+  const [branchesError, setBranchesError] = useState(false);
+  const [branch, setBranch] = useState<string | null>(null);
+
+  const [models, setModels] = useState<ModelInfo[] | null>(null);
+  const [modelsError, setModelsError] = useState(false);
+  const [model, setModel] = useState<string | null>(null);
+
   const [showMobileConfig, setShowMobileConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Enabled repositories only — the New Run source of truth.
   useEffect(() => {
     if (!isApiConfigured()) return;
     let cancelled = false;
-    listEngines()
+    listRepositories({ enabledOnly: true })
       .then((list) => {
-        if (cancelled || list.length === 0) return;
-        setEngines(list);
-        setEngine((current) => (list.some((e) => e.id === current) ? current : list[0].id));
+        if (cancelled) return;
+        setRepos(list);
+        // Preserve an already-selected repo across a background refresh;
+        // otherwise default to the first (most-recently-listed) one.
+        setRepositoryId((current) =>
+          current && list.some((r) => r.id === current) ? current : (list[0]?.id ?? null),
+        );
       })
       .catch(() => {
-        // keep the fallback list — the composer still works, just may offer
-        // an engine the backend doesn't actually have configured
+        if (!cancelled) {
+          setRepos([]);
+          setReposError(true);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const canSubmit = prompt.trim().length > 0 && repo.trim().length > 0 && !isSubmitting;
+  // The server-controlled model catalog.
+  useEffect(() => {
+    if (!isApiConfigured()) return;
+    let cancelled = false;
+    listModels()
+      .then(({ items }) => {
+        if (cancelled) return;
+        setModels(items);
+        setModel(items.find((m) => m.default)?.id ?? items[0]?.id ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setModels([]);
+          setModelsError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A branch from the previous repository must never remain selected. Reset
+  // synchronously during render (React's documented pattern for adjusting
+  // state when a prop/state value changes) rather than in the effect below,
+  // so the stale branch never paints even for one frame.
+  const [branchesResetKey, setBranchesResetKey] = useState(repositoryId);
+  if (repositoryId !== branchesResetKey) {
+    setBranchesResetKey(repositoryId);
+    setBranch(null);
+    setBranches(null);
+    setBranchesError(false);
+  }
+
+  // Branches reload whenever the selected repository changes.
+  useEffect(() => {
+    if (!repositoryId) return;
+    let cancelled = false;
+    listBranches(repositoryId)
+      .then(({ default_branch, branches: list }) => {
+        if (cancelled) return;
+        setBranches(list.map((b) => b.name));
+        setBranch(default_branch);
+      })
+      .catch(() => {
+        if (!cancelled) setBranchesError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repositoryId]);
+
+  // Derived, like the repos/models loading states above, rather than a
+  // separate effect-driven flag: "loading" iff a repo is selected but its
+  // branch list hasn't arrived (or failed) yet.
+  const branchesLoading = repositoryId !== null && branches === null && !branchesError;
+
+  const selectedRepo = repos?.find((r) => r.id === repositoryId) ?? null;
+
+  const repoOptions: ComboboxOption[] = (repos ?? []).map((r) => ({
+    value: r.id,
+    label: r.full_name,
+    keywords: [r.owner, r.name],
+    hint: r.private ? "Private" : undefined,
+  }));
+
+  const branchOptions: ComboboxOption[] = (branches ?? []).map((b) => ({
+    value: b,
+    label: b,
+  }));
+
+  const modelOptions: ComboboxOption[] = (models ?? []).map((m) => ({
+    value: m.id,
+    label: m.label,
+    keywords: [m.provider],
+    hint: m.default ? "Default" : undefined,
+  }));
+
+  const canSubmit =
+    prompt.trim().length > 0 &&
+    !!repositoryId &&
+    !!branch &&
+    !!model &&
+    !isSubmitting;
 
   const handleSubmit = useCallback(async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || !selectedRepo || !branch || !model) return;
     setIsSubmitting(true);
     setError(null);
     try {
-      await onSubmit(prompt.trim(), { repo: repo.trim(), branch: branch.trim() || "main", engine });
+      await onSubmit(prompt.trim(), {
+        repositoryId: selectedRepo.id,
+        repositoryFullName: selectedRepo.full_name,
+        branch,
+        model,
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start the run.");
       setIsSubmitting(false);
     }
-  }, [canSubmit, prompt, repo, branch, engine, onSubmit]);
+  }, [canSubmit, selectedRepo, branch, model, prompt, onSubmit]);
+
+  const noReposEnabled = repos !== null && repos.length === 0 && !reposError;
+  const selectedModelLabel = models?.find((m) => m.id === model)?.label ?? model ?? "";
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
@@ -808,135 +912,158 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         </p>
       </div>
 
-      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
-        <Textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe the change you want Genesis to make…"
-          className="min-h-28 resize-none border-none shadow-none rounded-none px-4 py-3.5 text-sm focus-visible:ring-0"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-        />
+      {noReposEnabled ? (
+        <div className="rounded-2xl border border-dashed border-border bg-neutral-50/50 px-6 py-10 text-center">
+          <p className="text-sm font-medium text-foreground">No repositories enabled</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Enable a repository in Settings before starting a run.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
+          <Textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe the change you want Genesis to make…"
+            className="min-h-28 resize-none border-none shadow-none rounded-none px-4 py-3.5 text-sm focus-visible:ring-0"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+          />
 
-        <Divider orientation="horizontal" />
+          <Divider orientation="horizontal" />
 
-        {/* Desktop fields */}
-        <div className="hidden md:flex items-center justify-between gap-2 px-2.5 py-2">
-          <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <FolderGit className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
-              <Input
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                placeholder="owner/repo"
-                list="repo-suggestions"
-                className="h-7 w-64 border-none shadow-none bg-transparent px-1.5 text-xs font-mono focus-visible:ring-0"
-              />
+          {/* Desktop fields */}
+          <div className="hidden md:flex items-center justify-between gap-2 px-2.5 py-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0 w-56">
+                <FolderGit className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                <Combobox
+                  ariaLabel="Repository"
+                  options={repoOptions}
+                  value={repositoryId}
+                  onChange={setRepositoryId}
+                  placeholder="Select repository"
+                  searchPlaceholder="Search repositories…"
+                  emptyText="No matching repositories."
+                  className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs font-mono"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0 w-40">
+                <GitBranch className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                <Combobox
+                  ariaLabel="Branch"
+                  options={branchOptions}
+                  value={branch}
+                  onChange={setBranch}
+                  placeholder={branchesLoading ? "Loading branches…" : "Select branch"}
+                  searchPlaceholder="Search branches…"
+                  emptyText={branchesError ? "Could not load branches." : "No branches found."}
+                  loading={branchesLoading}
+                  disabled={!repositoryId}
+                  className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs font-mono"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0 w-48">
+                <Cpu className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+                <Combobox
+                  ariaLabel="Model"
+                  options={modelOptions}
+                  value={model}
+                  onChange={setModel}
+                  placeholder={modelsError ? "No models available" : "Select model"}
+                  searchPlaceholder="Search models…"
+                  emptyText="No matching models."
+                  disabled={(models ?? []).length === 0}
+                  className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 min-w-0">
-              <GitBranch className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
-              <Input
+
+            <Button
+              size="sm"
+              disabled={!canSubmit}
+              onClick={handleSubmit}
+              className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
+            >
+              {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              Start run
+            </Button>
+          </div>
+
+          {/* Mobile bottom bar */}
+          <div className="flex md:hidden items-center justify-between gap-2 px-3 py-2.5">
+            <button
+              type="button"
+              onClick={() => setShowMobileConfig((v) => !v)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors text-left min-w-0 truncate"
+            >
+              <span className="font-mono">{selectedRepo?.full_name ?? "Select repository"}</span>
+              {branch ? ` · ${branch}` : ""}
+              {selectedModelLabel ? ` · ${selectedModelLabel}` : ""}
+            </button>
+            <Button
+              size="sm"
+              disabled={!canSubmit}
+              onClick={handleSubmit}
+              className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
+            >
+              {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              <span className="text-sm">Start</span>
+            </Button>
+          </div>
+
+          {/* Mobile config sheet */}
+          {showMobileConfig && (
+            <div className="md:hidden border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
+              <Combobox
+                ariaLabel="Repository"
+                options={repoOptions}
+                value={repositoryId}
+                onChange={setRepositoryId}
+                placeholder="Select repository"
+                searchPlaceholder="Search repositories…"
+                emptyText="No matching repositories."
+                className="h-8 text-xs font-mono"
+              />
+              <Combobox
+                ariaLabel="Branch"
+                options={branchOptions}
                 value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                placeholder="main"
-                className="h-7 w-28 border-none shadow-none bg-transparent px-1.5 text-xs font-mono focus-visible:ring-0"
+                onChange={setBranch}
+                placeholder={branchesLoading ? "Loading branches…" : "Select branch"}
+                searchPlaceholder="Search branches…"
+                emptyText={branchesError ? "Could not load branches." : "No branches found."}
+                loading={branchesLoading}
+                disabled={!repositoryId}
+                className="h-8 text-xs font-mono"
+              />
+              <Combobox
+                ariaLabel="Model"
+                options={modelOptions}
+                value={model}
+                onChange={setModel}
+                placeholder={modelsError ? "No models available" : "Select model"}
+                searchPlaceholder="Search models…"
+                emptyText="No matching models."
+                disabled={(models ?? []).length === 0}
+                className="h-8 text-xs"
               />
             </div>
-            <div className="flex items-center gap-1.5 min-w-0">
-              <Cpu className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
-              <Select value={engine} onValueChange={setEngine}>
-                <SelectTrigger
-                  size="sm"
-                  className="h-7 w-auto gap-1.5 rounded-md border-none bg-transparent px-1.5 shadow-none text-xs focus-visible:ring-0"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {engines.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <Button
-            size="sm"
-            disabled={!canSubmit}
-            onClick={handleSubmit}
-            className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
-          >
-            {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            Start run
-          </Button>
+          )}
         </div>
-
-        {/* Mobile bottom bar */}
-        <div className="flex md:hidden items-center justify-between gap-2 px-3 py-2.5">
-          <button
-            type="button"
-            onClick={() => setShowMobileConfig((v) => !v)}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors text-left min-w-0 truncate"
-          >
-            <span className="font-mono">{repo || "owner/repo"}</span> · {branch || "main"} · {engines.find((e) => e.id === engine)?.label ?? engine}
-          </button>
-          <Button
-            size="sm"
-            disabled={!canSubmit}
-            onClick={handleSubmit}
-            className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
-          >
-            {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            <span className="text-sm">Start</span>
-          </Button>
-        </div>
-
-        {/* Mobile config sheet */}
-        {showMobileConfig && (
-          <div className="md:hidden border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
-            <Input
-              value={repo}
-              onChange={(e) => setRepo(e.target.value)}
-              placeholder="owner/repo"
-              list="repo-suggestions"
-              className="h-8 text-xs font-mono"
-            />
-            <Input
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="main"
-              className="h-8 text-xs font-mono"
-            />
-            <Select value={engine} onValueChange={setEngine}>
-              <SelectTrigger size="sm" className="h-8 text-xs w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {engines.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <datalist id="repo-suggestions">
-          {knownRepos.map((r) => (
-            <option key={r} value={r} />
-          ))}
-        </datalist>
-      </div>
+      )}
 
       {error && (
         <p className="mt-2 text-center text-xs text-red-600">{error}</p>
+      )}
+      {reposError && (
+        <p className="mt-2 text-center text-xs text-red-600">
+          Could not load your repositories. Try refreshing.
+        </p>
       )}
       {!isApiConfigured() && (
         <p className="mt-2 text-center text-xs text-amber-600">
@@ -987,7 +1114,7 @@ function ThreadContextRow({ job }: { job: JobRecord }) {
       <span className="text-muted-foreground/40">·</span>
       <span className="font-mono">{job.branch || job.base_branch}</span>
       <span className="text-muted-foreground/40">·</span>
-      <span>{job.engine}</span>
+      <span>{displayModel(job)}</span>
     </div>
   );
 }
@@ -1368,7 +1495,7 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
           />
           <SummaryItem label="Spent" value="Not tracked yet" />
           <SummaryItem label="Files changed" value={String(diff?.files_changed.length ?? 0)} />
-          <SummaryItem label="Engine" value={job.engine} />
+          <SummaryItem label="Model" value={displayModel(job)} />
         </div>
       </div>
 
@@ -1680,7 +1807,7 @@ function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void })
     >
       <span className="text-sm text-foreground truncate">{run.title}</span>
       <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-      <span className="text-xs text-muted-foreground truncate">{run.engine}</span>
+      <span className="text-xs text-muted-foreground truncate">{run.model}</span>
       <span className="text-xs"><StatusLabel status={run.status} /></span>
       <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
     </button>
@@ -1773,7 +1900,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="font-mono">{run.repo}</span>
                 <span>·</span>
-                <span>{run.engine}</span>
+                <span>{run.model}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <StatusLabel status={run.status} />
@@ -1960,7 +2087,7 @@ function DashboardView({
               >
                 <span className="text-sm text-foreground truncate">{run.title}</span>
                 <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-                <span className="text-xs text-muted-foreground truncate">{run.engine}</span>
+                <span className="text-xs text-muted-foreground truncate">{run.model}</span>
                 <span className="text-xs"><StatusLabel status={run.status} /></span>
                 <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
               </button>
@@ -1987,7 +2114,7 @@ function DashboardView({
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="font-mono">{run.repo}</span>
                   <span>·</span>
-                  <span>{run.engine}</span>
+                  <span>{run.model}</span>
                   <span>·</span>
                   <StatusLabel status={run.status} />
                 </div>
@@ -2215,9 +2342,16 @@ function GNSISWorkspacePreview() {
     else if (route === "dashboard") setView({ kind: "dashboard" });
     else if (route === "settings") setView({ kind: "settings" });
     else if (route === "billing") setView({ kind: "billing" });
-    else if (route === "integration-test") setView({ kind: "integration-test" });
-    else if (route === "github-onboarding") setView({ kind: "github-onboarding" });
-  }, [route]);
+    else if (route === "integration-test") {
+      // The route itself is gated, not just the nav link — a direct URL visit
+      // when the flag is off must not reach the Integration Lab.
+      if (integrationLabEnabled()) {
+        setView({ kind: "integration-test" });
+      } else {
+        navigate("/", { replace: true });
+      }
+    } else if (route === "github-onboarding") setView({ kind: "github-onboarding" });
+  }, [route, navigate]);
 
   useEffect(() => {
     if (route !== "run" || !routeRunId) return;
@@ -2276,10 +2410,10 @@ function GNSISWorkspacePreview() {
 
   const handleComposerSubmit = async (prompt: string, selection: ComposerSelection) => {
     const job = await createJob({
-      repo: selection.repo,
+      repository_id: selection.repositoryId,
       instruction: prompt,
       base_branch: selection.branch,
-      engine: selection.engine,
+      model: selection.model,
     });
     setJobs((prev) => upsertJob(prev, job));
     setView(threadFromJob(job));

@@ -56,6 +56,9 @@ const apiMocks = vi.hoisted(() => {
     getJobDiffMock: vi.fn(),
     claimGitHubInstallationMock: vi.fn(),
     listRepositoriesMock: vi.fn(),
+    setRepositoryEnabledMock: vi.fn(),
+    listBranchesMock: vi.fn(),
+    listModelsMock: vi.fn(),
   };
 });
 
@@ -74,6 +77,9 @@ vi.mock("@/lib/api", () => ({
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...args: unknown[]) => apiMocks.listJobsMock(...args),
   listRepositories: (...args: unknown[]) => apiMocks.listRepositoriesMock(...args),
+  setRepositoryEnabled: (...args: unknown[]) => apiMocks.setRepositoryEnabledMock(...args),
+  listBranches: (...args: unknown[]) => apiMocks.listBranchesMock(...args),
+  listModels: (...args: unknown[]) => apiMocks.listModelsMock(...args),
   listUsageEvents: vi.fn(async () => []),
   matchesGatewayRequest: vi.fn(() => false),
   rejectJob: vi.fn(),
@@ -91,6 +97,7 @@ const jobs: JobRecord[] = [
     instruction: "Fix dashboard routing",
     base_branch: "main",
     engine: "gnsis",
+    model: "anthropic/claude-opus-4.8",
     status: "completed",
     branch: "fix-routing",
     error: null,
@@ -104,6 +111,7 @@ const jobs: JobRecord[] = [
     instruction: "Directly loaded run",
     base_branch: "main",
     engine: "gnsis",
+    model: "anthropic/claude-opus-4.8",
     status: "completed",
     branch: "direct-run",
     error: null,
@@ -175,6 +183,17 @@ beforeEach(() => {
       archived: false,
     },
   ]);
+  apiMocks.setRepositoryEnabledMock.mockImplementation(async (id: string, enabled: boolean) => ({
+    id, enabled, github_repository_id: 123, owner: "owner", name: "repo",
+    full_name: "owner/repo", default_branch: "main", private: true, archived: false,
+  }));
+  apiMocks.listBranchesMock.mockResolvedValue({
+    default_branch: "main",
+    branches: [{ name: "main", is_default: true }],
+  });
+  apiMocks.listModelsMock.mockResolvedValue({
+    items: [{ id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8", provider: "anthropic", default: true }],
+  });
 });
 
 describe("workspace routing", () => {
@@ -273,19 +292,29 @@ describe("workspace routing", () => {
   it("submits exactly one numeric GitHub installation claim under StrictMode", async () => {
     renderWorkspace("/onboarding/github?installation_id=12345&setup_action=install", { strict: true });
 
-    expect(await screen.findByText(/Connecting your GitHub repositories/i)).toBeInTheDocument();
-    await waitFor(() => expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(1));
+    // The claim resolves quickly against mocks and moves straight into the
+    // repository-selection step, so the transient "Connecting…" text isn't a
+    // reliable thing to assert on here. What this test actually guards is
+    // StrictMode's double-invoke of effects not producing a duplicate claim.
+    expect(await screen.findByRole("heading", { name: "Choose repositories for GNSIS" })).toBeInTheDocument();
+    expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(1);
     expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledWith(12345);
   });
 
-  it("replaces the URL with Settings and refreshes user and repositories on GitHub claim success", async () => {
+  it("shows repository selection after a successful claim, then continues to Settings", async () => {
+    const user = userEvent.setup();
     renderWorkspace("/onboarding/github?installation_id=67890&setup_action=install");
+
+    // Connection is already successful here — the repo-selection step is a
+    // deliberate next step, not a gate on success.
+    expect(await screen.findByRole("heading", { name: "Choose repositories for GNSIS" })).toBeInTheDocument();
+    expect(sessionValue.refreshMe).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("owner/repo")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Continue/i }));
 
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
     expect(await screen.findByText(/GitHub repositories connected successfully/i)).toBeInTheDocument();
-    expect(sessionValue.refreshMe).toHaveBeenCalledTimes(1);
-    expect(apiMocks.listRepositoriesMock).toHaveBeenCalled();
-    expect(await screen.findByText("owner/repo")).toBeInTheDocument();
   });
 
   it("shows an invalid callback screen when installation_id is missing", async () => {
@@ -307,6 +336,9 @@ describe("workspace routing", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("heading", { name: "Choose repositories for GNSIS" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Continue/i }));
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
   });
 

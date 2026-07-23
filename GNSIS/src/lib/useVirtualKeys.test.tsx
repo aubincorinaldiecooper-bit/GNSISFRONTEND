@@ -67,6 +67,50 @@ describe("useVirtualKeys", () => {
     expect(createKey).toHaveBeenCalledTimes(1);
   });
 
+  it("disable forgets the secret; a disabled key disappears once the backend list excludes it", async () => {
+    // The backend (not the frontend) is the source of truth for "active
+    // only" — the hook just re-renders with whatever reload() returns.
+    listKeys.mockResolvedValueOnce({
+      items: [{ id: "vk1", status: "active", mode: "test", name: "prod" }],
+    });
+    const { result } = renderHook(() => useVirtualKeys());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.keys).toHaveLength(1);
+
+    const { rememberSecret } = await import("@/lib/keySecrets");
+    rememberSecret("vk1", "gns_test_secretvalue");
+
+    disableKey.mockResolvedValue(undefined);
+    listKeys.mockResolvedValueOnce({ items: [] }); // backend now omits the disabled key
+
+    await act(async () => {
+      await result.current.disable("vk1");
+    });
+
+    expect(disableKey).toHaveBeenCalledWith("vk1");
+    expect(hasSecret("vk1")).toBe(false);
+    expect(result.current.keys).toHaveLength(0);
+  });
+
+  it("prevents a duplicate concurrent disable submission", async () => {
+    listKeys.mockResolvedValueOnce({ items: [{ id: "vk1", status: "active" }] });
+    let resolveDisable: (() => void) | undefined;
+    disableKey.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveDisable = resolve; }),
+    );
+    const { result } = renderHook(() => useVirtualKeys());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      const p1 = result.current.disable("vk1");
+      const p2 = result.current.disable("vk1"); // must be ignored
+      resolveDisable!();
+      await Promise.all([p1, p2]);
+    });
+
+    expect(disableKey).toHaveBeenCalledTimes(1);
+  });
+
   it("rotate forgets the old secret and remembers the new one", async () => {
     rotateKey.mockResolvedValue({
       key: "gns_test_newsecret",
