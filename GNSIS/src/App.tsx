@@ -2396,12 +2396,14 @@ function routeFromPathname(pathname: string): { route: RouteViewKind; runId: str
   const runMatch = matchPath({ path: "/runs/:runId", end: true }, pathname);
   if (runMatch?.params.runId) return { route: "run", runId: runMatch.params.runId };
 
+  if (pathname === "/new") return { route: "new-run", runId: null };
   if (pathname === "/runs") return { route: "runs", runId: null };
   if (pathname === "/dashboard") return { route: "dashboard", runId: null };
   if (pathname === "/settings") return { route: "settings", runId: null };
   if (pathname === "/billing") return { route: "billing", runId: null };
   if (pathname === "/integration-test") return { route: "integration-test", runId: null };
   if (pathname === "/onboarding/github") return { route: "github-onboarding", runId: null };
+  // New Run is the workspace default for any other authenticated path.
   return { route: "new-run", runId: null };
 }
 
@@ -2487,7 +2489,7 @@ function GNSISWorkspacePreview() {
       if (integrationLabEnabled()) {
         setView({ kind: "integration-test" });
       } else {
-        navigate("/", { replace: true });
+        navigate("/new", { replace: true });
       }
     } else if (route === "github-onboarding") setView({ kind: "github-onboarding" });
   }, [route, navigate]);
@@ -2531,7 +2533,7 @@ function GNSISWorkspacePreview() {
 
   const handleNavSelect = (id: NavId) => {
     const nextPath: Record<NavId, string> = {
-      "new-run": "/",
+      "new-run": "/new",
       runs: "/runs",
       dashboard: "/dashboard",
       "integration-test": "/integration-test",
@@ -2631,11 +2633,13 @@ function GNSISWorkspacePreview() {
     }
   };
 
-  const handleNewRun = () => navigate("/");
+  const handleNewRun = () => navigate("/new");
   const handleSettings = () => navigate("/settings");
   const handleBilling = () => navigate("/billing");
   const navigateBackOrHome = () => {
-    if (location.key === "default") navigate("/");
+    // "Home" inside the authenticated app is the New Run workspace, not the
+    // public marketing homepage at "/".
+    if (location.key === "default") navigate("/new");
     else navigate(-1);
   };
 
