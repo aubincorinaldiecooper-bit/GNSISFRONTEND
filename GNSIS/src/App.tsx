@@ -927,7 +927,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const manageAccessLink = slug ? `https://github.com/apps/${slug}/installations/new` : null;
 
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
+    <div className="w-full max-w-4xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
       <div className="text-center space-y-2 mb-6">
         <h1 className="text-lg font-semibold tracking-tight text-foreground">
           What should Genesis work on?
@@ -957,12 +957,18 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           )}
         </div>
       ) : (
-        <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
+        <div className="rounded-2xl border border-border bg-white shadow-sm">
+          {/*
+            The card is deliberately overflow-VISIBLE so the non-portal Combobox
+            dropdowns can extend past the card's bottom edge. Rounded corners are
+            preserved on the static top (textarea) and, on mobile, the config
+            sheet — never with overflow-hidden on an ancestor of an open dropdown.
+          */}
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Describe the change you want Genesis to make…"
-            className="min-h-28 resize-none border-none shadow-none rounded-none px-4 py-3.5 text-sm focus-visible:ring-0"
+            className="min-h-28 resize-none border-none shadow-none rounded-t-2xl rounded-b-none px-4 py-3.5 text-sm focus-visible:ring-0"
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -973,41 +979,47 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 
           <Divider orientation="horizontal" />
 
-          {/* Desktop fields */}
-          <div className="hidden md:flex items-center justify-between gap-2 px-2.5 py-2">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 min-w-0 w-56">
-                <FolderGit className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+          {/* Desktop / tablet configuration (md and up) */}
+          <div className="hidden md:flex md:flex-col gap-2 px-3 py-3">
+            {/*
+              Responsive control grid. Below lg the fields stack into a
+              two-column layout (Repository full-width, Branch + Model paired,
+              Start run on its own row) so nothing compresses; at lg they line
+              up as Repository (widest) · Branch · Model · Start run.
+            */}
+            <div className="grid gap-2 grid-cols-2 lg:grid-cols-[minmax(0,1.7fr)_minmax(7.5rem,0.7fr)_minmax(10rem,1fr)_auto] lg:items-center">
+              <div className="col-span-2 lg:col-span-1 min-w-0">
                 <Combobox
                   ariaLabel="Repository"
+                  icon={<FolderGit className="h-3.5 w-3.5" />}
                   options={repoOptions}
                   value={repositoryId}
                   onChange={setRepositoryId}
                   placeholder="Select repository"
                   searchPlaceholder="Search repositories…"
                   emptyText="No matching repositories."
-                  className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
                 />
               </div>
-              <div className="flex items-center gap-1.5 min-w-0 w-40">
-                <GitBranch className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+              <div className="min-w-0">
                 <Combobox
                   ariaLabel="Branch"
+                  icon={<GitBranch className="h-3.5 w-3.5" />}
                   options={branchOptions}
                   value={branch}
                   onChange={setBranch}
-                  placeholder={branchesLoading ? "Loading branches…" : "Select branch"}
+                  placeholder={branchesLoading ? "Loading…" : "Select branch"}
                   searchPlaceholder="Search branches…"
                   emptyText={branchesError ? "Could not load branches." : "No branches found."}
                   loading={branchesLoading}
                   disabled={!repositoryId}
-                  className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
                 />
               </div>
-              <div className="flex items-center gap-1.5 min-w-0 w-48">
-                <Cpu className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+              <div className="min-w-0">
                 <Combobox
                   ariaLabel="Model"
+                  icon={<Cpu className="h-3.5 w-3.5" />}
                   options={modelOptions}
                   value={model}
                   onChange={setModel}
@@ -1015,54 +1027,65 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   searchPlaceholder="Search models…"
                   emptyText="No matching models."
                   disabled={(models ?? []).length === 0}
-                  className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs"
+                  className="h-9 rounded-lg bg-white px-2.5 text-xs"
                 />
               </div>
+              <div className="col-span-2 lg:col-span-1 flex justify-end">
+                <Button
+                  size="sm"
+                  disabled={!canSubmit}
+                  onClick={handleSubmit}
+                  className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
+                >
+                  {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Start run
+                </Button>
+              </div>
+            </div>
+
+            {/* Advisor — optional, its own row so it never crowds the core flow */}
+            <div className="flex items-center gap-2 min-w-0">
               {showAdvisor ? (
-                <div className="flex items-center gap-1.5 min-w-0 w-48">
-                  <Circle className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
-                  <Combobox
-                    ariaLabel="Advisor"
-                    options={modelOptions}
-                    value={advisorModel}
-                    onChange={setAdvisorModel}
-                    placeholder={modelsError ? "No models available" : "Select Advisor"}
-                    searchPlaceholder="Search Advisor models…"
-                    emptyText="No matching models."
-                    disabled={(models ?? []).length === 0}
-                    className="h-7 border-none shadow-none bg-transparent px-1.5 text-xs"
-                  />
-                  <button
+                <>
+                  <span className="shrink-0 text-xs text-muted-foreground">Advisor</span>
+                  <div className="min-w-0 w-full max-w-xs">
+                    <Combobox
+                      ariaLabel="Advisor"
+                      icon={<Circle className="h-3.5 w-3.5" />}
+                      options={modelOptions}
+                      value={advisorModel}
+                      onChange={setAdvisorModel}
+                      placeholder={modelsError ? "No models available" : "Select Advisor"}
+                      searchPlaceholder="Search Advisor models…"
+                      emptyText="No matching models."
+                      disabled={(models ?? []).length === 0}
+                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                    />
+                  </div>
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
                     aria-label="Remove Advisor"
                     onClick={handleRemoveAdvisor}
-                    className="rounded-md p-1 text-muted-foreground hover:bg-neutral-100 hover:text-foreground"
+                    className="h-8 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
                   >
                     <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                    Remove
+                  </Button>
+                </>
               ) : (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowAdvisor(true)}
-                  className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  className="h-8 -ml-1 px-2 text-xs text-muted-foreground hover:text-foreground"
                 >
                   + Add Advisor
                 </Button>
               )}
             </div>
-
-            <Button
-              size="sm"
-              disabled={!canSubmit}
-              onClick={handleSubmit}
-              className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
-            >
-              {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              Start run
-            </Button>
           </div>
 
           {/* Mobile bottom bar */}
@@ -1088,21 +1111,23 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             </Button>
           </div>
 
-          {/* Mobile config sheet */}
+          {/* Mobile config sheet — rounded-b so the card's bottom corners stay clean */}
           {showMobileConfig && (
-            <div className="md:hidden border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
+            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
               <Combobox
                 ariaLabel="Repository"
+                icon={<FolderGit className="h-3.5 w-3.5" />}
                 options={repoOptions}
                 value={repositoryId}
                 onChange={setRepositoryId}
                 placeholder="Select repository"
                 searchPlaceholder="Search repositories…"
                 emptyText="No matching repositories."
-                className="h-8 text-xs font-mono"
+                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Branch"
+                icon={<GitBranch className="h-3.5 w-3.5" />}
                 options={branchOptions}
                 value={branch}
                 onChange={setBranch}
@@ -1111,10 +1136,11 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 emptyText={branchesError ? "Could not load branches." : "No branches found."}
                 loading={branchesLoading}
                 disabled={!repositoryId}
-                className="h-8 text-xs font-mono"
+                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Model"
+                icon={<Cpu className="h-3.5 w-3.5" />}
                 options={modelOptions}
                 value={model}
                 onChange={setModel}
@@ -1122,29 +1148,35 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 searchPlaceholder="Search models…"
                 emptyText="No matching models."
                 disabled={(models ?? []).length === 0}
-                className="h-8 text-xs"
+                className="h-9 rounded-lg bg-white px-2.5 text-xs"
               />
               {showAdvisor ? (
                 <div className="flex items-center gap-2">
-                  <Combobox
-                    ariaLabel="Advisor"
-                    options={modelOptions}
-                    value={advisorModel}
-                    onChange={setAdvisorModel}
-                    placeholder={modelsError ? "No models available" : "Select Advisor"}
-                    searchPlaceholder="Search Advisor models…"
-                    emptyText="No matching models."
-                    disabled={(models ?? []).length === 0}
-                    className="h-8 text-xs"
-                  />
-                  <button
+                  <div className="min-w-0 flex-1">
+                    <Combobox
+                      ariaLabel="Advisor"
+                      icon={<Circle className="h-3.5 w-3.5" />}
+                      options={modelOptions}
+                      value={advisorModel}
+                      onChange={setAdvisorModel}
+                      placeholder={modelsError ? "No models available" : "Select Advisor"}
+                      searchPlaceholder="Search Advisor models…"
+                      emptyText="No matching models."
+                      disabled={(models ?? []).length === 0}
+                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                    />
+                  </div>
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
                     aria-label="Remove Advisor"
                     onClick={handleRemoveAdvisor}
-                    className="rounded-md p-2 text-muted-foreground hover:bg-neutral-100 hover:text-foreground"
+                    className="h-9 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
                   >
                     <X className="h-4 w-4" />
-                  </button>
+                    Remove
+                  </Button>
                 </div>
               ) : (
                 <Button
@@ -1152,7 +1184,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowAdvisor(true)}
-                  className="h-8 justify-start text-xs"
+                  className="h-9 w-full justify-start text-xs"
                 >
                   + Add Advisor
                 </Button>

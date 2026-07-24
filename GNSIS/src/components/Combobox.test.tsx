@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
@@ -132,5 +132,66 @@ describe("Combobox", () => {
     );
 
     expect(screen.getByRole("combobox", { name: "Branch" })).toBeDisabled();
+  });
+
+  it("closes the open dropdown when Escape is pressed", async () => {
+    const user = userEvent.setup();
+    render(<Controlled />);
+
+    await user.click(screen.getByRole("combobox", { name: "Repository" }));
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("opening shows the full dropdown: search field plus the complete option list", async () => {
+    const user = userEvent.setup();
+    render(<Controlled />);
+
+    await user.click(screen.getByRole("combobox", { name: "Repository" }));
+    const listbox = screen.getByRole("listbox");
+    // The search input and every option are present inside the one listbox.
+    expect(within(listbox).getByRole("textbox")).toBeInTheDocument();
+    expect(within(listbox).getAllByRole("option")).toHaveLength(options.length);
+  });
+
+  it("keeps a long selected label in a single trigger without duplicating the value", async () => {
+    const longOptions: ComboboxOption[] = [
+      {
+        value: "acme/really-long-repository-name-that-would-overflow",
+        label: "acme/really-long-repository-name-that-would-overflow",
+      },
+    ];
+    const user = userEvent.setup();
+    function C() {
+      const [v, setV] = useState<string | null>(null);
+      return (
+        <Combobox ariaLabel="Repository" options={longOptions} value={v} onChange={setV} />
+      );
+    }
+    render(<C />);
+
+    await user.click(screen.getByRole("combobox", { name: "Repository" }));
+    await user.click(screen.getByRole("option", { name: longOptions[0].label }));
+
+    // Exactly one element carries the selected label (the trigger); the
+    // dropdown is closed so there is no second copy floating in the DOM.
+    expect(screen.getAllByText(longOptions[0].label)).toHaveLength(1);
+    expect(screen.getByRole("combobox", { name: "Repository" })).toHaveTextContent(longOptions[0].label);
+  });
+
+  it("renders a leading icon inside the trigger when provided", () => {
+    render(
+      <Combobox
+        ariaLabel="Repository"
+        options={options}
+        value={null}
+        onChange={() => {}}
+        icon={<svg data-testid="lead-icon" />}
+      />,
+    );
+    const trigger = screen.getByRole("combobox", { name: "Repository" });
+    expect(within(trigger).getByTestId("lead-icon")).toBeInTheDocument();
   });
 });
