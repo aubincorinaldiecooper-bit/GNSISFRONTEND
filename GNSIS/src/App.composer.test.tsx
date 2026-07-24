@@ -397,3 +397,104 @@ describe("NewRunComposer", () => {
     expect(trigger).toHaveTextContent("owner/alpha");
   });
 });
+
+describe("NewRunComposer layout contract", () => {
+  it("renders Repository, Branch, Model as three independent controls plus a separate Start run action", async () => {
+    renderApp();
+
+    // Three distinct required selectors, each its own combobox element.
+    const repo = await screen.findByRole("combobox", { name: "Repository" });
+    const branch = screen.getByRole("combobox", { name: "Branch" });
+    const model = screen.getByRole("combobox", { name: "Model" });
+    expect(repo).not.toBe(branch);
+    expect(branch).not.toBe(model);
+
+    // Start run is a separate action element (a button), not merged into a
+    // selector, and it is not itself a combobox.
+    const start = screen.getAllByRole("button", { name: /Start run/i })[0];
+    expect(start.getAttribute("role")).not.toBe("combobox");
+    expect(start).not.toBe(repo);
+  });
+
+  it("opening Repository shows its search input and the complete option list", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("combobox", { name: "Repository" }));
+    const listbox = screen.getByRole("listbox");
+    expect(within(listbox).getByRole("textbox")).toBeInTheDocument();
+    // Both mocked repositories are listed in full (option name also carries the
+    // "Private"/visibility hint, so match on the repo name substring).
+    expect(within(listbox).getByRole("option", { name: /owner\/alpha/ })).toBeInTheDocument();
+    expect(within(listbox).getByRole("option", { name: /owner\/beta/ })).toBeInTheDocument();
+  });
+
+  it("opening Model shows its search input and the complete option list", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("combobox", { name: "Model" }));
+    const listbox = screen.getByRole("listbox");
+    expect(within(listbox).getByRole("textbox")).toBeInTheDocument();
+    expect(within(listbox).getByRole("option", { name: /Claude Opus 4.8/ })).toBeInTheDocument();
+    expect(within(listbox).getByRole("option", { name: /Claude Sonnet 5/ })).toBeInTheDocument();
+    expect(within(listbox).getByRole("option", { name: /GPT-5.6 Sol/ })).toBeInTheDocument();
+  });
+
+  it("Escape closes an open composer selector", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("combobox", { name: "Repository" }));
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("no composer ancestor of an open dropdown clips it with overflow-hidden", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("combobox", { name: "Repository" }));
+    const listbox = screen.getByRole("listbox");
+
+    // Walk the ancestor chain from the open listbox up to (and including) the
+    // composer's own wrapper, asserting none clip it. The regression this PR
+    // fixes is the COMPOSER CARD clipping the non-portal dropdown; the outer
+    // app shell legitimately uses overflow-hidden for its full-height layout
+    // and scrolls the composer internally, so the check is bounded to the
+    // composer subtree (up to the max-w-4xl wrapper).
+    let el: HTMLElement | null = listbox.parentElement;
+    let reachedComposerWrapper = false;
+    while (el && el !== document.body) {
+      const inlineOverflow = el.style.overflow;
+      expect(inlineOverflow).not.toBe("hidden");
+      expect(el.className).not.toMatch(/(^|\s)overflow-hidden(\s|$)/);
+      if (/(^|\s)max-w-4xl(\s|$)/.test(el.className)) {
+        reachedComposerWrapper = true;
+        break;
+      }
+      el = el.parentElement;
+    }
+    // Sanity: we actually reached and checked the composer wrapper.
+    expect(reachedComposerWrapper).toBe(true);
+  });
+
+  it("keeps a long repository label in the single Repository trigger (no duplicate within the selector)", async () => {
+    const longName = "owner/really-long-repository-name-that-would-overflow-the-field";
+    apiMocks.listRepositoriesMock.mockResolvedValue([
+      { id: "repo-long", github_repository_id: 9, owner: "owner", name: "really-long", full_name: longName, default_branch: "main", private: true, enabled: true, archived: false },
+    ]);
+    renderApp();
+
+    // Exactly one Repository combobox trigger exists (the desktop one; the
+    // mobile-sheet selector is only mounted when the sheet is open), and it
+    // carries the full label. A closed dropdown leaves no second copy inside
+    // the selector itself.
+    const repoTriggers = await screen.findAllByRole("combobox", { name: "Repository" });
+    expect(repoTriggers).toHaveLength(1);
+    await waitFor(() => expect(repoTriggers[0]).toHaveTextContent(longName));
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+});
