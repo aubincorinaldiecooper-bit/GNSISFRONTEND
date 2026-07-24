@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
+import { MemoryRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 
 const sessionValue = {
   status: "authenticated",
@@ -78,7 +78,7 @@ vi.mock("@/lib/api", () => ({
   listRepositories: (...args: unknown[]) => apiMocks.listRepositoriesMock(...args),
   listBranches: (...args: unknown[]) => apiMocks.listBranchesMock(...args),
   listModels: (...args: unknown[]) => apiMocks.listModelsMock(...args),
-  listUsageEvents: vi.fn(async () => []),
+  listUsageEvents: vi.fn(async () => ({ items: [] })),
   matchesGatewayRequest: vi.fn(() => false),
   rejectJob: vi.fn(),
 }));
@@ -86,6 +86,7 @@ vi.mock("@/lib/api", () => ({
 import App from "@/App";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
+import HomePage from "@/pages/HomePage";
 import type { JobRecord } from "@/lib/api";
 
 const jobs: JobRecord[] = [
@@ -123,7 +124,12 @@ const jobs: JobRecord[] = [
 
 function LocationProbe() {
   const location = useLocation();
-  return <div data-testid="pathname">{location.pathname}</div>;
+  return (
+    <>
+      <div data-testid="pathname">{location.pathname}</div>
+      <div data-testid="search">{location.search}</div>
+    </>
+  );
 }
 
 function BackButton() {
@@ -148,6 +154,26 @@ function renderProtected(initialPath: string, status: "authenticated" | "unauthe
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/*" element={<App />} />
+        </Route>
+      </Routes>
+      <LocationProbe />
+    </MemoryRouter>,
+  );
+}
+
+// Mirrors the exact top-level route table in main.tsx: public homepage at "/",
+// the /welcome → "/" redirect, the public /login, and the ProtectedRoute-gated
+// application (New Run at /new, plus /runs, /dashboard, /settings, /billing).
+function renderFull(initialPath: string, status: "authenticated" | "unauthenticated" = "authenticated") {
+  useSessionMock.mockReturnValue({ ...sessionValue, status });
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/welcome" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/*" element={<App />} />
@@ -219,7 +245,7 @@ describe("workspace routing", () => {
 
   it("selecting Settings updates the pathname to /settings", async () => {
     const user = userEvent.setup();
-    renderWorkspace("/");
+    renderWorkspace("/new");
 
     await user.click(screen.getAllByText("Test User")[0]);
     const settingsItems = await screen.findAllByRole("menuitem", { name: /Settings/i });
@@ -230,7 +256,7 @@ describe("workspace routing", () => {
 
   it("selecting Dashboard updates the pathname to /dashboard", async () => {
     const user = userEvent.setup();
-    renderWorkspace("/");
+    renderWorkspace("/new");
 
     await user.click(screen.getAllByRole("button", { name: "Dashboard" })[0]);
 
@@ -263,7 +289,7 @@ describe("workspace routing", () => {
 
   it("browser back navigation restores the prior screen", async () => {
     const user = userEvent.setup();
-    renderWorkspace("/");
+    renderWorkspace("/new");
 
     await user.click(screen.getAllByRole("button", { name: "Dashboard" })[0]);
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
@@ -347,5 +373,102 @@ describe("workspace routing", () => {
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/login"));
     expect(screen.getByRole("heading", { name: "GNSIS" })).toBeInTheDocument();
     expect(screen.getByText(/Sign in to your Genesis workspace/i)).toBeInTheDocument();
+  });
+
+  // -- homepage-at-/ + New Run-at-/new routing (PR #24) ----------------------
+
+  it("renders the public homepage at / without requiring authentication", () => {
+    renderFull("/", "unauthenticated");
+    // The marketing homepage renders even when signed out — it is NOT gated by
+    // ProtectedRoute, so no redirect to /login.
+    expect(screen.getByRole("heading", { name: /Own the intelligence your coding agents create/i })).toBeInTheDocument();
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/");
+    expect(screen.queryByText(/Sign in to your Genesis workspace/i)).not.toBeInTheDocument();
+  });
+
+  it("redirects the legacy /welcome path to / (homepage)", async () => {
+    renderFull("/welcome", "unauthenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/"));
+    expect(screen.getByRole("heading", { name: /Own the intelligence your coding agents create/i })).toBeInTheDocument();
+  });
+
+  it("renders the New Run composer at /new for an authenticated user", async () => {
+    renderWorkspace("/new");
+    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+  });
+
+  it("the New run sidebar action navigates to /new", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/runs");
+    await screen.findByRole("heading", { name: "Runs" });
+
+    await user.click(screen.getAllByRole("button", { name: "New run" })[0]);
+
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/new");
+    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+  });
+
+  it("keeps /billing intact", async () => {
+    renderWorkspace("/billing");
+    expect(await screen.findByRole("heading", { name: /Billing/i })).toBeInTheDocument();
+  });
+
+  it("redirects an unauthenticated /new to /login carrying next=/new", async () => {
+    // ProtectedRoute encodes location.pathname + search into ?next=. Render
+    // just the protected tree with a LoginProbe that shows the full
+    // pathname+search it was redirected with, proving /new (the intended
+    // destination) is preserved for after sign-in, not dropped.
+    useSessionMock.mockReturnValue({ ...sessionValue, status: "unauthenticated" });
+    render(
+      <MemoryRouter initialEntries={["/new"]}>
+        <Routes>
+          <Route path="/login" element={<LocationProbe />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/*" element={<div>APP</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/login"));
+    expect(screen.getByTestId("search")).toHaveTextContent("next=%2Fnew");
+  });
+
+  it("defaults an authenticated user landing on /login to /new", async () => {
+    renderFull("/login", "authenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
+    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+  });
+
+  it("respects an explicit ?next=/runs on /login instead of defaulting to /new", async () => {
+    renderFull("/login?next=%2Fruns", "authenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/runs"));
+    expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
+  });
+
+  it("no redirect loop exists between /, /login and /new", async () => {
+    // An authenticated visitor landing on each of the three entry points
+    // settles immediately — none of them bounce back into one of the others.
+    const { unmount: unmountHome } = renderFull("/", "authenticated");
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/");
+    unmountHome();
+
+    const { unmount: unmountLogin } = renderFull("/login", "authenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
+    unmountLogin();
+
+    renderFull("/new", "authenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
+  });
+
+  it("homepage Connect GitHub flows through /login and lands in New Run (/new)", async () => {
+    const user = userEvent.setup();
+    renderFull("/", "authenticated");
+
+    await user.click(screen.getAllByRole("button", { name: /Connect GitHub/i })[1]);
+
+    // /login?next=/new → authenticated → /new → New Run composer. One settled
+    // destination, no bouncing between /, /login and /new.
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
+    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
   });
 });

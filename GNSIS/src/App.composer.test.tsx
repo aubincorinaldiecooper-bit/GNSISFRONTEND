@@ -69,7 +69,7 @@ import App from "@/App";
 
 function renderApp() {
   return render(
-    <MemoryRouter initialEntries={["/new-run"]}>
+    <MemoryRouter initialEntries={["/new"]}>
       <App />
     </MemoryRouter>,
   );

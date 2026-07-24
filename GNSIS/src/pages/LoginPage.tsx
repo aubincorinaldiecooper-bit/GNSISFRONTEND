@@ -14,16 +14,20 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 import { isApiConfigured, isAuthConfigured } from "@/lib/env";
 
+// The New Run composer is the app's landing spot after sign-in — the public
+// marketing homepage lives at "/", so signing in must not drop the user there.
+const DEFAULT_SIGNED_IN_PATH = "/new";
+
 function safeNext(raw: string | null): string {
   // Only allow same-app relative paths — never an absolute URL (open-redirect).
-  if (!raw) return "/";
+  if (!raw) return DEFAULT_SIGNED_IN_PATH;
   try {
     const decoded = decodeURIComponent(raw);
     if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
   } catch {
     // fall through
   }
-  return "/";
+  return DEFAULT_SIGNED_IN_PATH;
 }
 
 export default function LoginPage() {

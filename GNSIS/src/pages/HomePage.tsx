@@ -18,10 +18,13 @@
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
-// The real GitHub connect flow: /login -> "Continue with GitHub" (OAuth).
-const SIGN_IN_URL = "/login";
-const CONNECT_GITHUB_URL = "/login";
-const LANDING_HOME = "/welcome";
+// The real GitHub connect flow: /login -> "Continue with GitHub" (OAuth), then
+// land in the New Run workspace (/new). `next` is a same-app relative path that
+// LoginPage re-validates before honoring.
+const SIGN_IN_URL = "/login?next=%2Fnew";
+const CONNECT_GITHUB_URL = "/login?next=%2Fnew";
+// The public homepage now lives at "/"; the brand mark returns there.
+const HOME_URL = "/";
 
 /* ---------------------------------------------------------------------------
    Astryx-style design tokens + primitive styles (scoped to this page)
@@ -692,7 +695,7 @@ function LandingNav() {
   return (
     <header className="nav">
       <div className="ax-container nav__inner">
-        <button type="button" className="nav__brand" aria-label="GNSIS home" onClick={() => navigate(LANDING_HOME)}>
+        <button type="button" className="nav__brand" aria-label="GNSIS home" onClick={() => navigate(HOME_URL)}>
           <span className="brand-mark" aria-hidden="true" />
           <span>GNSIS</span>
         </button>
@@ -1020,7 +1023,7 @@ function LandingFooter() {
 /* ---------------------------------------------------------------------------
    Page root
 --------------------------------------------------------------------------- */
-export default function LandingPage() {
+export default function HomePage() {
   useEffect(() => {
     const previous = document.title;
     document.title = "GNSIS — Model-agnostic repository intelligence";
