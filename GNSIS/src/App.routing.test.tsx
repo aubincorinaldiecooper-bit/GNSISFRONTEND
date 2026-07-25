@@ -54,6 +54,8 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
+    getJobThreadMock: vi.fn(),
+    followUpJobMock: vi.fn(),
     claimGitHubInstallationMock: vi.fn(),
     listRepositoriesMock: vi.fn(),
     listBranchesMock: vi.fn(),
@@ -70,6 +72,8 @@ vi.mock("@/lib/api", () => ({
   getJob: (...args: unknown[]) => apiMocks.getJobMock(...args),
   getJobDiff: (...args: unknown[]) => apiMocks.getJobDiffMock(...args),
   getJobLogs: (...args: unknown[]) => apiMocks.getJobLogsMock(...args),
+  getJobThread: (...args: unknown[]) => apiMocks.getJobThreadMock(...args),
+  followUpJob: (...args: unknown[]) => apiMocks.followUpJobMock(...args),
   health: vi.fn(),
   isApiConfigured: () => true,
   isTerminalStatus: (status: string) => ["completed", "rejected", "failed"].includes(status),
@@ -193,6 +197,13 @@ beforeEach(() => {
     if (!job) throw new apiMocks.MockApiError(404, "not found");
     return job;
   });
+  // Opening a run resolves its thread; by default each run is its own single-run
+  // thread (matches a legacy job with no follow-ups).
+  apiMocks.getJobThreadMock.mockImplementation(async (id: string) => {
+    const job = jobs.find((candidate) => candidate.id === id);
+    if (!job) throw new apiMocks.MockApiError(404, "not found");
+    return [job];
+  });
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
   apiMocks.claimGitHubInstallationMock.mockResolvedValue(undefined);
@@ -272,19 +283,22 @@ describe("workspace routing", () => {
     expect(screen.getByTestId("pathname")).toHaveTextContent("/runs/run-1");
   });
 
-  it("directly loading /runs/:runId fetches and renders the requested run", async () => {
+  it("directly loading /runs/:runId resolves and renders its thread", async () => {
     apiMocks.listJobsMock.mockResolvedValueOnce([]);
     renderWorkspace("/runs/run-2");
 
     expect((await screen.findAllByText("Directly loaded run")).length).toBeGreaterThan(0);
-    expect(apiMocks.getJobMock).toHaveBeenCalledWith("run-2");
+    expect(apiMocks.getJobThreadMock).toHaveBeenCalledWith("run-2");
   });
 
-  it('renders historical/null Advisor as "—" instead of inventing a default', async () => {
+  it("omits the Advisor row for a historical/null Advisor instead of inventing a default", async () => {
     apiMocks.listJobsMock.mockResolvedValueOnce([]);
     renderWorkspace("/runs/run-2");
 
-    expect(await screen.findByText("Advisor: —")).toBeInTheDocument();
+    // The run renders…
+    expect((await screen.findAllByText("Directly loaded run")).length).toBeGreaterThan(0);
+    // …and no fabricated Advisor is shown in the thread header (Advisor is optional).
+    expect(screen.queryByText(/^Advisor:/)).not.toBeInTheDocument();
   });
 
   it("browser back navigation restores the prior screen", async () => {

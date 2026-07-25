@@ -149,6 +149,12 @@ export interface JobRecord {
   created_at: string;
   updated_at: string;
   usage: Record<string, number>;
+  // Conversational run threads. `thread_id` groups the linked runs of one
+  // conversation (equal to the root run's id); a run always belongs to a thread,
+  // so when absent (older payloads) callers fall back to the run's own id.
+  // `parent_job_id` is the run this one follows up on (null for the first run).
+  thread_id?: string | null;
+  parent_job_id?: string | null;
 }
 
 export interface EngineInfo {
@@ -207,6 +213,27 @@ export function getJobDiff(jobId: string): Promise<DiffRecord | null> {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
   });
+}
+
+/**
+ * Every run of the conversation `jobId` belongs to, oldest first. Opening any
+ * run — including a `/runs/:jobId` deep link — resolves the whole thread; a
+ * legacy run with no thread resolves to a single-run thread of just itself.
+ */
+export function getJobThread(jobId: string): Promise<JobRecord[]> {
+  return request(`/jobs/${jobId}/thread`);
+}
+
+/**
+ * Queue a new run linked into `parentJobId`'s conversation thread. The client
+ * sends only the new instruction; the backend resolves repository, models, base
+ * branch, and the thread/parent linkage authoritatively from the parent run.
+ * Omit `instruction` for Retry (failed) / Run-again (completed) — the backend
+ * reuses the parent's instruction verbatim.
+ */
+export function followUpJob(parentJobId: string, instruction?: string): Promise<JobRecord> {
+  const body = instruction != null ? JSON.stringify({ instruction }) : JSON.stringify({});
+  return request(`/jobs/${parentJobId}/follow-up`, { method: "POST", body });
 }
 
 export function approveJob(jobId: string, note = "", actor = "human"): Promise<JobRecord> {

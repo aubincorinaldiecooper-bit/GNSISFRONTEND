@@ -24,6 +24,10 @@ import {
   GitBranch,
   Cpu,
   Send,
+  Reply,
+  Copy,
+  Check,
+  RotateCcw,
   Loader2,
   CircleCheck,
   CircleX,
@@ -50,6 +54,8 @@ import {
   getJob,
   getJobLogs,
   getJobDiff,
+  getJobThread,
+  followUpJob,
   approveJob,
   rejectJob,
   isApiConfigured,
@@ -64,6 +70,7 @@ import {
   type ModelInfo,
   type Balances,
 } from "@/lib/api";
+import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
 import {
   Tooltip,
@@ -1218,13 +1225,33 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 // A thread mirrors one real backend job: status drives which messages render,
 // logs are the real per-phase event stream, diff is the proposed patch (once
 // the engine has produced one).
-interface ThreadState {
+// One immutable execution within a conversation: its job, live logs, proposed
+// diff, and any in-flight approve/reject action.
+interface RunState {
   job: JobRecord;
   logs: LogRecord[];
   diff: DiffRecord | null;
   actionPending: "approve" | "reject" | null;
   actionError: string | null;
 }
+
+// A conversation thread: an ordered list of linked runs (oldest first). The runs
+// are never mutated in place — each submitted message appends a new run. The
+// follow-up composer keeps its own text/submitting/error state locally so live
+// polling of the runs never disturbs what the user is typing.
+interface ThreadState {
+  threadId: string;
+  runs: RunState[];
+  // Whether a tip Retry / Run-again is in flight (drives its button spinner).
+  retryPending: boolean;
+}
+
+// The run whose live activity / receipt the side panel reflects: the tip of the
+// conversation (the most recent execution).
+function activeRun(thread: ThreadState): RunState {
+  return thread.runs[thread.runs.length - 1];
+}
+
 
 const phaseStatusLabel: Record<JobStatus, string> = {
   queued: "Genesis is queued…",
@@ -1244,27 +1271,140 @@ const phaseStatusLabel: Record<JobStatus, string> = {
 // THREAD SUB-COMPONENTS
 // =============================================================================
 
-function ThreadContextRow({ job }: { job: JobRecord }) {
+// A quiet, self-contained copy action. Independent per instance, keyboard- and
+// touch-operable, shows a checkmark + "Copied" on success and a brief failure
+// hint if the clipboard is unavailable. Never throws.
+function CopyButton({
+  text,
+  label,
+  className,
+}: {
+  text: string;
+  /** Accessible name, e.g. "Copy instruction". */
+  label: string;
+  className?: string;
+}) {
+  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  const onCopy = async () => {
+    if (timer.current) clearTimeout(timer.current);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        throw new Error("clipboard unavailable");
+      }
+      setState("copied");
+    } catch {
+      setState("error");
+    }
+    timer.current = setTimeout(() => setState("idle"), 1600);
+  };
+
+  const title = state === "copied" ? "Copied" : state === "error" ? "Copy failed" : label;
+
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground/80 pb-4">
-      <span className="font-mono">{job.repo}</span>
-      <span className="text-muted-foreground/40">·</span>
-      <span className="font-mono">{job.branch || job.base_branch}</span>
-      <span className="text-muted-foreground/40">·</span>
-      <span>Model: {displayModel(job)}</span>
-      <span className="text-muted-foreground/40">·</span>
-      <span>Advisor: {displayAdvisorModel(job)}</span>
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={onCopy}
+            aria-label={label}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors",
+              "text-muted-foreground/70 hover:text-foreground hover:bg-black/[0.04]",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              className
+            )}
+          >
+            {state === "copied" ? (
+              <Check className="h-3.5 w-3.5 text-emerald-600" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            <span className={cn(state === "copied" ? "text-emerald-600" : state === "error" && "text-red-500")}>
+              {state === "copied" ? "Copied" : state === "error" ? "Copy failed" : "Copy"}
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {title}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// Quiet metadata row under a message: a copy action and a relative timestamp
+// (with the full localized datetime on hover).
+function MessageMeta({
+  copyText,
+  copyLabel,
+  timestamp,
+}: {
+  copyText: string;
+  copyLabel: string;
+  timestamp: string;
+}) {
+  return (
+    <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground/60">
+      <CopyButton text={copyText} label={copyLabel} />
+      {timestamp && (
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-default">{relativeTime(timestamp)}</span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {fullDateTime(timestamp)}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </div>
   );
 }
 
-function TaskMessage({ instruction }: { instruction: string }) {
+// The conversation header: a deterministic title derived from the first
+// instruction (never a model call, never a raw job id) plus quiet context —
+// repository, primary model, and the optional Advisor.
+function ThreadHeader({ thread }: { thread: ThreadState }) {
+  const first = thread.runs[0].job;
   return (
-    <div className="border-b border-border pb-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-        Task
+    <div className="border-b border-border pb-4 mb-4">
+      <h1 className="text-lg font-semibold text-foreground leading-snug">
+        {threadTitle(first.instruction)}
+      </h1>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground/80">
+        <span className="font-mono">{first.repo}</span>
+        <span className="text-muted-foreground/40">·</span>
+        <span>Model: {displayModel(first)}</span>
+        {displayAdvisorModel(first) !== "—" && (
+          <>
+            <span className="text-muted-foreground/40">·</span>
+            <span>Advisor: {displayAdvisorModel(first)}</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// One submitted instruction, rendered as a message with a quiet metadata row
+// (copy + relative timestamp). Readable width, preserved line breaks.
+function InstructionMessage({ job }: { job: JobRecord }) {
+  return (
+    <div className="pt-1">
+      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+        {job.instruction}
       </p>
-      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{instruction}</p>
+      <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
     </div>
   );
 }
@@ -1294,13 +1434,16 @@ function DiffSummary({ diff }: { diff: DiffRecord }) {
         ))}
       </ul>
       {diff.patch && (
-        <button
-          type="button"
-          onClick={() => setShowPatch((v) => !v)}
-          className="text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
-        >
-          {showPatch ? "Hide patch" : "View patch"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowPatch((v) => !v)}
+            className="text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+          >
+            {showPatch ? "Hide patch" : "View patch"}
+          </button>
+          <CopyButton text={diff.patch} label="Copy patch" />
+        </div>
       )}
       {showPatch && diff.patch && (
         <pre className="max-h-64 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre">
@@ -1398,16 +1541,45 @@ function RunCompleteMessage({ job, diff, logs }: { job: JobRecord; diff: DiffRec
   );
 }
 
+// The first line of the error is a concise, human summary; the rest (stack /
+// provider payload) is technical detail kept out of the way behind a toggle.
+function splitError(error: string | null): { summary: string; details: string | null } {
+  const raw = (error || "").trim();
+  if (!raw) return { summary: "The run failed before it could finish.", details: null };
+  const nl = raw.indexOf("\n");
+  if (nl === -1) return { summary: raw, details: null };
+  return { summary: raw.slice(0, nl).trim(), details: raw.slice(nl + 1).trim() || null };
+}
+
 function FailedMessage({ job }: { job: JobRecord }) {
+  const { summary, details } = splitError(job.error);
+  const [showDetails, setShowDetails] = useState(false);
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
         <CircleX className="h-4 w-4 text-red-500 shrink-0" />
         <p className="text-sm font-semibold text-red-600">Run failed</p>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
-        {job.error || "The run failed before it could finish."}
-      </p>
+      <p className="text-sm text-muted-foreground leading-relaxed pl-6 break-words">{summary}</p>
+      {details && (
+        <div className="pl-6">
+          <button
+            type="button"
+            onClick={() => setShowDetails((v) => !v)}
+            className="text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            {showDetails ? "Hide technical details" : "Show technical details"}
+          </button>
+          {showDetails && (
+            <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre-wrap break-words">
+              {details}
+            </pre>
+          )}
+        </div>
+      )}
+      <div className="pl-6">
+        <CopyButton text={job.error || summary} label="Copy error" />
+      </div>
     </div>
   );
 }
@@ -1430,26 +1602,24 @@ function RejectedMessage() {
 // RUN THREAD
 // =============================================================================
 
-function RunThread({
-  thread,
+// The execution beneath one instruction: its live status, approval gate, and
+// terminal result.
+function RunExecution({
+  run,
   onApprove,
   onReject,
 }: {
-  thread: ThreadState;
+  run: RunState;
   onApprove: () => void;
   onReject: () => void;
 }) {
-  const { job, diff, logs, actionPending, actionError } = thread;
-
+  const { job, diff, logs, actionPending, actionError } = run;
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
-      <ThreadContextRow job={job} />
-      <TaskMessage instruction={job.instruction} />
-
+    <div className="mt-1">
       {inFlightStatuses.includes(job.status) && <StatusMessage status={job.status} />}
 
       {job.status === "awaiting_approval" && (
-        <div className="pt-4">
+        <div className="pt-3">
           <ApprovalBlock
             diff={diff}
             pending={actionPending}
@@ -1467,34 +1637,162 @@ function RunThread({
   );
 }
 
+// Retry (failed) or Run-again (completed/rejected): a quiet action that queues a
+// new linked run with the same instruction + config. Offered only on the
+// conversation tip so the thread stays linear.
+function RunActions({
+  job,
+  pending,
+  onRetry,
+}: {
+  job: JobRecord;
+  pending: boolean;
+  onRetry: () => void;
+}) {
+  if (job.status !== "failed" && job.status !== "completed" && job.status !== "rejected") return null;
+  const retry = job.status === "failed";
+  return (
+    <div className="mt-3">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        onClick={onRetry}
+        className="h-8 gap-1.5 rounded-lg"
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+        {retry ? "Retry run" : "Run again"}
+      </Button>
+    </div>
+  );
+}
+
+// One turn of the conversation: the submitted instruction and the execution it
+// produced. Immutable — a new turn is appended for every follow-up.
+function ConversationTurn({
+  run,
+  isTip,
+  retryPending,
+  onApprove,
+  onReject,
+  onRetry,
+}: {
+  run: RunState;
+  isTip: boolean;
+  retryPending: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
+      <InstructionMessage job={run.job} />
+      <RunExecution run={run} onApprove={onApprove} onReject={onReject} />
+      {isTip && isTerminalStatus(run.job.status) && (
+        <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
+      )}
+    </div>
+  );
+}
+
+function RunThread({
+  thread,
+  onApprove,
+  onReject,
+  onRetry,
+}: {
+  thread: ThreadState;
+  onApprove: (runId: string) => void;
+  onReject: (runId: string) => void;
+  onRetry: (parentRunId: string) => void;
+}) {
+  return (
+    <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
+      <ThreadHeader thread={thread} />
+      {thread.runs.map((run, i) => (
+        <ConversationTurn
+          key={run.job.id}
+          run={run}
+          isTip={i === thread.runs.length - 1}
+          retryPending={thread.retryPending}
+          onApprove={() => onApprove(run.job.id)}
+          onReject={() => onReject(run.job.id)}
+          onRetry={() => onRetry(run.job.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
 // =============================================================================
 // THREAD COMPOSER (sticky, clear status)
 // =============================================================================
 
-// Follow-up messages on an existing job aren't supported by the backend yet
-// (a job is one-shot: create → approve/reject). Shown disabled rather than a
-// control that silently no-ops.
-function ThreadComposer({ onNewRun }: { onNewRun: () => void }) {
+// The follow-up composer: submitting a message appends a new linked run to the
+// same conversation. Multiline; Enter submits, Shift+Enter inserts a newline;
+// the submit is disabled when empty or already in flight (so a message can't be
+// double-sent); the text is preserved on failure with an inline error and
+// cleared only on success.
+function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Promise<void> }) {
+  const [text, setText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const trimmed = text.trim();
+  const canSubmit = trimmed.length > 0 && !submitting;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onSubmit(trimmed);
+      setText(""); // clear only on success
+    } catch (err) {
+      // Preserve the typed text so the user doesn't lose it; surface the reason.
+      setError(err instanceof ApiError ? err.message : "Couldn't send the follow-up. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submit();
+    }
+  };
+
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6">
-      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
+      {error && <p className="mb-2 text-xs text-red-600" role="alert">{error}</p>}
+      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
         <Textarea
-          value=""
-          disabled
-          placeholder="Follow-up messages aren't supported yet — start a new run instead."
-          className="min-h-16 resize-none border-none shadow-none rounded-none px-4 py-3 text-sm focus-visible:ring-0 disabled:opacity-50"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          disabled={submitting}
+          placeholder="Send a follow-up… (Enter to send, Shift+Enter for a new line)"
+          aria-label="Follow-up message"
+          className="min-h-16 resize-none border-none shadow-none rounded-none px-4 py-3 text-sm focus-visible:ring-0 disabled:opacity-60"
         />
         <Divider orientation="horizontal" />
-        <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-xs text-muted-foreground">Not supported yet.</span>
-          <Button
-            size="sm"
-            onClick={onNewRun}
-            className="h-7 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
+        <div className="flex items-center justify-end px-3 py-2">
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!canSubmit}
+            aria-label="Send follow-up"
+            title="Send follow-up"
+            className={cn(
+              "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+              "bg-neutral-900 text-white hover:bg-neutral-800",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              "disabled:opacity-40 disabled:pointer-events-none"
+            )}
           >
-            <Send className="h-3.5 w-3.5" />
-            New run
-          </Button>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Reply className="h-4 w-4" />}
+          </button>
         </div>
       </div>
     </div>
@@ -1536,8 +1834,8 @@ function LogRow({ log }: { log: LogRecord }) {
   );
 }
 
-function ActivityPanel({ thread }: { thread: ThreadState }) {
-  if (thread.logs.length === 0) {
+function ActivityPanel({ run }: { run: RunState }) {
+  if (run.logs.length === 0) {
     return (
       <EmptyState
         icon={<ActivityGlyph className="h-8 w-8" />}
@@ -1547,12 +1845,12 @@ function ActivityPanel({ thread }: { thread: ThreadState }) {
     );
   }
 
-  const tokens = totalTokens(thread.job.usage);
+  const tokens = totalTokens(run.job.usage);
 
   return (
     <div className="flex-1 overflow-y-auto flex flex-col">
       <div className="flex-1">
-        {thread.logs.map((log, i) => (
+        {run.logs.map((log, i) => (
           <LogRow key={i} log={log} />
         ))}
       </div>
@@ -1582,9 +1880,9 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
   );
 }
 
-function receiptOutcome(thread: ThreadState): string {
-  const { job, diff } = thread;
-  if (job.status === "failed") return job.error || "The run failed before it could finish.";
+function receiptOutcome(run: RunState): string {
+  const { job, diff } = run;
+  if (job.status === "failed") return splitError(job.error).summary;
   if (job.status === "rejected") return "The proposed change was reviewed and rejected before publishing.";
   if (diff && diff.files_changed.length > 0) {
     return `Changed ${diff.files_changed.length} file${diff.files_changed.length === 1 ? "" : "s"} on branch ${job.branch ?? job.base_branch}.`;
@@ -1592,8 +1890,8 @@ function receiptOutcome(thread: ThreadState): string {
   return "The run finished successfully.";
 }
 
-function ReceiptPanel({ thread }: { thread: ThreadState }) {
-  const { job, diff } = thread;
+function ReceiptPanel({ run }: { run: RunState }) {
+  const { job, diff } = run;
   const failed = job.status === "failed" || job.status === "rejected";
 
   return (
@@ -1603,9 +1901,7 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
           Run receipt
         </p>
         <p className="text-sm font-semibold text-foreground line-clamp-2">{job.instruction}</p>
-        <p className="text-xs text-muted-foreground font-mono">
-          {job.repo} · {job.id}
-        </p>
+        <p className="text-xs text-muted-foreground font-mono">{job.repo}</p>
         <div className="flex items-center gap-1.5 pt-1">
           {failed ? (
             <CircleX className="h-3.5 w-3.5 text-red-500" />
@@ -1622,7 +1918,7 @@ function ReceiptPanel({ thread }: { thread: ThreadState }) {
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Outcome
         </p>
-        <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(thread)}</p>
+        <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(run)}</p>
       </div>
 
       <div className="px-4 py-4 border-b border-border space-y-3">
@@ -1783,7 +2079,9 @@ function RunPanelRegion({
   view: WorkspaceView;
 }) {
   const hasThread = view.kind === "thread";
-  const status = hasThread ? view.thread.job.status : undefined;
+  // The side panel reflects the conversation tip — the most recent execution.
+  const tipRun = hasThread ? activeRun(view.thread) : null;
+  const status = tipRun ? tipRun.job.status : undefined;
   const threadKey = hasThread ? view.threadKey : null;
 
   const [tab, setTab] = useState<"activity" | "receipt">("activity");
@@ -1825,17 +2123,17 @@ function RunPanelRegion({
       receiptScrollPos.current = 0;
       return;
     }
-    const initialStatus = view.thread.job.status;
+    const initialStatus = activeRun(view.thread).job.status;
     setTab(isTerminalStatus(initialStatus) ? "receipt" : "activity");
     activityScrollPos.current = 0;
     receiptScrollPos.current = 0;
     prevStatusRef.current = initialStatus;
   }, [threadKey]);
 
-  // Auto-switch to receipt when run completes
+  // Auto-switch to receipt when the tip run completes
   useEffect(() => {
     if (!hasThread) return;
-    const statusNow = view.thread.job.status;
+    const statusNow = activeRun(view.thread).job.status;
     if (prevStatusRef.current && prevStatusRef.current !== "completed" && statusNow === "completed") {
       handleTabChange("receipt");
     }
@@ -1882,15 +2180,15 @@ function RunPanelRegion({
             description="Receipts appear after a run completes."
           />
         )
-      ) : tab === "activity" ? (
+      ) : tab === "activity" && tipRun ? (
         <div ref={activityScrollRef} className="flex-1 overflow-y-auto">
-          <ActivityPanel thread={view.thread} />
+          <ActivityPanel run={tipRun} />
         </div>
-      ) : (
+      ) : tipRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
-          <ReceiptPanel thread={view.thread} />
+          <ReceiptPanel run={tipRun} />
         </div>
-      )}
+      ) : null}
     </aside>
   );
 }
@@ -2277,6 +2575,8 @@ function WorkspaceRegion({
   onSubmit,
   onApprove,
   onReject,
+  onRetry,
+  onFollowUp,
   onSelectRun,
   onNewRun,
   onSettingsBack,
@@ -2286,8 +2586,10 @@ function WorkspaceRegion({
   runs: RecentRun[];
   balances: Balances | null;
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
-  onApprove: () => void;
-  onReject: () => void;
+  onApprove: (runId: string) => void;
+  onReject: (runId: string) => void;
+  onRetry: (parentRunId: string) => void;
+  onFollowUp: (instruction: string) => Promise<void>;
   onSelectRun: (id: string) => void;
   onNewRun: () => void;
   onSettingsBack: () => void;
@@ -2309,9 +2611,10 @@ function WorkspaceRegion({
               thread={view.thread}
               onApprove={onApprove}
               onReject={onReject}
+              onRetry={onRetry}
             />
           </div>
-          <ThreadComposer onNewRun={onNewRun} />
+          <FollowUpComposer key={`composer-${view.threadKey}`} onSubmit={onFollowUp} />
         </>
       )}
 
@@ -2414,12 +2717,23 @@ function navIdFromRoute(route: RouteViewKind): NavId {
   return "new-run";
 }
 
+function runStateFromJob(job: JobRecord, logs: LogRecord[] = [], diff: DiffRecord | null = null): RunState {
+  return { job, logs, diff, actionPending: null, actionError: null };
+}
+
+// A run always belongs to a thread; when the backend omits thread_id (older
+// payloads) the run is its own single-run thread, keyed by its own id.
+function threadIdOf(job: JobRecord): string {
+  return job.thread_id ?? job.id;
+}
+
+function threadFromRuns(runs: RunState[]): WorkspaceView {
+  const threadId = runs.length > 0 ? threadIdOf(runs[0].job) : "";
+  return { kind: "thread", thread: { threadId, runs, retryPending: false }, threadKey: threadId };
+}
+
 function threadFromJob(job: JobRecord, logs: LogRecord[] = [], diff: DiffRecord | null = null): WorkspaceView {
-  return {
-    kind: "thread",
-    thread: { job, logs, diff, actionPending: null, actionError: null },
-    threadKey: job.id,
-  };
+  return threadFromRuns([runStateFromJob(job, logs, diff)]);
 }
 
 // =============================================================================
@@ -2511,10 +2825,20 @@ function GNSISWorkspacePreview() {
     let cancelled = false;
     void (async () => {
       try {
-        const [job, logs, diff] = await Promise.all([getJob(routeRunId), getJobLogs(routeRunId), getJobDiff(routeRunId)]);
+        // Opening any run resolves its whole conversation. A legacy run with no
+        // thread comes back as a single-run thread of just itself.
+        const threadJobs = await getJobThread(routeRunId);
         if (cancelled) return;
-        setJobs((prev) => upsertJob(prev, job));
-        setView(threadFromJob(job, logs, diff));
+        if (threadJobs.length === 0) throw new ApiError(404, "Run not found");
+        const runs = await Promise.all(
+          threadJobs.map(async (j) => {
+            const [logs, diff] = await Promise.all([getJobLogs(j.id), getJobDiff(j.id)]);
+            return runStateFromJob(j, logs, diff);
+          })
+        );
+        if (cancelled) return;
+        setJobs((prev) => threadJobs.reduce((acc, j) => upsertJob(acc, j), prev));
+        setView(threadFromRuns(runs));
       } catch (err) {
         if (cancelled) return;
         const detail = err instanceof ApiError ? err.message : "The requested run could not be loaded.";
@@ -2562,74 +2886,127 @@ function GNSISWorkspacePreview() {
     navigate(`/runs/${encodeURIComponent(job.id)}`);
   };
 
-  const handleThreadChange = (updater: (t: ThreadState) => ThreadState) => {
+  // Update a single run within the active thread by id (immutable).
+  const updateRun = useCallback((runId: string, updater: (r: RunState) => RunState) => {
     setView((prev) => {
       if (prev.kind !== "thread") return prev;
-      return { ...prev, thread: updater(prev.thread) };
+      return {
+        ...prev,
+        thread: {
+          ...prev.thread,
+          runs: prev.thread.runs.map((r) => (r.job.id === runId ? updater(r) : r)),
+        },
+      };
     });
-  };
+  }, []);
 
-  // Poll the active thread's job for live status/logs/diff until it terminates.
+  // Append a new linked run (a follow-up / retry) to the active thread, in place,
+  // so the conversation and the follow-up composer stay mounted.
+  const appendRun = useCallback((job: JobRecord) => {
+    setView((prev) => {
+      if (prev.kind !== "thread") return prev;
+      if (prev.thread.runs.some((r) => r.job.id === job.id)) return prev;
+      return { ...prev, thread: { ...prev.thread, runs: [...prev.thread.runs, runStateFromJob(job)] } };
+    });
+  }, []);
+
+  // A ref to the live thread so the poll interval always sees the current runs
+  // (including follow-ups appended after it was set up).
+  const threadRef = useRef<ThreadState | null>(null);
+  threadRef.current = view.kind === "thread" ? view.thread : null;
+
+  // Poll every non-terminal run in the conversation for live status/logs/diff.
+  // The interval runs while a thread is open; when all runs are terminal each
+  // tick is a cheap no-op (no requests), so it costs nothing once settled.
   useEffect(() => {
     if (view.kind !== "thread") return;
-    const jobId = view.thread.job.id;
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
 
     const poll = async () => {
-      try {
-        const [job, logs, diff] = await Promise.all([getJob(jobId), getJobLogs(jobId), getJobDiff(jobId)]);
-        if (cancelled) return;
-        handleThreadChange((t) => (t.job.id === job.id ? { ...t, job, logs, diff: diff ?? t.diff } : t));
-        setJobs((prev) => upsertJob(prev, job));
-        if (isTerminalStatus(job.status) && timer) clearInterval(timer);
-      } catch {
-        // transient network error — keep polling
-      }
+      const thread = threadRef.current;
+      if (!thread) return;
+      const pending = thread.runs.filter((r) => !isTerminalStatus(r.job.status));
+      if (pending.length === 0) return;
+      await Promise.all(
+        pending.map(async (r) => {
+          try {
+            const [job, logs, diff] = await Promise.all([
+              getJob(r.job.id),
+              getJobLogs(r.job.id),
+              getJobDiff(r.job.id),
+            ]);
+            if (cancelled) return;
+            updateRun(job.id, (cur) => ({ ...cur, job, logs, diff: diff ?? cur.diff }));
+            setJobs((prev) => upsertJob(prev, job));
+          } catch {
+            // transient network error — keep polling
+          }
+        })
+      );
     };
 
     poll();
-    if (!isTerminalStatus(view.thread.job.status)) {
-      timer = setInterval(poll, 2500);
-    }
+    const timer = setInterval(poll, 2500);
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view.kind === "thread" ? view.threadKey : null]);
+  }, [view.kind === "thread" ? view.threadKey : null, updateRun]);
 
-  const handleApproveJob = async () => {
-    if (view.kind !== "thread") return;
-    const jobId = view.thread.job.id;
-    handleThreadChange((t) => ({ ...t, actionPending: "approve", actionError: null }));
+  const handleApproveJob = async (runId: string) => {
+    updateRun(runId, (r) => ({ ...r, actionPending: "approve", actionError: null }));
     try {
-      const job = await approveJob(jobId);
-      handleThreadChange((t) => ({ ...t, job, actionPending: null }));
+      const job = await approveJob(runId);
+      updateRun(runId, (r) => ({ ...r, job, actionPending: null }));
       setJobs((prev) => upsertJob(prev, job));
     } catch (err) {
-      handleThreadChange((t) => ({
-        ...t,
+      updateRun(runId, (r) => ({
+        ...r,
         actionPending: null,
         actionError: err instanceof ApiError ? err.message : "Failed to approve the run.",
       }));
     }
   };
 
-  const handleRejectJob = async () => {
-    if (view.kind !== "thread") return;
-    const jobId = view.thread.job.id;
-    handleThreadChange((t) => ({ ...t, actionPending: "reject", actionError: null }));
+  const handleRejectJob = async (runId: string) => {
+    updateRun(runId, (r) => ({ ...r, actionPending: "reject", actionError: null }));
     try {
-      const job = await rejectJob(jobId);
-      handleThreadChange((t) => ({ ...t, job, actionPending: null }));
+      const job = await rejectJob(runId);
+      updateRun(runId, (r) => ({ ...r, job, actionPending: null }));
       setJobs((prev) => upsertJob(prev, job));
     } catch (err) {
-      handleThreadChange((t) => ({
-        ...t,
+      updateRun(runId, (r) => ({
+        ...r,
         actionPending: null,
         actionError: err instanceof ApiError ? err.message : "Failed to reject the run.",
       }));
+    }
+  };
+
+  // Send a follow-up message: a new linked run, same conversation. Errors
+  // propagate to the composer so it preserves the text and shows the reason.
+  const handleFollowUpSubmit = async (instruction: string) => {
+    if (view.kind !== "thread") return;
+    const tip = activeRun(view.thread);
+    const job = await followUpJob(tip.job.id, instruction);
+    appendRun(job);
+    setJobs((prev) => upsertJob(prev, job));
+  };
+
+  // Retry (failed) / Run-again (completed/rejected): a new linked run reusing the
+  // parent's instruction + config.
+  const handleRetryRun = async (parentRunId: string) => {
+    if (view.kind !== "thread") return;
+    setView((prev) => (prev.kind === "thread" ? { ...prev, thread: { ...prev.thread, retryPending: true } } : prev));
+    try {
+      const job = await followUpJob(parentRunId);
+      appendRun(job);
+      setJobs((prev) => upsertJob(prev, job));
+    } catch {
+      // leave the run as-is; the button simply stops spinning so it can be retried
+    } finally {
+      setView((prev) => (prev.kind === "thread" ? { ...prev, thread: { ...prev.thread, retryPending: false } } : prev));
     }
   };
 
@@ -2743,6 +3120,8 @@ function GNSISWorkspacePreview() {
             onSubmit={handleComposerSubmit}
             onApprove={handleApproveJob}
             onReject={handleRejectJob}
+            onRetry={handleRetryRun}
+            onFollowUp={handleFollowUpSubmit}
             onSelectRun={handleRunSelect}
             onNewRun={handleNewRun}
             onSettingsBack={navigateBackOrHome}
@@ -2783,7 +3162,7 @@ function GNSISWorkspacePreview() {
               </div>
               <Divider orientation="horizontal" />
               <div className="flex-1 overflow-y-auto pb-safe">
-                <ActivityPanel thread={view.thread} />
+                <ActivityPanel run={activeRun(view.thread)} />
               </div>
             </div>
           </>
