@@ -75,7 +75,7 @@ vi.mock("@/lib/api", () => ({
   followUpJob: (...a: unknown[]) => apiMocks.followUpJobMock(...a),
   health: vi.fn(),
   isApiConfigured: () => true,
-  isTerminalStatus: (s: string) => ["completed", "rejected", "failed"].includes(s),
+  isTerminalStatus: (s: string) => ["completed", "rejected", "failed", "blocked"].includes(s),
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...a: unknown[]) => apiMocks.listJobsMock(...a),
   listRepositories: vi.fn(async () => []),
@@ -257,6 +257,30 @@ describe("failed run presentation", () => {
 
     await user.click(await screen.findByRole("button", { name: /Retry run/i }));
     await waitFor(() => expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root"));
+  });
+
+  it("renders a blocked run distinctly from a runtime failure and offers Retry", async () => {
+    // A run stopped in preflight is NOT an ordinary failure: nothing executed,
+    // so it must not be framed as one, and it stays retryable once the
+    // prerequisite is fixed.
+    mockThread([
+      job({
+        id: "run-root",
+        instruction: "Do the thing",
+        status: "blocked",
+        error: "GNSIS couldn't start this run because CLIPIT does not have an initial commit yet.\n\nTechnical details: GitHub GET .../git/ref/heads/main -> 409",
+      }),
+    ]);
+    renderThread("/runs/run-root");
+
+    expect(await screen.findByText("Run couldn't start")).toBeInTheDocument();
+    expect(screen.queryByText("Run failed")).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText(/does not have an initial commit yet/).length,
+    ).toBeGreaterThan(0);
+    // The raw provider response stays behind the technical-details toggle.
+    expect(screen.queryByText(/409/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
   });
 
   it("a completed tip offers 'Run again'", async () => {

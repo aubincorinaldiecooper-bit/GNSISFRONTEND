@@ -133,7 +133,10 @@ export type JobStatus =
   | "publishing"
   | "completed"
   | "rejected"
-  | "failed";
+  | "failed"
+  // A required prerequisite was missing, so execution never began. Distinct
+  // from "failed": nothing ran, so the receipt reports true zeros.
+  | "blocked";
 
 export interface JobRecord {
   id: string;
@@ -244,7 +247,7 @@ export function rejectJob(jobId: string, note = "", actor = "human"): Promise<Jo
   return request(`/jobs/${jobId}/reject`, { method: "POST", body: JSON.stringify({ actor, note }) });
 }
 
-export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "failed"]);
+export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "failed", "blocked"]);
 
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);

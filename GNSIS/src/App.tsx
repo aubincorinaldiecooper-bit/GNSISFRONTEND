@@ -252,7 +252,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed";
+type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed" | "blocked";
 type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
@@ -268,6 +268,8 @@ function jobStatusToRunStatus(status: JobStatus): RunStatus {
       return "rejected";
     case "failed":
       return "failed";
+    case "blocked":
+      return "blocked";
     default:
       return "running";
   }
@@ -280,6 +282,7 @@ const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
   complete: { label: "Complete", cls: "text-emerald-600" },
   rejected: { label: "Rejected", cls: "text-muted-foreground" },
   failed: { label: "Failed", cls: "text-red-600" },
+  blocked: { label: "Blocked", cls: "text-amber-700" },
 };
 
 function StatusLabel({ status }: { status: RunStatus }) {
@@ -404,6 +407,7 @@ const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
   complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
   rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
   failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
+  blocked: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
 };
 
 function SidebarRunRow({
@@ -1265,6 +1269,7 @@ const phaseStatusLabel: Record<JobStatus, string> = {
   completed: "Run complete",
   rejected: "Run rejected",
   failed: "Run failed",
+  blocked: "Run couldn't start",
 };
 
 // =============================================================================
@@ -1551,14 +1556,20 @@ function splitError(error: string | null): { summary: string; details: string | 
   return { summary: raw.slice(0, nl).trim(), details: raw.slice(nl + 1).trim() || null };
 }
 
-function FailedMessage({ job }: { job: JobRecord }) {
+function FailedMessage({ job, blocked = false }: { job: JobRecord; blocked?: boolean }) {
   const { summary, details } = splitError(job.error);
   const [showDetails, setShowDetails] = useState(false);
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
-        <CircleX className="h-4 w-4 text-red-500 shrink-0" />
-        <p className="text-sm font-semibold text-red-600">Run failed</p>
+        {blocked ? (
+          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+        ) : (
+          <CircleX className="h-4 w-4 text-red-500 shrink-0" />
+        )}
+        <p className={cn("text-sm font-semibold", blocked ? "text-amber-700" : "text-red-600")}>
+          {blocked ? "Run couldn't start" : "Run failed"}
+        </p>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed pl-6 break-words">{summary}</p>
       {details && (
@@ -1632,6 +1643,7 @@ function RunExecution({
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
       {job.status === "failed" && <FailedMessage job={job} />}
+      {job.status === "blocked" && <FailedMessage job={job} blocked />}
       {job.status === "rejected" && <RejectedMessage />}
     </div>
   );
@@ -1649,8 +1661,8 @@ function RunActions({
   pending: boolean;
   onRetry: () => void;
 }) {
-  if (job.status !== "failed" && job.status !== "completed" && job.status !== "rejected") return null;
-  const retry = job.status === "failed";
+  if (!["failed", "completed", "rejected", "blocked"].includes(job.status)) return null;
+  const retry = job.status === "failed" || job.status === "blocked";
   return (
     <div className="mt-3">
       <Button
@@ -1882,7 +1894,7 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
 
 function receiptOutcome(run: RunState): string {
   const { job, diff } = run;
-  if (job.status === "failed") return splitError(job.error).summary;
+  if (job.status === "failed" || job.status === "blocked") return splitError(job.error).summary;
   if (job.status === "rejected") return "The proposed change was reviewed and rejected before publishing.";
   if (diff && diff.files_changed.length > 0) {
     return `Changed ${diff.files_changed.length} file${diff.files_changed.length === 1 ? "" : "s"} on branch ${job.branch ?? job.base_branch}.`;
@@ -1892,7 +1904,7 @@ function receiptOutcome(run: RunState): string {
 
 function ReceiptPanel({ run }: { run: RunState }) {
   const { job, diff } = run;
-  const failed = job.status === "failed" || job.status === "rejected";
+  const failed = job.status === "failed" || job.status === "rejected" || job.status === "blocked";
 
   return (
     <div className="flex-1 overflow-y-auto">
