@@ -174,6 +174,41 @@ export interface DiffRecord {
   files_changed: string[];
 }
 
+export interface RunReceipt {
+  object: "receipt";
+  run_id: string;
+  execution_run_id: string | null;
+  task: string;
+  repository: string;
+  status: string;
+  execution_started?: boolean;
+  model: string | null;
+  advisor_model?: string | null;
+  approval: { decision: string; approver: string; at: string } | null;
+  pull_request: { number: number; url: string; branch: string } | null;
+  files_changed: string[];
+  tokens: { input: number; output: number; cached: number; reasoning: number } | null;
+  tests: string | Record<string, unknown> | null;
+  cost: {
+    provider_cost: string;
+    gnsis_service_fee?: string;
+    total_billed?: string;
+    currency: string;
+    reconciliation_state?: string;
+  } | null;
+  failure_category: string | null;
+  failure_message: string | null;
+  timing?: {
+    dispatched_at: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    cancelled_at: string | null;
+    duration_seconds: number | null;
+  } | null;
+  base_sha?: string | null;
+  patch_hash?: string | null;
+}
+
 export interface CreateJobInput {
   repository_id: string;
   instruction: string;
@@ -213,6 +248,11 @@ export function getJobDiff(jobId: string): Promise<DiffRecord | null> {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
   });
+}
+
+/** The public API's backend-assembled, immutable receipt for one run. */
+export function getRunReceipt(runId: string): Promise<RunReceipt> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/receipt`);
 }
 
 /**

@@ -1,10 +1,32 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
-import { parseError, ApiError, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
+vi.mock("@/lib/env", () => ({ apiBaseUrl: () => "https://api.example.test", isApiConfigured: () => true }));
+vi.mock("@/lib/authToken", () => ({ getBackendToken: vi.fn(async () => "session-jwt"), emitUnauthorized: vi.fn() }));
+
+import { parseError, ApiError, getRunReceipt, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
 
 function res(body: unknown, init?: ResponseInit): Response {
   return new Response(typeof body === "string" ? body : JSON.stringify(body), init);
 }
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("getRunReceipt", () => {
+  it("uses the public immutable-run endpoint with the authenticated API client and no legacy fallback", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(res({ object: "receipt", run_id: "run/immutable" }, { status: 200 }));
+
+    await getRunReceipt("run/immutable");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/v1/runs/run%2Fimmutable/receipt",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer session-jwt" }) }),
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/jobs/"))).toBe(false);
+  });
+});
 
 describe("parseError", () => {
   it("parses a FastAPI {detail} string", async () => {
