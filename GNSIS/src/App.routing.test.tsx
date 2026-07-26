@@ -54,6 +54,7 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
+    getRunReceiptMock: vi.fn(),
     getJobThreadMock: vi.fn(),
     followUpJobMock: vi.fn(),
     claimGitHubInstallationMock: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("@/lib/api", () => ({
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...args: unknown[]) => apiMocks.getJobMock(...args),
   getJobDiff: (...args: unknown[]) => apiMocks.getJobDiffMock(...args),
+  getRunReceipt: (...args: unknown[]) => apiMocks.getRunReceiptMock(...args),
   getJobLogs: (...args: unknown[]) => apiMocks.getJobLogsMock(...args),
   getJobThread: (...args: unknown[]) => apiMocks.getJobThreadMock(...args),
   followUpJob: (...args: unknown[]) => apiMocks.followUpJobMock(...args),
@@ -206,6 +208,7 @@ beforeEach(() => {
   });
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
+  apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "job", execution_run_id: null, task: "Task", repository: "owner/repo", status: "completed", model: null, approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null, failure_category: null, failure_message: null });
   apiMocks.claimGitHubInstallationMock.mockResolvedValue(undefined);
   apiMocks.listRepositoriesMock.mockResolvedValue([
     {

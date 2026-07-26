@@ -51,6 +51,7 @@ vi.mock("@/lib/api", () => ({
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...a: unknown[]) => apiMocks.getJobMock(...a),
   getJobDiff: vi.fn(async () => ({ patch: "", files_changed: [] })),
+  getRunReceipt: vi.fn(),
   getJobLogs: vi.fn(async () => []),
   health: vi.fn(),
   isApiConfigured: () => true,

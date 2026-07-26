@@ -54,6 +54,7 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
+    getRunReceiptMock: vi.fn(),
     getJobThreadMock: vi.fn(),
     followUpJobMock: vi.fn(),
     approveJobMock: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock("@/lib/api", () => ({
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...a: unknown[]) => apiMocks.getJobMock(...a),
   getJobDiff: (...a: unknown[]) => apiMocks.getJobDiffMock(...a),
+  getRunReceipt: (...a: unknown[]) => apiMocks.getRunReceiptMock(...a),
   getJobLogs: (...a: unknown[]) => apiMocks.getJobLogsMock(...a),
   getJobThread: (...a: unknown[]) => apiMocks.getJobThreadMock(...a),
   followUpJob: (...a: unknown[]) => apiMocks.followUpJobMock(...a),
@@ -137,6 +139,13 @@ beforeEach(() => {
   apiMocks.listJobsMock.mockResolvedValue([]);
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
+  apiMocks.getRunReceiptMock.mockImplementation(async (id: string) => ({
+    object: "receipt", run_id: id, execution_run_id: `exec-${id}`, task: "Canonical task", repository: "owner/repo",
+    status: "completed", execution_started: true, model: "canonical/model", approval: null,
+    pull_request: null, files_changed: [], tokens: { input: 1, output: 2, cached: 0, reasoning: 0 },
+    tests: "passed", cost: { provider_cost: "0.25", currency: "USD" },
+    failure_category: null, failure_message: null,
+  }));
   // Deterministic clipboard for the copy-action tests.
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -263,6 +272,75 @@ describe("failed run presentation", () => {
     mockThread([job({ id: "run-root", instruction: "Ship it", status: "completed" })]);
     renderThread("/runs/run-root");
     expect(await screen.findByRole("button", { name: /Run again/i })).toBeInTheDocument();
+  });
+});
+
+describe("canonical run receipt", () => {
+  it("uses the immutable ID from the route rather than a linked job record ID", async () => {
+    const linkedJob = job({ id: "legacy-job-id", instruction: "Task" });
+    apiMocks.getJobThreadMock.mockResolvedValue([linkedJob]);
+    apiMocks.getJobLogsMock.mockResolvedValue([]);
+    apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
+
+    renderThread("/runs/immutable-route-id");
+
+    await waitFor(() => expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("immutable-route-id"));
+    expect(apiMocks.getRunReceiptMock).not.toHaveBeenCalledWith("legacy-job-id");
+  });
+
+  it("requests the selected run receipt and renders known terminal zero values", async () => {
+    mockThread([job({ id: "run-root", instruction: "Legacy task", usage: { total_tokens: 999 } })]);
+    apiMocks.getRunReceiptMock.mockResolvedValue({
+      object: "receipt", run_id: "run-root", execution_run_id: "exec-zero", task: "Canonical blocked task", repository: "canonical/repo",
+      status: "blocked", execution_started: false, model: "canonical/model", approval: null,
+      pull_request: null, files_changed: [], tokens: { input: 0, output: 0, cached: 0, reasoning: 0 },
+      tests: "not_run", cost: { provider_cost: "0", currency: "USD" },
+      failure_category: "blocked_preflight", failure_message: "Canonical failure message",
+    });
+
+    renderThread("/runs/run-root");
+
+    expect(await screen.findByText("Canonical blocked task")).toBeInTheDocument();
+    expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("run-root");
+    expect(screen.getByText("$0.00")).toBeInTheDocument();
+    expect(screen.getByText("Not run")).toBeInTheDocument();
+    expect(screen.getByText("No")).toBeInTheDocument();
+    expect(screen.getAllByText("0").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("999")).not.toBeInTheDocument();
+    expect(screen.queryByText("Not tracked yet")).not.toBeInTheDocument();
+  });
+
+  it("shows receipt loading and request-failure states without crashing", async () => {
+    mockThread([job({ id: "run-root", instruction: "Task" })]);
+    let rejectReceipt!: (error: Error) => void;
+    apiMocks.getRunReceiptMock.mockReturnValue(new Promise((_resolve, reject) => { rejectReceipt = reject; }));
+    renderThread("/runs/run-root");
+
+    expect(await screen.findByText("Loading receipt")).toBeInTheDocument();
+    rejectReceipt(new Error("network down"));
+    expect(await screen.findByText("Receipt request failed")).toBeInTheDocument();
+  });
+
+  it("keeps linked-run receipts separate when a different run is selected", async () => {
+    const runs = [
+      job({ id: "run-root", instruction: "First" }),
+      job({ id: "run-2", instruction: "Second", parent_job_id: "run-root" }),
+    ];
+    mockThread(runs);
+    apiMocks.getRunReceiptMock.mockImplementation(async (id: string) => ({
+      object: "receipt", run_id: id, execution_run_id: `exec-${id}`, task: id === "run-root" ? "First receipt" : "Second receipt",
+      repository: "owner/repo", status: "completed", execution_started: true, model: "model",
+      approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null,
+      failure_category: null, failure_message: null,
+    }));
+
+    const first = renderThread("/runs/run-root");
+    expect(await screen.findByText("First receipt")).toBeInTheDocument();
+    first.unmount();
+    renderThread("/runs/run-2");
+    expect(await screen.findByText("Second receipt")).toBeInTheDocument();
+    expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("run-root");
+    expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("run-2");
   });
 });
 

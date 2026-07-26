@@ -54,6 +54,7 @@ import {
   getJob,
   getJobLogs,
   getJobDiff,
+  getRunReceipt,
   getJobThread,
   followUpJob,
   approveJob,
@@ -66,6 +67,7 @@ import {
   type JobStatus,
   type LogRecord,
   type DiffRecord,
+  type RunReceipt,
   type RepositoryRecord,
   type ModelInfo,
   type Balances,
@@ -330,18 +332,6 @@ function timeAgo(iso: string): string {
   if (hr < 24) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   return `${day}d ago`;
-}
-
-// Not every engine reports usage (the "claude"/"openhands" engines don't yet;
-// "gnsis" does). Returns null rather than "0" when there's nothing to show.
-function totalTokens(usage: Record<string, number> | undefined): number | null {
-  if (!usage || Object.keys(usage).length === 0) return null;
-  if (typeof usage.total_tokens === "number") return usage.total_tokens;
-  const prompt = usage.prompt_tokens ?? 0;
-  const completion = usage.completion_tokens ?? 0;
-  if (prompt || completion) return prompt + completion;
-  const sum = Object.values(usage).reduce((s, v) => (typeof v === "number" ? s + v : s), 0);
-  return sum || null;
 }
 
 // =============================================================================
@@ -1845,8 +1835,6 @@ function ActivityPanel({ run }: { run: RunState }) {
     );
   }
 
-  const tokens = totalTokens(run.job.usage);
-
   return (
     <div className="flex-1 overflow-y-auto flex flex-col">
       <div className="flex-1">
@@ -1854,19 +1842,12 @@ function ActivityPanel({ run }: { run: RunState }) {
           <LogRow key={i} log={log} />
         ))}
       </div>
-      <div className="shrink-0 sticky bottom-0 bg-white border-t border-border px-4 py-3 flex items-center justify-between">
-        <span className="text-sm font-semibold text-foreground">Compute used</span>
-        <span className="text-xs text-muted-foreground font-mono">
-          {tokens !== null ? `${tokens.toLocaleString()} tokens` : "Not tracked yet"}
-        </span>
-      </div>
     </div>
   );
 }
 
 // =============================================================================
-// RECEIPT PANEL (real status/outcome/files; cost & token accounting not
-// tracked by the backend yet, shown as unavailable rather than fabricated)
+// RECEIPT PANEL (the backend receipt is the sole source of receipt semantics)
 // =============================================================================
 
 function SummaryItem({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
@@ -1880,19 +1861,28 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
   );
 }
 
-function receiptOutcome(run: RunState): string {
-  const { job, diff } = run;
-  if (job.status === "failed") return splitError(job.error).summary;
-  if (job.status === "rejected") return "The proposed change was reviewed and rejected before publishing.";
-  if (diff && diff.files_changed.length > 0) {
-    return `Changed ${diff.files_changed.length} file${diff.files_changed.length === 1 ? "" : "s"} on branch ${job.branch ?? job.base_branch}.`;
-  }
-  return "The run finished successfully.";
+function receiptTokens(tokens: RunReceipt["tokens"]): string {
+  if (tokens === null) return "Unavailable";
+  if (tokens.input === 0 && tokens.output === 0 && tokens.cached === 0 && tokens.reasoning === 0) return "0";
+  return `Input ${tokens.input.toLocaleString()} · Output ${tokens.output.toLocaleString()} · Cached ${tokens.cached.toLocaleString()} · Reasoning ${tokens.reasoning.toLocaleString()}`;
 }
 
-function ReceiptPanel({ run }: { run: RunState }) {
-  const { job, diff } = run;
-  const failed = job.status === "failed" || job.status === "rejected";
+function receiptTests(tests: RunReceipt["tests"]): string {
+  if (tests === null) return "Unavailable";
+  if (tests === "not_run") return "Not run";
+  if (typeof tests === "string") return tests.replaceAll("_", " ");
+  return Object.entries(tests).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ");
+}
+
+function ReceiptPanel({ receipt }: { receipt: RunReceipt }) {
+  const failed = ["failed", "blocked", "rejected"].includes(receipt.status);
+  const currency = receipt.cost?.currency || "USD";
+  const providerCost = receipt.cost === null
+    ? "Unavailable"
+    : Number(receipt.cost.provider_cost).toLocaleString("en-US", { style: "currency", currency });
+  const executionStarted = receipt.execution_started === undefined
+    ? "Unavailable"
+    : receipt.execution_started ? "Yes" : "No";
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -1900,8 +1890,8 @@ function ReceiptPanel({ run }: { run: RunState }) {
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Run receipt
         </p>
-        <p className="text-sm font-semibold text-foreground line-clamp-2">{job.instruction}</p>
-        <p className="text-xs text-muted-foreground font-mono">{job.repo}</p>
+        <p className="text-sm font-semibold text-foreground line-clamp-2">{receipt.task}</p>
+        <p className="text-xs text-muted-foreground font-mono">{receipt.repository}</p>
         <div className="flex items-center gap-1.5 pt-1">
           {failed ? (
             <CircleX className="h-3.5 w-3.5 text-red-500" />
@@ -1909,7 +1899,7 @@ function ReceiptPanel({ run }: { run: RunState }) {
             <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
           )}
           <span className={cn("text-sm font-semibold", failed ? "text-red-600" : "text-emerald-600")}>
-            {runLabelCls[jobStatusToRunStatus(job.status)].label}
+            {receipt.status.replaceAll("_", " ")}
           </span>
         </div>
       </div>
@@ -1918,32 +1908,38 @@ function ReceiptPanel({ run }: { run: RunState }) {
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Outcome
         </p>
-        <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(run)}</p>
+        <p className="text-sm text-foreground leading-relaxed">
+          {receipt.failure_message ?? receipt.status.replaceAll("_", " ")}
+        </p>
       </div>
 
       <div className="px-4 py-4 border-b border-border space-y-3">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <SummaryItem
             label="Tokens"
-            value={totalTokens(job.usage)?.toLocaleString() ?? "Not tracked yet"}
-            emphasize={totalTokens(job.usage) !== null}
+            value={receiptTokens(receipt.tokens)}
+            emphasize={receipt.tokens !== null}
           />
-          <SummaryItem label="Spent" value="Not tracked yet" />
-          <SummaryItem label="Files changed" value={String(diff?.files_changed.length ?? 0)} />
-          <SummaryItem label="Model" value={displayModel(job)} />
+          <SummaryItem label="Provider cost" value={providerCost} />
+          <SummaryItem label="Files changed" value={String(receipt.files_changed.length)} />
+          <SummaryItem label="Tests" value={receiptTests(receipt.tests)} />
+          <SummaryItem label="Execution started" value={executionStarted} />
+          <SummaryItem label="Model" value={receipt.model ?? "Unavailable"} />
+          <SummaryItem label="Approval" value={receipt.approval?.decision ?? "Not applicable"} />
         </div>
       </div>
 
-      {diff && diff.files_changed.length > 0 && (
+      {receipt.files_changed.length > 0 && (
         <div className="px-4 py-4">
           <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
           <ul className="text-xs text-muted-foreground space-y-1 font-mono">
-            {diff.files_changed.map((f) => (
+            {receipt.files_changed.map((f) => (
               <li key={f}>{f}</li>
             ))}
           </ul>
         </div>
       )}
+
     </div>
   );
 }
@@ -2078,14 +2074,42 @@ function RunPanelRegion({
   onToggle: () => void;
   view: WorkspaceView;
 }) {
+  const location = useLocation();
   const hasThread = view.kind === "thread";
-  // The side panel reflects the conversation tip — the most recent execution.
-  const tipRun = hasThread ? activeRun(view.thread) : null;
-  const status = tipRun ? tipRun.job.status : undefined;
+  const selectedId = matchPath({ path: "/runs/:runId", end: true }, location.pathname)?.params.runId;
+  // A deep link selects that immutable run even though the page renders its
+  // complete conversation. Newly appended runs remain the active tip.
+  const selectedRun = hasThread
+    ? view.thread.runs.find((run) => run.job.id === selectedId) ?? activeRun(view.thread)
+    : null;
+  const receiptRunId = selectedId ?? selectedRun?.job.id;
+  const status = selectedRun?.job.status;
   const threadKey = hasThread ? view.threadKey : null;
 
   const [tab, setTab] = useState<"activity" | "receipt">("activity");
   const prevStatusRef = useRef<JobStatus | null>(null);
+  const [receiptState, setReceiptState] = useState<
+    { kind: "idle" } | { kind: "loaded"; runId: string; receipt: RunReceipt } | { kind: "unavailable" | "error"; runId: string; message: string }
+  >({ kind: "idle" });
+
+  useEffect(() => {
+    if (!selectedRun || !receiptRunId || !isTerminalStatus(selectedRun.job.status)) {
+      return;
+    }
+    let cancelled = false;
+    void getRunReceipt(receiptRunId).then(
+      (receipt) => { if (!cancelled) setReceiptState({ kind: "loaded", runId: receiptRunId, receipt }); },
+      (error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof ApiError && error.status === 404) {
+          setReceiptState({ kind: "unavailable", runId: receiptRunId, message: "The canonical receipt is not available for this run." });
+        } else {
+          setReceiptState({ kind: "error", runId: receiptRunId, message: "The receipt could not be loaded. Try refreshing the page." });
+        }
+      },
+    );
+    return () => { cancelled = true; };
+  }, [receiptRunId, selectedRun?.job.status]);
 
   // Scroll positions per tab
   const activityScrollRef = useRef<HTMLDivElement>(null);
@@ -2123,12 +2147,12 @@ function RunPanelRegion({
       receiptScrollPos.current = 0;
       return;
     }
-    const initialStatus = activeRun(view.thread).job.status;
+    const initialStatus = selectedRun?.job.status ?? activeRun(view.thread).job.status;
     setTab(isTerminalStatus(initialStatus) ? "receipt" : "activity");
     activityScrollPos.current = 0;
     receiptScrollPos.current = 0;
     prevStatusRef.current = initialStatus;
-  }, [threadKey]);
+  }, [threadKey, selectedRun?.job.id]);
 
   // Auto-switch to receipt when the tip run completes
   useEffect(() => {
@@ -2180,13 +2204,19 @@ function RunPanelRegion({
             description="Receipts appear after a run completes."
           />
         )
-      ) : tab === "activity" && tipRun ? (
+      ) : tab === "activity" && selectedRun ? (
         <div ref={activityScrollRef} className="flex-1 overflow-y-auto">
-          <ActivityPanel run={tipRun} />
+          <ActivityPanel run={selectedRun} />
         </div>
-      ) : tipRun ? (
+      ) : selectedRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
-          <ReceiptPanel run={tipRun} />
+          {receiptState.kind === "loaded" && receiptState.runId === receiptRunId ? (
+            <ReceiptPanel receipt={receiptState.receipt} />
+          ) : (receiptState.kind === "error" || receiptState.kind === "unavailable") && receiptState.runId === receiptRunId ? (
+            <EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description={receiptState.message} />
+          ) : (
+            <EmptyState icon={<Loader2 className="h-8 w-8 animate-spin" />} title="Loading receipt" description="Fetching the canonical receipt for this run…" />
+          )}
         </div>
       ) : null}
     </aside>
