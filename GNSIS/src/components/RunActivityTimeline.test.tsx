@@ -56,4 +56,12 @@ describe("RunActivityTimeline", () => {
     expect(screen.getAllByText("Run could not start")[0]).toHaveClass("text-amber-700");
     expect(screen.queryByText("GNSIS is working")).not.toBeInTheDocument();
   });
+
+  it("treats rejection as its own neutral terminal state", () => {
+    render(<RunActivityTimeline run={job("rejected")} events={[event("r", 1, "run.rejected")]} loading={false} polling={false} reconnecting={false} />);
+    expect(screen.getByText("Run rejected")).toBeInTheDocument();
+    expect(screen.getByText("The proposed result was not approved.")).toBeInTheDocument();
+    expect(screen.queryByText("GNSIS finished")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready for review")).not.toBeInTheDocument();
+  });
 });

@@ -6,6 +6,7 @@ import {
   githubAppSlug,
   integrationLabEnabled,
   isApiConfigured,
+  publicBetaMode,
   usingDeprecatedApiUrl,
 } from "@/lib/env";
 
@@ -88,5 +89,13 @@ describe("integration lab flag", () => {
     expect(integrationLabEnabled()).toBe(true);
     window.__GNSIS_CONFIG__ = { VITE_ENABLE_INTEGRATION_LAB: "false" };
     expect(integrationLabEnabled()).toBe(false);
+  });
+});
+
+describe("public beta mode", () => {
+  it("defaults enabled when absent", () => expect(publicBetaMode()).toBe(true));
+  it("is disabled only by explicit false", () => {
+    window.__GNSIS_CONFIG__ = { VITE_PUBLIC_BETA_MODE: "false" };
+    expect(publicBetaMode()).toBe(false);
   });
 });
