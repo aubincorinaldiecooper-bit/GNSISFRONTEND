@@ -55,6 +55,8 @@ import {
   getJobLogs,
   getJobDiff,
   getRunReceipt,
+  getRunEventsSince,
+  getAllRunEvents,
   getJobThread,
   followUpJob,
   approveJob,
@@ -68,12 +70,15 @@ import {
   type LogRecord,
   type DiffRecord,
   type RunReceipt,
+  type RunEvent,
   type RepositoryRecord,
   type ModelInfo,
   type Balances,
 } from "@/lib/api";
 import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
+import { RunActivityTimeline, type ReceiptActivityState } from "@/components/RunActivityTimeline";
+import { isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
 import {
   Tooltip,
   TooltipContent,
@@ -254,7 +259,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed";
+type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "blocked" | "failed";
 type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
@@ -268,6 +273,8 @@ function jobStatusToRunStatus(status: JobStatus): RunStatus {
       return "complete";
     case "rejected":
       return "rejected";
+    case "blocked":
+      return "blocked";
     case "failed":
       return "failed";
     default:
@@ -281,6 +288,7 @@ const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
   awaiting_approval: { label: "Needs approval", cls: "text-amber-600" },
   complete: { label: "Complete", cls: "text-emerald-600" },
   rejected: { label: "Rejected", cls: "text-muted-foreground" },
+  blocked: { label: "Blocked", cls: "text-amber-700" },
   failed: { label: "Failed", cls: "text-red-600" },
 };
 
@@ -393,6 +401,7 @@ const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
   awaiting_approval: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
   complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
   rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
+  blocked: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
   failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
 };
 
@@ -1223,6 +1232,9 @@ interface RunState {
   diff: DiffRecord | null;
   actionPending: "approve" | "reject" | null;
   actionError: string | null;
+  events: RunEvent[];
+  eventsLoading: boolean;
+  eventsReconnecting: boolean;
 }
 
 // A conversation thread: an ordered list of linked runs (oldest first). The runs
@@ -1242,20 +1254,6 @@ function activeRun(thread: ThreadState): RunState {
   return thread.runs[thread.runs.length - 1];
 }
 
-
-const phaseStatusLabel: Record<JobStatus, string> = {
-  queued: "Genesis is queued…",
-  planning: "Genesis is planning the change…",
-  patching: "Genesis is writing the patch…",
-  testing: "Running tests…",
-  summarizing: "Genesis is summarizing the change…",
-  awaiting_approval: "Genesis is ready for review",
-  approved: "Approved — preparing to publish…",
-  publishing: "Opening the pull request…",
-  completed: "Run complete",
-  rejected: "Run rejected",
-  failed: "Run failed",
-};
 
 // =============================================================================
 // THREAD SUB-COMPONENTS
@@ -1395,17 +1393,6 @@ function InstructionMessage({ job }: { job: JobRecord }) {
         {job.instruction}
       </p>
       <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
-    </div>
-  );
-}
-
-const inFlightStatuses: JobStatus[] = ["queued", "planning", "patching", "testing", "summarizing", "approved", "publishing"];
-
-function StatusMessage({ status }: { status: JobStatus }) {
-  return (
-    <div className="flex items-center gap-2.5 py-4 border-b border-border">
-      <Loader2 className="h-4 w-4 text-blue-500 animate-spin motion-reduce:animate-none shrink-0" />
-      <p className="text-sm text-muted-foreground">{phaseStatusLabel[status]}</p>
     </div>
   );
 }
@@ -1606,7 +1593,7 @@ function RunExecution({
   const { job, diff, logs, actionPending, actionError } = run;
   return (
     <div className="mt-1">
-      {inFlightStatuses.includes(job.status) && <StatusMessage status={job.status} />}
+      <RunActivityTimeline run={job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(job.status)} reconnecting={run.eventsReconnecting} compact />
 
       {job.status === "awaiting_approval" && (
         <div className="pt-3">
@@ -1621,7 +1608,7 @@ function RunExecution({
       )}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
-      {job.status === "failed" && <FailedMessage job={job} />}
+      {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
       {job.status === "rejected" && <RejectedMessage />}
     </div>
   );
@@ -1639,8 +1626,8 @@ function RunActions({
   pending: boolean;
   onRetry: () => void;
 }) {
-  if (job.status !== "failed" && job.status !== "completed" && job.status !== "rejected") return null;
-  const retry = job.status === "failed";
+  if (job.status !== "failed" && job.status !== "blocked" && job.status !== "completed" && job.status !== "rejected") return null;
+  const retry = job.status === "failed" || job.status === "blocked";
   return (
     <div className="mt-3">
       <Button
@@ -1791,59 +1778,11 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
 
 
 // =============================================================================
-// ACTIVITY PANEL (real log stream from GET /jobs/{id}/logs)
+// ACTIVITY PANEL (structured lifecycle stream from GET /v1/runs/{id}/events)
 // =============================================================================
 
-function LogRow({ log }: { log: LogRecord }) {
-  const icon =
-    log.level === "error" ? (
-      <CircleX className="h-3.5 w-3.5 text-red-500" />
-    ) : log.level === "warning" ? (
-      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-    ) : (
-      <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
-    );
-
-  return (
-    <div className="flex items-start gap-2.5 px-4 py-2.5 border-b border-border last:border-b-0">
-      <span className="shrink-0 mt-0.5">{icon}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-2">
-          {log.phase && (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 truncate">
-              {log.phase}
-            </span>
-          )}
-          <span className="text-xs text-muted-foreground/60 font-mono shrink-0 ml-auto">
-            {timeAgo(log.created_at)}
-          </span>
-        </div>
-        <p className="text-sm text-foreground/90 leading-relaxed mt-0.5 break-words">{log.message}</p>
-      </div>
-    </div>
-  );
-}
-
-function ActivityPanel({ run }: { run: RunState }) {
-  if (run.logs.length === 0) {
-    return (
-      <EmptyState
-        icon={<ActivityGlyph className="h-8 w-8" />}
-        title="No activity yet"
-        description="Logs will appear here as Genesis works on this run."
-      />
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto flex flex-col">
-      <div className="flex-1">
-        {run.logs.map((log, i) => (
-          <LogRow key={i} log={log} />
-        ))}
-      </div>
-    </div>
-  );
+function ActivityPanel({ run, receiptState, onRetryReceipt }: { run: RunState; receiptState?: ReceiptActivityState; onRetryReceipt?: () => void }) {
+  return <RunActivityTimeline run={run.job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(run.job.status)} reconnecting={run.eventsReconnecting} receiptState={receiptState} onRetryReceipt={onRetryReceipt} />;
 }
 
 // =============================================================================
@@ -2035,6 +1974,8 @@ function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
     ? "idle"
     : jobStatus === "completed"
     ? "completed"
+    : jobStatus === "blocked"
+    ? "waiting"
     : jobStatus === "failed" || jobStatus === "rejected"
     ? "failed"
     : jobStatus === "awaiting_approval"
@@ -2091,6 +2032,7 @@ function RunPanelRegion({
   const [receiptState, setReceiptState] = useState<
     { kind: "idle" } | { kind: "loaded"; runId: string; receipt: RunReceipt } | { kind: "unavailable" | "error"; runId: string; message: string }
   >({ kind: "idle" });
+  const [receiptAttempt, setReceiptAttempt] = useState(0);
 
   useEffect(() => {
     if (!selectedRun || !receiptRunId || !isTerminalStatus(selectedRun.job.status)) {
@@ -2109,7 +2051,7 @@ function RunPanelRegion({
       },
     );
     return () => { cancelled = true; };
-  }, [receiptRunId, selectedRun?.job.status]);
+  }, [receiptRunId, selectedRun?.job.status, receiptAttempt]);
 
   // Scroll positions per tab
   const activityScrollRef = useRef<HTMLDivElement>(null);
@@ -2206,14 +2148,14 @@ function RunPanelRegion({
         )
       ) : tab === "activity" && selectedRun ? (
         <div ref={activityScrollRef} className="flex-1 overflow-y-auto">
-          <ActivityPanel run={selectedRun} />
+          <ActivityPanel run={selectedRun} receiptState={receiptState.kind === "idle" ? "idle" : receiptState.kind === "loaded" ? "loaded" : receiptState.kind} onRetryReceipt={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }} />
         </div>
       ) : selectedRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
           {receiptState.kind === "loaded" && receiptState.runId === receiptRunId ? (
             <ReceiptPanel receipt={receiptState.receipt} />
           ) : (receiptState.kind === "error" || receiptState.kind === "unavailable") && receiptState.runId === receiptRunId ? (
-            <EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description={receiptState.message} />
+            <div className="p-4"><EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description="The run outcome is known, but its detailed receipt could not be loaded." /><Button variant="outline" size="sm" className="mx-auto flex" onClick={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }}>Retry receipt</Button></div>
           ) : (
             <EmptyState icon={<Loader2 className="h-8 w-8 animate-spin" />} title="Loading receipt" description="Fetching the canonical receipt for this run…" />
           )}
@@ -2259,7 +2201,7 @@ function RunsFilterSelect({
 }
 
 const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
-const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "failed"];
+const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "blocked", "failed"];
 
 function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void }) {
   return (
@@ -2438,7 +2380,7 @@ function DashboardView({
     (acc, r) => {
       acc.total += 1;
       if (r.status === "complete") acc.complete += 1;
-      else if (r.status === "failed" || r.status === "rejected") acc.failed += 1;
+      else if (r.status === "failed" || r.status === "blocked" || r.status === "rejected") acc.failed += 1;
       else acc.active += 1;
       return acc;
     },
@@ -2748,7 +2690,7 @@ function navIdFromRoute(route: RouteViewKind): NavId {
 }
 
 function runStateFromJob(job: JobRecord, logs: LogRecord[] = [], diff: DiffRecord | null = null): RunState {
-  return { job, logs, diff, actionPending: null, actionError: null };
+  return { job, logs, diff, actionPending: null, actionError: null, events: [], eventsLoading: true, eventsReconnecting: false };
 }
 
 // A run always belongs to a thread; when the backend omits thread_id (older
@@ -2862,8 +2804,12 @@ function GNSISWorkspacePreview() {
         if (threadJobs.length === 0) throw new ApiError(404, "Run not found");
         const runs = await Promise.all(
           threadJobs.map(async (j) => {
-            const [logs, diff] = await Promise.all([getJobLogs(j.id), getJobDiff(j.id)]);
-            return runStateFromJob(j, logs, diff);
+            const [logs, diff, eventList] = await Promise.all([
+              getJobLogs(j.id),
+              getJobDiff(j.id),
+              getAllRunEvents(j.id).catch(() => null),
+            ]);
+            return { ...runStateFromJob(j, logs, diff), events: mergeRunEvents([], eventList ?? []), eventsLoading: false, eventsReconnecting: eventList === null };
           })
         );
         if (cancelled) return;
@@ -2944,6 +2890,7 @@ function GNSISWorkspacePreview() {
   // (including follow-ups appended after it was set up).
   const threadRef = useRef<ThreadState | null>(null);
   threadRef.current = view.kind === "thread" ? view.thread : null;
+  const finalEventsFetched = useRef(new Set<string>());
 
   // Poll every non-terminal run in the conversation for live status/logs/diff.
   // The interval runs while a thread is open; when all runs are terminal each
@@ -2959,24 +2906,50 @@ function GNSISWorkspacePreview() {
       if (pending.length === 0) return;
       await Promise.all(
         pending.map(async (r) => {
-          try {
-            const [job, logs, diff] = await Promise.all([
-              getJob(r.job.id),
-              getJobLogs(r.job.id),
-              getJobDiff(r.job.id),
-            ]);
-            if (cancelled) return;
-            updateRun(job.id, (cur) => ({ ...cur, job, logs, diff: diff ?? cur.diff }));
+          // Core run state and lifecycle evidence have independent failure
+          // boundaries: an events outage must never freeze terminal status,
+          // approval, diff, or receipt eligibility.
+          const [jobResult, logsResult, diffResult] = await Promise.allSettled([
+            getJob(r.job.id), getJobLogs(r.job.id), getJobDiff(r.job.id),
+          ]);
+          if (cancelled) return;
+
+          const job = jobResult.status === "fulfilled" ? jobResult.value : null;
+          if (job) {
+            updateRun(job.id, (cur) => ({
+              ...cur,
+              job,
+              logs: logsResult.status === "fulfilled" ? logsResult.value : cur.logs,
+              diff: diffResult.status === "fulfilled" ? diffResult.value ?? cur.diff : cur.diff,
+            }));
             setJobs((prev) => upsertJob(prev, job));
+          }
+
+          try {
+            const settledNow = !!job && isTerminalStatus(job.status);
+            let events: RunEvent[];
+            if (settledNow && !finalEventsFetched.current.has(r.job.id)) {
+              // Settlement always reconciles from zero so missed or replaced
+              // pages cannot leave an incomplete terminal history.
+              events = await getAllRunEvents(r.job.id);
+              finalEventsFetched.current.add(r.job.id);
+            } else {
+              // Offset uses raw backend evidence, never grouped UI row count.
+              events = await getRunEventsSince(r.job.id, r.events.length);
+            }
+            if (cancelled) return;
+            updateRun(r.job.id, (cur) => ({ ...cur, events: mergeRunEvents(cur.events, events), eventsLoading: false, eventsReconnecting: false }));
           } catch {
-            // transient network error — keep polling
+            if (cancelled) return;
+            // Preserve previously loaded evidence and retry on the next tick.
+            updateRun(r.job.id, (cur) => ({ ...cur, eventsLoading: false, eventsReconnecting: true }));
           }
         })
       );
     };
 
     poll();
-    const timer = setInterval(poll, 2500);
+    const timer = setInterval(poll, 1000);
     return () => {
       cancelled = true;
       clearInterval(timer);

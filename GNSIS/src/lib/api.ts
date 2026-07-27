@@ -133,6 +133,7 @@ export type JobStatus =
   | "publishing"
   | "completed"
   | "rejected"
+  | "blocked"
   | "failed";
 
 export interface JobRecord {
@@ -209,6 +210,35 @@ export interface RunReceipt {
   patch_hash?: string | null;
 }
 
+/** One durable, backend-authored lifecycle fact for a run. */
+export interface RunEvent {
+  id: string;
+  run_id: string;
+  sequence: number;
+  type: string;
+  at: string;
+  payload: {
+    message?: string;
+    stage?: string;
+    execution_started?: boolean;
+    model_called?: boolean;
+    retryable?: boolean;
+    next_action?: string | null;
+    duration_seconds?: number | null;
+    technical?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+}
+
+export interface RunEventList {
+  object: "list";
+  data: RunEvent[];
+  has_more: boolean;
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface CreateJobInput {
   repository_id: string;
   instruction: string;
@@ -255,6 +285,36 @@ export function getRunReceipt(runId: string): Promise<RunReceipt> {
   return request(`/v1/runs/${encodeURIComponent(runId)}/receipt`);
 }
 
+/** Structured lifecycle evidence; deliberately independent of the receipt. */
+export function getRunEventsPage(runId: string, limit = 100, offset = 0): Promise<RunEventList> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request(`/v1/runs/${encodeURIComponent(runId)}/events?${query.toString()}`);
+}
+
+const MAX_RUN_EVENT_PAGES = 100;
+
+/** Fetch every lifecycle page beginning at a raw backend event offset. */
+export async function getRunEventsSince(runId: string, offset: number, limit = 100): Promise<RunEvent[]> {
+  const events: RunEvent[] = [];
+  let nextOffset = offset;
+  for (let pageNumber = 0; pageNumber < MAX_RUN_EVENT_PAGES; pageNumber += 1) {
+    const page = await getRunEventsPage(runId, limit, nextOffset);
+    events.push(...page.data);
+    // An inconsistent empty page must not spin forever even if has_more is true.
+    if (!page.has_more || page.data.length === 0) break;
+    nextOffset += page.data.length;
+  }
+  return events;
+}
+
+/** Fetch the complete lifecycle history, including histories over 100 events. */
+export function getAllRunEvents(runId: string, limit = 100): Promise<RunEvent[]> {
+  return getRunEventsSince(runId, 0, limit);
+}
+
+/** Backwards-compatible page API. Prefer the explicit helpers above. */
+export const getRunEvents = getRunEventsPage;
+
 /**
  * Every run of the conversation `jobId` belongs to, oldest first. Opening any
  * run — including a `/runs/:jobId` deep link — resolves the whole thread; a
@@ -284,7 +344,7 @@ export function rejectJob(jobId: string, note = "", actor = "human"): Promise<Jo
   return request(`/jobs/${jobId}/reject`, { method: "POST", body: JSON.stringify({ actor, note }) });
 }
 
-export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "failed"]);
+export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "blocked", "failed"]);
 
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);
