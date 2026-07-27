@@ -133,6 +133,7 @@ export type JobStatus =
   | "publishing"
   | "completed"
   | "rejected"
+  | "blocked"
   | "failed";
 
 export interface JobRecord {
@@ -207,6 +208,113 @@ export interface RunReceipt {
   } | null;
   base_sha?: string | null;
   patch_hash?: string | null;
+  policy?: Record<string, unknown> | null;
+  intelligence?: {
+    supplied: SuppliedIntelligence[];
+    proposed: IntelligenceProposal[];
+    approved: ApprovedIntelligence[];
+  };
+}
+
+export interface RepositoryIntelligence {
+  id: string;
+  repository_id: string;
+  content: string;
+  type: string | null;
+  status: "active";
+  source_run_id: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string | null;
+}
+
+export interface IntelligencePreview {
+  memory_id: string;
+  kind: string;
+  content: string;
+  selection_reason: string;
+}
+
+export interface IntelligenceProposal {
+  id: string;
+  content: string;
+  kind: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface SuppliedIntelligence {
+  memory_id: string;
+  kind: string | null;
+  content: string | null;
+  selected: true;
+  delivered: boolean;
+  source_run_id: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  destination_run_id: string;
+  destination_model: string | null;
+}
+
+export interface ApprovedIntelligence {
+  memory_id: string;
+  item_key: string | null;
+  kind: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+}
+
+export interface IntelligenceList<T> {
+  object: "list";
+  data: T[];
+  has_more?: boolean;
+  total?: number;
+  total_available?: number;
+  truncated?: boolean;
+}
+
+export interface IntelligenceApprovalSelection {
+  proposal_id: string;
+  selected?: boolean;
+  content?: string;
+  kind?: string;
+}
+
+/** One durable, backend-authored lifecycle fact for a run. */
+export interface RunEvent {
+  id: string;
+  run_id: string;
+  sequence: number;
+  type: string;
+  at: string;
+  payload: {
+    message?: string;
+    stage?: string;
+    execution_started?: boolean;
+    model_called?: boolean;
+    retryable?: boolean;
+    next_action?: string | null;
+    duration_seconds?: number | null;
+    technical?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+}
+
+export interface RunEventList {
+  object: "list";
+  data: RunEvent[];
+  has_more: boolean;
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface CreateJobInput {
@@ -255,6 +363,61 @@ export function getRunReceipt(runId: string): Promise<RunReceipt> {
   return request(`/v1/runs/${encodeURIComponent(runId)}/receipt`);
 }
 
+export function listRepositoryIntelligence(repositoryId: string, limit = 100, offset = 0): Promise<IntelligenceList<RepositoryIntelligence>> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence?${query}`);
+}
+
+export function queryRepositoryIntelligence(repositoryId: string, task: string, limit = 5): Promise<IntelligenceList<IntelligencePreview>> {
+  return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence/query`, {
+    method: "POST", body: JSON.stringify({ task, limit }),
+  });
+}
+
+export function getRunIntelligenceProposals(runId: string): Promise<IntelligenceList<IntelligenceProposal>> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/intelligence-proposals`);
+}
+
+export function approveRun(runId: string, intelligence: IntelligenceApprovalSelection[], note = ""): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/approve`, {
+    method: "POST", body: JSON.stringify({ note, intelligence }),
+  });
+}
+
+export function publishRun(runId: string): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/publish`, { method: "POST" });
+}
+
+/** Structured lifecycle evidence; deliberately independent of the receipt. */
+export function getRunEventsPage(runId: string, limit = 100, offset = 0): Promise<RunEventList> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request(`/v1/runs/${encodeURIComponent(runId)}/events?${query.toString()}`);
+}
+
+const MAX_RUN_EVENT_PAGES = 100;
+
+/** Fetch every lifecycle page beginning at a raw backend event offset. */
+export async function getRunEventsSince(runId: string, offset: number, limit = 100): Promise<RunEvent[]> {
+  const events: RunEvent[] = [];
+  let nextOffset = offset;
+  for (let pageNumber = 0; pageNumber < MAX_RUN_EVENT_PAGES; pageNumber += 1) {
+    const page = await getRunEventsPage(runId, limit, nextOffset);
+    events.push(...page.data);
+    // An inconsistent empty page must not spin forever even if has_more is true.
+    if (!page.has_more || page.data.length === 0) break;
+    nextOffset += page.data.length;
+  }
+  return events;
+}
+
+/** Fetch the complete lifecycle history, including histories over 100 events. */
+export function getAllRunEvents(runId: string, limit = 100): Promise<RunEvent[]> {
+  return getRunEventsSince(runId, 0, limit);
+}
+
+/** Backwards-compatible page API. Prefer the explicit helpers above. */
+export const getRunEvents = getRunEventsPage;
+
 /**
  * Every run of the conversation `jobId` belongs to, oldest first. Opening any
  * run — including a `/runs/:jobId` deep link — resolves the whole thread; a
@@ -284,7 +447,7 @@ export function rejectJob(jobId: string, note = "", actor = "human"): Promise<Jo
   return request(`/jobs/${jobId}/reject`, { method: "POST", body: JSON.stringify({ actor, note }) });
 }
 
-export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "failed"]);
+export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "blocked", "failed"]);
 
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);

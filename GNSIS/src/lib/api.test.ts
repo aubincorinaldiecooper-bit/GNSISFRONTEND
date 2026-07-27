@@ -3,7 +3,7 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/env", () => ({ apiBaseUrl: () => "https://api.example.test", isApiConfigured: () => true }));
 vi.mock("@/lib/authToken", () => ({ getBackendToken: vi.fn(async () => "session-jwt"), emitUnauthorized: vi.fn() }));
 
-import { parseError, ApiError, getRunReceipt, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
+import { parseError, ApiError, getRunReceipt, getAllRunEvents, getRunEventsSince, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
 
 function res(body: unknown, init?: ResponseInit): Response {
   return new Response(typeof body === "string" ? body : JSON.stringify(body), init);
@@ -25,6 +25,28 @@ describe("getRunReceipt", () => {
       expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer session-jwt" }) }),
     );
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/jobs/"))).toBe(false);
+  });
+});
+
+describe("run event pagination", () => {
+  it("loads a 250-event history across every page", async () => {
+    const all = Array.from({ length: 250 }, (_, sequence) => ({ id: `e${sequence}`, run_id: "run", sequence, type: "agent.progress", at: "2026-01-01T00:00:00Z", payload: {} }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const offset = Number(url.searchParams.get("offset"));
+      const limit = Number(url.searchParams.get("limit"));
+      const data = all.slice(offset, offset + limit);
+      return res({ object: "list", data, has_more: offset + data.length < all.length, total: all.length, limit, offset }, { status: 200 });
+    });
+    expect(await getAllRunEvents("run")).toHaveLength(250);
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("offset"))).toEqual(["0", "100", "200"]);
+  });
+
+  it("polls after offset 100 and stops on an inconsistent empty page", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(res({ object: "list", data: [], has_more: true, total: 101, limit: 100, offset: 100 }, { status: 200 }));
+    expect(await getRunEventsSince("run", 100)).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toContain("offset=100");
   });
 });
 

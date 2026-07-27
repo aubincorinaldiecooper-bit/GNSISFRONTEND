@@ -21,6 +21,7 @@ const sessionValue = {
 };
 
 const useSessionMock = vi.fn(() => sessionValue);
+const publicBetaModeMock = vi.hoisted(() => vi.fn(() => false));
 vi.mock("@/lib/session", () => ({ useSession: () => useSessionMock() }));
 vi.mock("@/pages/IntegrationTestPage", () => ({ default: () => <h1>Integration test</h1> }));
 vi.mock("@/components/ApiKeysSection", () => ({ default: () => <div>API keys</div> }));
@@ -32,6 +33,7 @@ vi.mock("@/lib/env", () => ({
   authBaseUrl: () => "https://auth.example.test",
   githubAppSlug: () => "gnsis-test-app",
   integrationLabEnabled: () => true,
+  publicBetaMode: () => publicBetaModeMock(),
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
@@ -60,6 +62,9 @@ const apiMocks = vi.hoisted(() => {
     approveJobMock: vi.fn(),
     rejectJobMock: vi.fn(),
     listJobsMock: vi.fn(),
+    proposalsMock: vi.fn(),
+    approveRunMock: vi.fn(),
+    publishRunMock: vi.fn(),
   };
 });
 
@@ -72,17 +77,24 @@ vi.mock("@/lib/api", () => ({
   getJob: (...a: unknown[]) => apiMocks.getJobMock(...a),
   getJobDiff: (...a: unknown[]) => apiMocks.getJobDiffMock(...a),
   getRunReceipt: (...a: unknown[]) => apiMocks.getRunReceiptMock(...a),
+  getRunEvents: vi.fn(async () => ({ object: "list", data: [], has_more: false, total: 0, limit: 100, offset: 0 })),
+  getRunEventsSince: vi.fn(async () => []),
+  getAllRunEvents: vi.fn(async () => []),
   getJobLogs: (...a: unknown[]) => apiMocks.getJobLogsMock(...a),
   getJobThread: (...a: unknown[]) => apiMocks.getJobThreadMock(...a),
   followUpJob: (...a: unknown[]) => apiMocks.followUpJobMock(...a),
   health: vi.fn(),
   isApiConfigured: () => true,
-  isTerminalStatus: (s: string) => ["completed", "rejected", "failed"].includes(s),
+  isTerminalStatus: (s: string) => ["completed", "rejected", "blocked", "failed"].includes(s),
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...a: unknown[]) => apiMocks.listJobsMock(...a),
   listRepositories: vi.fn(async () => []),
   listBranches: vi.fn(async () => ({ default_branch: "main", branches: [] })),
   listModels: vi.fn(async () => ({ items: [] })),
+  getRunIntelligenceProposals: (...a: unknown[]) => apiMocks.proposalsMock(...a),
+  approveRun: (...a: unknown[]) => apiMocks.approveRunMock(...a),
+  publishRun: (...a: unknown[]) => apiMocks.publishRunMock(...a),
+  queryRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
   listUsageEvents: vi.fn(async () => ({ items: [] })),
   matchesGatewayRequest: vi.fn(() => false),
 }));
@@ -136,6 +148,8 @@ function renderThread(path: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionMock.mockReturnValue(sessionValue);
+  publicBetaModeMock.mockReturnValue(false);
+  apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
   apiMocks.listJobsMock.mockResolvedValue([]);
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
@@ -273,9 +287,44 @@ describe("failed run presentation", () => {
     renderThread("/runs/run-root");
     expect(await screen.findByRole("button", { name: /Run again/i })).toBeInTheDocument();
   });
+
+  it("treats a blocked tip as terminal and offers Retry run", async () => {
+    mockThread([job({ id: "run-root", instruction: "Start it", status: "blocked" })]);
+    renderThread("/runs/run-root");
+    expect(await screen.findByText("Run could not start")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
+    expect(apiMocks.getJobMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("public beta intelligence review", () => {
+  it("submits selected edits and exclusions through approval separately from publishing", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [{ id: "p1", content: "Original", kind: "accepted_change" }, { id: "p2", content: "Exclude", kind: "testing_constraint" }] });
+    apiMocks.approveRunMock.mockResolvedValue({ id: "run-root", status: "approved" });
+    const user = userEvent.setup(); renderThread("/runs/run-root");
+    const edit = await screen.findByRole("textbox", { name: "Edit proposal p1" });
+    await user.clear(edit); await user.type(edit, "Edited authoritative insight");
+    await user.click(screen.getByRole("checkbox", { name: "Select proposal p2" }));
+    await user.click(screen.getByRole("button", { name: "Approve run" }));
+    await waitFor(() => expect(apiMocks.approveRunMock).toHaveBeenCalledWith("run-root", [{ proposal_id: "p1", selected: true, content: "Edited authoritative insight" }, { proposal_id: "p2", selected: false }]));
+    expect(apiMocks.publishRunMock).not.toHaveBeenCalled();
+    expect(screen.queryByText("Approve & publish")).not.toBeInTheDocument();
+  });
 });
 
 describe("canonical run receipt", () => {
+  it("keeps selected and executor-attested delivery distinct without semantic-use claims", async () => {
+    mockThread([job({ id: "run-root", instruction: "Cross-model task", status: "completed" })]);
+    apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "run-root", execution_run_id: "exec", task: "Task", repository: "owner/repo", status: "completed", execution_started: true, model: "model-b", approval: null, pull_request: null, files_changed: [], tokens: { input: 0, output: 0, cached: 0, reasoning: 0 }, tests: "not_run", cost: null, failure_category: null, failure_message: null, intelligence: { supplied: [{ memory_id: "memory-1", kind: "testing_constraint", content: "Keep contract tests", selected: true, delivered: false, source_run_id: "run-a", source_model: "model-a", source_advisor_model: null, approval_id: 2, approved_by: "reviewer", approved_at: "2026-01-01T00:00:00Z", destination_run_id: "run-root", destination_model: "model-b" }], proposed: [], approved: [] } });
+    renderThread("/runs/run-root");
+    expect(await screen.findByText("Selected by GNSIS")).toBeInTheDocument();
+    expect(screen.getByText("Delivery not attested")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View source run" })).toHaveAttribute("href", "/runs/run-a");
+    expect(screen.queryByText(/semantic use|used/i)).not.toBeInTheDocument();
+  });
+
   it("uses the immutable ID from the route rather than a linked job record ID", async () => {
     const linkedJob = job({ id: "legacy-job-id", instruction: "Task" });
     apiMocks.getJobThreadMock.mockResolvedValue([linkedJob]);
