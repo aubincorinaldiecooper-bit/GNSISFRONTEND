@@ -73,6 +73,7 @@ vi.mock("@/lib/api", () => ({
   getJob: (...args: unknown[]) => apiMocks.getJobMock(...args),
   getJobDiff: (...args: unknown[]) => apiMocks.getJobDiffMock(...args),
   getRunReceipt: (...args: unknown[]) => apiMocks.getRunReceiptMock(...args),
+  getRunEvents: vi.fn(async () => ({ object: "list", data: [], has_more: false, total: 0, limit: 100, offset: 0 })),
   getJobLogs: (...args: unknown[]) => apiMocks.getJobLogsMock(...args),
   getJobThread: (...args: unknown[]) => apiMocks.getJobThreadMock(...args),
   followUpJob: (...args: unknown[]) => apiMocks.followUpJobMock(...args),
