@@ -63,6 +63,7 @@ import {
   followUpJob,
   approveJob,
   rejectJob,
+  cancelJob,
   isApiConfigured,
   ApiError,
   isTerminalStatus,
@@ -268,7 +269,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "blocked" | "failed";
+type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "blocked" | "failed" | "cancelled";
 type NavId = "new-run" | "runs" | "intelligence" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
@@ -286,6 +287,8 @@ function jobStatusToRunStatus(status: JobStatus): RunStatus {
       return "blocked";
     case "failed":
       return "failed";
+    case "cancelled":
+      return "cancelled";
     default:
       return "running";
   }
@@ -299,6 +302,7 @@ const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
   rejected: { label: "Rejected", cls: "text-muted-foreground" },
   blocked: { label: "Blocked", cls: "text-amber-700" },
   failed: { label: "Failed", cls: "text-red-600" },
+  cancelled: { label: "Cancelled", cls: "text-muted-foreground" },
 };
 
 function StatusLabel({ status }: { status: RunStatus }) {
@@ -412,6 +416,7 @@ const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
   rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
   blocked: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
   failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
+  cancelled: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
 };
 
 function SidebarRunRow({
@@ -1669,6 +1674,66 @@ function RejectedMessage() {
   );
 }
 
+function CancelledMessage() {
+  return (
+    <div className="py-4 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <CircleX className="h-4 w-4 text-muted-foreground shrink-0" />
+        <p className="text-sm font-semibold text-foreground">Run cancelled</p>
+      </div>
+      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
+        This run was cancelled before it finished.
+      </p>
+    </div>
+  );
+}
+
+// Lets the user stop a run at any point before it reaches a terminal state.
+// Self-contained (mirrors BetaRunReview): calls the API directly and reports
+// the authoritative {id, status} response through the same centralized
+// onStatusChange updater every other mutation uses.
+function CancelRunControl({
+  job,
+  onStatusChange,
+}: {
+  job: JobRecord;
+  onStatusChange: (runId: string, status: JobStatus) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (isTerminalStatus(job.status)) return null;
+
+  const cancel = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await cancelJob(job.id);
+      onStatusChange(result.id, result.status);
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : "Failed to cancel the run.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="pt-3 flex items-center gap-2 flex-wrap">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        onClick={cancel}
+        className="h-8 gap-1.5 rounded-lg text-muted-foreground"
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+        Cancel run
+      </Button>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 // =============================================================================
 // RUN THREAD
 // =============================================================================
@@ -1691,6 +1756,8 @@ function RunExecution({
     <div className="mt-1">
       <RunActivityTimeline run={job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(job.status)} reconnecting={run.eventsReconnecting} compact />
 
+      <CancelRunControl job={job} onStatusChange={onStatusChange} />
+
       {!publicBetaMode() && job.status === "awaiting_approval" && (
         <div className="pt-3">
           <ApprovalBlock
@@ -1707,6 +1774,7 @@ function RunExecution({
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
       {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
       {job.status === "rejected" && <RejectedMessage />}
+      {job.status === "cancelled" && <CancelledMessage />}
     </div>
   );
 }
@@ -1723,8 +1791,8 @@ function RunActions({
   pending: boolean;
   onRetry: () => void;
 }) {
-  if (job.status !== "failed" && job.status !== "blocked" && job.status !== "completed" && job.status !== "rejected") return null;
-  const retry = job.status === "failed" || job.status === "blocked";
+  if (job.status !== "failed" && job.status !== "blocked" && job.status !== "completed" && job.status !== "rejected" && job.status !== "cancelled") return null;
+  const retry = job.status === "failed" || job.status === "blocked" || job.status === "cancelled";
   return (
     <div className="mt-3">
       <Button
@@ -2323,7 +2391,7 @@ function RunsFilterSelect({
 }
 
 const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
-const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "blocked", "failed"];
+const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "blocked", "failed", "cancelled"];
 
 function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void }) {
   return (

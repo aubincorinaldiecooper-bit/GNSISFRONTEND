@@ -10,7 +10,7 @@ function safeText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-const terminal = new Set(["completed", "failed", "rejected", "blocked"]);
+const terminal = new Set(["completed", "failed", "rejected", "blocked", "cancelled"]);
 const failedType = (type: string) => type === "run.failed" || type.endsWith(".failed");
 const blockedType = (type: string) => type === "run.blocked" || type.endsWith(".blocked");
 
@@ -21,6 +21,7 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
   const items = useMemo(() => groupRunEvents(events), [events]);
   const settled = terminal.has(run.status);
   const rejected = run.status === "rejected";
+  const cancelled = run.status === "cancelled";
   const failed = run.status === "failed" || run.status === "blocked" || items.some((item) => isFailureEvent(item.event));
   const [expanded, setExpanded] = useState(!settled || failed);
   const [copied, setCopied] = useState(false);
@@ -35,13 +36,13 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
 
   if (settled && !failed && !expanded && compact) return (
     <button type="button" onClick={() => setExpanded(true)} className="mt-3 text-xs text-muted-foreground hover:text-foreground" aria-expanded="false">
-      {rejected ? "Run rejected" : "Run completed"} · {visible.length} steps <span className="underline">Show activity</span>
+      {rejected ? "Run rejected" : cancelled ? "Run cancelled" : "Run completed"} · {visible.length} steps <span className="underline">Show activity</span>
     </button>
   );
 
   return <section className={cn("py-3", compact ? "mt-1 border-b border-border" : "px-4")} aria-label="Run activity timeline">
     <div className="flex items-center justify-between gap-2 mb-2">
-      <h3 className={cn("text-sm font-semibold", run.status === "blocked" && "text-amber-700")}>{run.status === "blocked" ? "Run could not start" : rejected ? "Run rejected" : settled ? failed ? "GNSIS stopped" : "GNSIS finished" : "GNSIS is working"}</h3>
+      <h3 className={cn("text-sm font-semibold", run.status === "blocked" && "text-amber-700")}>{run.status === "blocked" ? "Run could not start" : rejected ? "Run rejected" : cancelled ? "Run cancelled" : settled ? failed ? "GNSIS stopped" : "GNSIS finished" : "GNSIS is working"}</h3>
       {compact && settled && <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setExpanded(false)}>Collapse</button>}
     </div>
     <ol className="relative ml-1 border-l border-border" aria-live="off">
@@ -68,6 +69,6 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
       {technical && <details className="text-xs"><summary className="cursor-pointer font-medium">Technical details</summary><pre className="mt-2 max-h-48 overflow-auto rounded bg-neutral-950 p-3 text-neutral-100 whitespace-pre-wrap">{JSON.stringify(technical, null, 2)}</pre><button type="button" onClick={copyTechnical} aria-label="Copy technical details" className="mt-1 inline-flex items-center gap-1 underline"><Copy className="h-3 w-3" />{copied ? "Copied" : "Copy technical details"}</button></details>}
     </div>}
     {(receiptState === "unavailable" || receiptState === "error") && <div className="mt-3 border-t border-border pt-3 text-sm"><p className="font-medium">Receipt unavailable</p><p className="text-muted-foreground">The run outcome is known, but its detailed receipt could not be loaded.</p>{onRetryReceipt && <button type="button" onClick={onRetryReceipt} className="mt-1 underline">Retry receipt</button>}</div>}
-    {rejected ? <p className="mt-2 text-xs text-muted-foreground">The proposed result was not approved.</p> : settled && !failed && <p className="mt-2 text-xs font-medium">Ready for review</p>}
+    {rejected ? <p className="mt-2 text-xs text-muted-foreground">The proposed result was not approved.</p> : cancelled ? <p className="mt-2 text-xs text-muted-foreground">The run was cancelled before it finished.</p> : settled && !failed && <p className="mt-2 text-xs font-medium">Ready for review</p>}
   </section>;
 }

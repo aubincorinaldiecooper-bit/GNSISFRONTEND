@@ -64,4 +64,12 @@ describe("RunActivityTimeline", () => {
     expect(screen.queryByText("GNSIS finished")).not.toBeInTheDocument();
     expect(screen.queryByText("Ready for review")).not.toBeInTheDocument();
   });
+
+  it("treats cancellation as its own neutral terminal state", () => {
+    render(<RunActivityTimeline run={job("cancelled")} events={[event("c", 1, "run.cancelled")]} loading={false} polling={false} reconnecting={false} />);
+    expect(screen.getByText("Run cancelled")).toBeInTheDocument();
+    expect(screen.getByText("The run was cancelled before it finished.")).toBeInTheDocument();
+    expect(screen.queryByText("GNSIS finished")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready for review")).not.toBeInTheDocument();
+  });
 });

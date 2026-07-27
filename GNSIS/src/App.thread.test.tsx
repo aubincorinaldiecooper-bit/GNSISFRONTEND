@@ -61,6 +61,7 @@ const apiMocks = vi.hoisted(() => {
     followUpJobMock: vi.fn(),
     approveJobMock: vi.fn(),
     rejectJobMock: vi.fn(),
+    cancelJobMock: vi.fn(),
     listJobsMock: vi.fn(),
     proposalsMock: vi.fn(),
     approveRunMock: vi.fn(),
@@ -72,6 +73,7 @@ vi.mock("@/lib/api", () => ({
   ApiError: apiMocks.MockApiError,
   approveJob: (...a: unknown[]) => apiMocks.approveJobMock(...a),
   rejectJob: (...a: unknown[]) => apiMocks.rejectJobMock(...a),
+  cancelJob: (...a: unknown[]) => apiMocks.cancelJobMock(...a),
   createJob: vi.fn(),
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...a: unknown[]) => apiMocks.getJobMock(...a),
@@ -85,7 +87,7 @@ vi.mock("@/lib/api", () => ({
   followUpJob: (...a: unknown[]) => apiMocks.followUpJobMock(...a),
   health: vi.fn(),
   isApiConfigured: () => true,
-  isTerminalStatus: (s: string) => ["completed", "rejected", "blocked", "failed"].includes(s),
+  isTerminalStatus: (s: string) => ["completed", "rejected", "blocked", "failed", "cancelled"].includes(s),
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...a: unknown[]) => apiMocks.listJobsMock(...a),
   listRepositories: vi.fn(async () => []),
@@ -294,6 +296,47 @@ describe("failed run presentation", () => {
     expect(await screen.findByText("Run could not start")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
     expect(apiMocks.getJobMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancel run", () => {
+  it("offers Cancel run while a run is in flight and applies the response status immediately", async () => {
+    mockThread([job({ id: "run-root", instruction: "Do the thing", status: "running" })]);
+    // Hold the background poll open so its (stale) response can't race the
+    // mutation-applied status before the assertions below run — same technique
+    // as the "still lets polling replace..." test above.
+    let resolvePoll!: (value: JobRecord) => void;
+    apiMocks.getJobMock.mockReturnValue(new Promise((resolve) => { resolvePoll = resolve; }));
+    apiMocks.cancelJobMock.mockResolvedValue(job({ id: "run-root", instruction: "Do the thing", status: "cancelled" }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    await userEvent.click(cancelButton);
+
+    await waitFor(() => expect(apiMocks.cancelJobMock).toHaveBeenCalledWith("run-root"));
+    expect(await screen.findByText("This run was cancelled before it finished.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    // A cancelled tip is retry-eligible, same as failed.
+    expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
+    resolvePoll(job({ id: "run-root", instruction: "Do the thing", status: "cancelled" }));
+  });
+
+  it("keeps Cancel run available with an error when the mutation fails", async () => {
+    mockThread([job({ id: "run-root", instruction: "Do the thing", status: "queued" })]);
+    apiMocks.cancelJobMock.mockRejectedValue(new apiMocks.MockApiError(409, "job is already 'completed'"));
+    renderThread("/runs/run-root");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+    expect(await screen.findByText("job is already 'completed'")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel run" })).toBeEnabled();
+  });
+
+  it("does not offer Cancel run once a run has reached a terminal state", async () => {
+    mockThread([job({ id: "run-root", instruction: "Ship it", status: "completed" })]);
+    renderThread("/runs/run-root");
+    await screen.findByText("Run complete");
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    expect(apiMocks.cancelJobMock).not.toHaveBeenCalled();
   });
 });
 
