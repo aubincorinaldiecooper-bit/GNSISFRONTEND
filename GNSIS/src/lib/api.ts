@@ -134,7 +134,8 @@ export type JobStatus =
   | "completed"
   | "rejected"
   | "blocked"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface JobRecord {
   id: string;
@@ -499,7 +500,12 @@ export function rejectJob(jobId: string, note = "", actor = "human"): Promise<Jo
   return request(`/jobs/${jobId}/reject`, { method: "POST", body: JSON.stringify({ actor, note }) });
 }
 
-export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "blocked", "failed"]);
+/** Stop a run before it reaches a terminal state. Revokes its run token backend-side. */
+export function cancelJob(jobId: string): Promise<JobRecord> {
+  return request(`/jobs/${jobId}/cancel`, { method: "POST" });
+}
+
+export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "blocked", "failed", "cancelled"]);
 
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);
