@@ -208,6 +208,113 @@ export interface RunReceipt {
   } | null;
   base_sha?: string | null;
   patch_hash?: string | null;
+  policy?: Record<string, unknown> | null;
+  intelligence?: {
+    supplied: SuppliedIntelligence[];
+    proposed: IntelligenceProposal[];
+    approved: ApprovedIntelligence[];
+  };
+}
+
+export interface RepositoryIntelligence {
+  id: string;
+  repository_id: string;
+  content: string;
+  type: string | null;
+  status: "active";
+  source_run_id: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string | null;
+}
+
+export interface IntelligencePreview {
+  memory_id: string;
+  kind: string;
+  content: string;
+  selection_reason: string;
+}
+
+export interface IntelligenceProposal {
+  id: string;
+  content: string;
+  kind: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface SuppliedIntelligence {
+  memory_id: string;
+  kind: string | null;
+  content: string | null;
+  selected: true;
+  delivered: boolean;
+  source_run_id: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  destination_run_id: string;
+  destination_model: string | null;
+}
+
+export interface ApprovedIntelligence {
+  memory_id: string;
+  item_key: string | null;
+  kind: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+}
+
+export interface IntelligenceList<T> {
+  object: "list";
+  data: T[];
+  has_more?: boolean;
+  total?: number;
+  total_available?: number;
+  truncated?: boolean;
+}
+
+export interface IntelligenceApprovalSelection {
+  proposal_id: string;
+  selected?: boolean;
+  content?: string;
+  kind?: string;
+}
+
+/** One durable, backend-authored lifecycle fact for a run. */
+export interface RunEvent {
+  id: string;
+  run_id: string;
+  sequence: number;
+  type: string;
+  at: string;
+  payload: {
+    message?: string;
+    stage?: string;
+    execution_started?: boolean;
+    model_called?: boolean;
+    retryable?: boolean;
+    next_action?: string | null;
+    duration_seconds?: number | null;
+    technical?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+}
+
+export interface RunEventList {
+  object: "list";
+  data: RunEvent[];
+  has_more: boolean;
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 /** One durable, backend-authored lifecycle fact for a run. */
@@ -283,6 +390,54 @@ export function getJobDiff(jobId: string): Promise<DiffRecord | null> {
 /** The public API's backend-assembled, immutable receipt for one run. */
 export function getRunReceipt(runId: string): Promise<RunReceipt> {
   return request(`/v1/runs/${encodeURIComponent(runId)}/receipt`);
+}
+
+export function listRepositoryIntelligence(repositoryId: string, limit = 100, offset = 0): Promise<IntelligenceList<RepositoryIntelligence>> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence?${query}`);
+}
+
+const MAX_REPOSITORY_INTELLIGENCE_PAGES = 100;
+
+/** Load the complete ordered intelligence collection using backend pagination. */
+export async function getAllRepositoryIntelligence(repositoryId: string, limit = 100): Promise<RepositoryIntelligence[]> {
+  const intelligence: RepositoryIntelligence[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  for (let pageNumber = 0; pageNumber < MAX_REPOSITORY_INTELLIGENCE_PAGES; pageNumber += 1) {
+    const page = await listRepositoryIntelligence(repositoryId, limit, offset);
+    if (page.data.length === 0) break;
+    let added = 0;
+    for (const item of page.data) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      intelligence.push(item);
+      added += 1;
+    }
+    if (!page.has_more || added === 0) break;
+    offset += page.data.length;
+  }
+  return intelligence;
+}
+
+export function queryRepositoryIntelligence(repositoryId: string, task: string, limit = 5): Promise<IntelligenceList<IntelligencePreview>> {
+  return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence/query`, {
+    method: "POST", body: JSON.stringify({ task, limit }),
+  });
+}
+
+export function getRunIntelligenceProposals(runId: string): Promise<IntelligenceList<IntelligenceProposal>> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/intelligence-proposals`);
+}
+
+export function approveRun(runId: string, intelligence: IntelligenceApprovalSelection[], note = ""): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/approve`, {
+    method: "POST", body: JSON.stringify({ note, intelligence }),
+  });
+}
+
+export function publishRun(runId: string): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/publish`, { method: "POST" });
 }
 
 /** Structured lifecycle evidence; deliberately independent of the receipt. */
@@ -404,6 +559,29 @@ export function listRepositories(opts: ListRepositoriesOptions = {}): Promise<Re
   if (opts.offset != null) p.set("offset", String(opts.offset));
   const qs = p.toString();
   return request(`/v1/repositories${qs ? `?${qs}` : ""}`);
+}
+
+const MAX_REPOSITORY_PAGES = 100;
+
+/** Fetch all repositories without losing the backend's ordering. */
+export async function getAllRepositories(limit = 100): Promise<RepositoryRecord[]> {
+  const repositories: RepositoryRecord[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  for (let page = 0; page < MAX_REPOSITORY_PAGES; page += 1) {
+    const result = await listRepositories({ limit, offset });
+    if (result.length === 0) break;
+    let added = 0;
+    for (const repository of result) {
+      if (seen.has(repository.id)) continue;
+      seen.add(repository.id);
+      repositories.push(repository);
+      added += 1;
+    }
+    if (added === 0 || result.length < limit) break;
+    offset += result.length;
+  }
+  return repositories;
 }
 
 export interface BranchInfo {

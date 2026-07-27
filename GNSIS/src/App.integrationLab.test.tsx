@@ -10,6 +10,7 @@ vi.mock("@/lib/env", () => ({
   authBaseUrl: () => "https://auth.example.test",
   githubAppSlug: () => "gnsis-test-app",
   integrationLabEnabled: () => integrationLabEnabledRef.current,
+  publicBetaMode: () => false,
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
