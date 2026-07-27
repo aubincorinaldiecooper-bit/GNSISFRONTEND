@@ -37,14 +37,16 @@ import {
   Activity as ActivityGlyph,
   Menu,
   X,
+  Brain,
 } from "lucide-react";
 import { useNavigate, useLocation, matchPath } from "react-router";
 import SettingsPage from "@/pages/SettingsPage";
 import BillingPage from "@/pages/BillingPage";
 import IntegrationTestPage from "@/pages/IntegrationTestPage";
 import GitHubOnboardingPage from "@/pages/GitHubOnboardingPage";
+import IntelligencePage from "@/pages/IntelligencePage";
 import { useSession } from "@/lib/session";
-import { githubAppSlug, integrationLabEnabled } from "@/lib/env";
+import { githubAppSlug, integrationLabEnabled, publicBetaMode } from "@/lib/env";
 import {
   createJob,
   listJobs,
@@ -65,6 +67,10 @@ import {
   ApiError,
   isTerminalStatus,
   getBalances,
+  queryRepositoryIntelligence,
+  getRunIntelligenceProposals,
+  approveRun,
+  publishRun,
   type JobRecord,
   type JobStatus,
   type LogRecord,
@@ -74,6 +80,9 @@ import {
   type RepositoryRecord,
   type ModelInfo,
   type Balances,
+  type IntelligencePreview,
+  type IntelligenceProposal,
+  type IntelligenceApprovalSelection,
 } from "@/lib/api";
 import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
@@ -260,7 +269,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // =============================================================================
 
 type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "blocked" | "failed";
-type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
+type NavId = "new-run" | "runs" | "intelligence" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
 function jobStatusToRunStatus(status: JobStatus): RunStatus {
@@ -587,10 +596,9 @@ function AccountRow({
           <Settings2 className="h-4 w-4" />
           Settings
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={onBilling}>
-          <CreditCard className="h-4 w-4" />
-          Billing
-        </DropdownMenuItem>
+        {!publicBetaMode() && <DropdownMenuItem onClick={onBilling}>
+          <CreditCard className="h-4 w-4" />Billing
+        </DropdownMenuItem>}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={() => void signOut()}>
           <LogOut className="h-4 w-4" />
@@ -635,8 +643,8 @@ function SidebarRegion({
   const navItems: Array<{ id: NavId; label: string; icon: React.ReactNode }> = [
     { id: "new-run", label: "New run", icon: <CirclePlus /> },
     { id: "runs", label: "Runs", icon: <ListChecks /> },
-    { id: "dashboard", label: "Dashboard", icon: <LayoutGrid /> },
-    ...(integrationLabEnabled()
+    ...(publicBetaMode() ? [{ id: "intelligence" as NavId, label: "Intelligence", icon: <Brain /> }] : [{ id: "dashboard" as NavId, label: "Dashboard", icon: <LayoutGrid /> }]),
+    ...(!publicBetaMode() && integrationLabEnabled()
       ? [{ id: "integration-test" as NavId, label: "Integration test", icon: <FlaskConical /> }]
       : []),
   ];
@@ -736,9 +744,7 @@ function SidebarRegion({
       <Divider orientation="horizontal" />
 
       {/* Usage meter — fixed */}
-      {collapsed ? <CollapsedUsageIndicator /> : <UsageMeter available={available} />}
-
-      <Divider orientation="horizontal" />
+      {!publicBetaMode() && <>{collapsed ? <CollapsedUsageIndicator /> : <UsageMeter available={available} />}<Divider orientation="horizontal" /></>}
 
       {/* Account — fixed */}
       <AccountRow collapsed={collapsed} onSettings={onSettings} onBilling={onBilling} />
@@ -785,6 +791,9 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [showMobileConfig, setShowMobileConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<IntelligencePreview[] | null>(null);
+  const [previewState, setPreviewState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const previewRequest = useRef(0);
 
   // Repositories currently accessible through GitHub App access — the New
   // Run source of truth. There is no in-GNSIS enable step: what the App can
@@ -876,6 +885,21 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   // branch list hasn't arrived (or failed) yet.
   const branchesLoading = repositoryId !== null && branches === null && !branchesError;
 
+  useEffect(() => {
+    if (!publicBetaMode() || !repositoryId || prompt.trim().length < 12) {
+      return;
+    }
+    const requestId = ++previewRequest.current;
+    const timer = setTimeout(() => {
+      setPreviewState("loading");
+      void queryRepositoryIntelligence(repositoryId, prompt.trim(), 5).then(
+        (result) => { if (previewRequest.current === requestId) { setPreview(result.data); setPreviewState("loaded"); } },
+        () => { if (previewRequest.current === requestId) { setPreview(null); setPreviewState("error"); } },
+      );
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [repositoryId, prompt]);
+
   const selectedRepo = repos?.find((r) => r.id === repositoryId) ?? null;
 
   const repoOptions: ComboboxOption[] = (repos ?? []).map((r) => ({
@@ -913,7 +937,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         repositoryFullName: selectedRepo.full_name,
         branch,
         model,
-        advisorModel: showAdvisor ? advisorModel : null,
+        advisorModel: !publicBetaMode() && showAdvisor ? advisorModel : null,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start the run.");
@@ -983,6 +1007,12 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             }}
           />
 
+          {publicBetaMode() && prompt.trim().length >= 12 && <div className="border-t px-4 py-3 text-xs" aria-live="polite">
+            <p className="font-semibold">Repository intelligence</p>
+            <p className="mt-0.5 text-muted-foreground">{previewState === "loading" ? "Checking approved intelligence…" : previewState === "error" ? "Intelligence preview is temporarily unavailable." : previewState === "loaded" && preview?.length ? `${preview.length} approved insight${preview.length === 1 ? " is" : "s are"} relevant to this task.` : previewState === "loaded" ? "No approved intelligence is relevant yet." : "The backend selects intelligence authoritatively when the run starts."}</p>
+            {!!preview?.length && <details className="mt-1"><summary className="cursor-pointer">Preview candidates</summary><ul className="mt-2 space-y-2">{preview.map((item) => <li key={item.memory_id}><p>{item.content}</p><p className="text-muted-foreground">{item.kind}</p></li>)}</ul></details>}
+          </div>}
+
           <Divider orientation="horizontal" />
 
           {/* Desktop / tablet configuration (md and up) */}
@@ -1050,7 +1080,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             </div>
 
             {/* Advisor — optional, its own row so it never crowds the core flow */}
-            <div className="flex items-center gap-2 min-w-0">
+            {!publicBetaMode() && <div className="flex items-center gap-2 min-w-0">
               {showAdvisor ? (
                 <>
                   <span className="shrink-0 text-xs text-muted-foreground">Advisor</span>
@@ -1091,7 +1121,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   + Add Advisor
                 </Button>
               )}
-            </div>
+            </div>}
           </div>
 
           {/* Mobile bottom bar */}
@@ -1156,7 +1186,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 disabled={(models ?? []).length === 0}
                 className="h-9 rounded-lg bg-white px-2.5 text-xs"
               />
-              {showAdvisor ? (
+              {!publicBetaMode() && (showAdvisor ? (
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <Combobox
@@ -1194,7 +1224,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 >
                   + Add Advisor
                 </Button>
-              )}
+              ))}
             </div>
           )}
         </div>
@@ -1481,6 +1511,49 @@ function ApprovalBlock({
   );
 }
 
+function BetaRunReview({ job }: { job: JobRecord }) {
+  const [proposals, setProposals] = useState<IntelligenceProposal[]>([]);
+  const [choices, setChoices] = useState<Record<string, { selected: boolean; content: string }>>({});
+  const [proposalState, setProposalState] = useState<"loading" | "loaded" | "error">(job.status === "awaiting_approval" ? "loading" : "loaded");
+  const [proposalAttempt, setProposalAttempt] = useState(0);
+  const [pending, setPending] = useState<"approve" | "publish" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (job.status !== "awaiting_approval") return;
+    let cancelled = false;
+    void getRunIntelligenceProposals(job.id).then((result) => {
+      if (cancelled) return;
+      setProposals(result.data);
+      setChoices(Object.fromEntries(result.data.map((item) => [item.id, { selected: true, content: item.content }])));
+      setProposalState("loaded");
+    }, () => { if (!cancelled) { setError("Proposed intelligence could not be loaded."); setProposalState("error"); } });
+    return () => { cancelled = true; };
+  }, [job.id, job.status, proposalAttempt]);
+
+  const approve = async () => {
+    if (proposalState !== "loaded") return;
+    setPending("approve"); setError(null);
+    const intelligence: IntelligenceApprovalSelection[] = proposals.map((item) => ({ proposal_id: item.id, selected: choices[item.id]?.selected ?? false, ...(choices[item.id]?.selected && choices[item.id]?.content !== item.content ? { content: choices[item.id].content } : {}) }));
+    try { await approveRun(job.id, intelligence); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Approval failed."); } finally { setPending(null); }
+  };
+  const publish = async () => { setPending("publish"); setError(null); try { await publishRun(job.id); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Publishing failed. The approval remains recorded."); } finally { setPending(null); } };
+
+  if (job.status === "approved") return <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-muted-foreground">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red-600">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>;
+  if (job.status !== "awaiting_approval") return null;
+  return <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+    <h3 className="text-sm font-semibold">Proposed intelligence</h3>
+    <p className="mt-1 text-xs text-muted-foreground">Nothing becomes approved intelligence until you select it and approve the run.</p>
+    {proposalState === "loading" ? <p className="mt-3 text-xs">Loading proposals…</p> : proposalState === "loaded" && proposals.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">No intelligence was proposed. You can still approve the run.</p> : proposalState === "loaded" ? <ul className="mt-3 space-y-3">{proposals.map((item) => <li key={item.id} className="flex items-start gap-2">
+      <input aria-label={`Select proposal ${item.id}`} type="checkbox" checked={choices[item.id]?.selected ?? false} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: event.target.checked, content: current[item.id]?.content ?? item.content } }))} />
+      <div className="flex-1"><Textarea aria-label={`Edit proposal ${item.id}`} value={choices[item.id]?.content ?? item.content} disabled={!choices[item.id]?.selected} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: current[item.id]?.selected ?? true, content: event.target.value } }))} className="min-h-16 text-xs" /><p className="mt-1 text-xs text-muted-foreground">{item.kind}</p></div>
+    </li>)}</ul> : null}
+    {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
+    <Button size="sm" className="mt-3" onClick={approve} disabled={pending !== null || proposalState !== "loaded"}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
+  </div>;
+}
+
 const prUrlPattern = /opened PR #\d+: (\S+)/;
 
 function findPrUrl(logs: LogRecord[]): string | null {
@@ -1595,7 +1668,7 @@ function RunExecution({
     <div className="mt-1">
       <RunActivityTimeline run={job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(job.status)} reconnecting={run.eventsReconnecting} compact />
 
-      {job.status === "awaiting_approval" && (
+      {!publicBetaMode() && job.status === "awaiting_approval" && (
         <div className="pt-3">
           <ApprovalBlock
             diff={diff}
@@ -1606,6 +1679,7 @@ function RunExecution({
           />
         </div>
       )}
+      {publicBetaMode() && (job.status === "awaiting_approval" || job.status === "approved") && <BetaRunReview job={job} />}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
       {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
@@ -1822,6 +1896,9 @@ function ReceiptPanel({ receipt }: { receipt: RunReceipt }) {
   const executionStarted = receipt.execution_started === undefined
     ? "Unavailable"
     : receipt.execution_started ? "Yes" : "No";
+  const supplied = receipt.intelligence?.supplied ?? [];
+  const approved = receipt.intelligence?.approved ?? [];
+  const delivered = supplied.filter((item) => item.delivered).length;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -1854,19 +1931,35 @@ function ReceiptPanel({ receipt }: { receipt: RunReceipt }) {
 
       <div className="px-4 py-4 border-b border-border space-y-3">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem
-            label="Tokens"
-            value={receiptTokens(receipt.tokens)}
-            emphasize={receipt.tokens !== null}
-          />
-          <SummaryItem label="Provider cost" value={providerCost} />
+          <SummaryItem label="Repository" value={receipt.repository} />
+          {receipt.base_sha != null && <SummaryItem label="Starting commit" value={receipt.base_sha} />}
           <SummaryItem label="Files changed" value={String(receipt.files_changed.length)} />
           <SummaryItem label="Tests" value={receiptTests(receipt.tests)} />
-          <SummaryItem label="Execution started" value={executionStarted} />
-          <SummaryItem label="Model" value={receipt.model ?? "Unavailable"} />
-          <SummaryItem label="Approval" value={receipt.approval?.decision ?? "Not applicable"} />
+          {receipt.model != null && <SummaryItem label="Model" value={receipt.model} />}
+          <SummaryItem label="Intelligence selected" value={String(supplied.length)} />
+          <SummaryItem label="Intelligence delivered" value={String(delivered)} />
+          <SummaryItem label="Intelligence approved" value={String(approved.length)} />
         </div>
       </div>
+
+      {supplied.length > 0 && <div className="border-b px-4 py-4"><h3 className="text-sm font-semibold">Supplied intelligence</h3><ul className="mt-3 space-y-4">{supplied.map((item) => <li key={item.memory_id} className="text-xs">
+        <div className="flex flex-wrap gap-2"><span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span><span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-700" : "text-muted-foreground")}>{item.delivered ? "Delivered to model request" : "Delivery not attested"}</span></div>
+        {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
+        {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
+        <p className="mt-1 text-muted-foreground">{[item.source_model && `Source model: ${item.source_model}`, item.approved_by && `Approved by ${item.approved_by}`, item.approved_at && new Date(item.approved_at).toLocaleString(), item.destination_model && `Destination model: ${item.destination_model}`].filter(Boolean).join(" · ")}</p>
+        {item.source_run_id && <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>View source run</a>}
+      </li>)}</ul></div>}
+
+      <details className="border-b px-4 py-4 text-xs"><summary className="cursor-pointer text-sm font-semibold">Technical details</summary><div className="mt-3 grid grid-cols-2 gap-3">
+        {receipt.advisor_model != null && <SummaryItem label="Historical Advisor" value={receipt.advisor_model} />}
+        {receipt.tokens != null && <SummaryItem label="Tokens" value={receiptTokens(receipt.tokens)} emphasize />}
+        {receipt.cost != null && <SummaryItem label="Provider cost" value={providerCost} />}
+        {receipt.cost?.gnsis_service_fee != null && <SummaryItem label="Service fee" value={receipt.cost.gnsis_service_fee} />}
+        {receipt.execution_started !== undefined && <SummaryItem label="Execution started" value={executionStarted} />}
+        {publicBetaMode() && receipt.execution_run_id != null && <SummaryItem label="Execution ID" value={receipt.execution_run_id} />}
+        {receipt.patch_hash != null && <SummaryItem label="Patch hash" value={receipt.patch_hash} />}
+        {receipt.timing?.duration_seconds != null && <SummaryItem label="Duration" value={`${receipt.timing.duration_seconds}s`} />}
+      </div></details>
 
       {receipt.files_changed.length > 0 && (
         <div className="px-4 py-4">
@@ -2000,6 +2093,7 @@ type WorkspaceView =
   | { kind: "thread-loading"; runId: string }
   | { kind: "thread-error"; runId: string; message: string }
   | { kind: "runs" }
+  | { kind: "intelligence" }
   | { kind: "dashboard" }
   | { kind: "settings" }
   | { kind: "billing" }
@@ -2613,6 +2707,8 @@ function WorkspaceRegion({
         </div>
       )}
 
+      {view.kind === "intelligence" && <div className="flex-1 overflow-y-auto"><IntelligencePage /></div>}
+
       {view.kind === "dashboard" && (
         <div className="flex-1 overflow-y-auto">
           <DashboardView runs={runs} balances={balances} onSelectRun={onSelectRun} onNewRun={onNewRun} />
@@ -2673,6 +2769,7 @@ function routeFromPathname(pathname: string): { route: RouteViewKind; runId: str
 
   if (pathname === "/new") return { route: "new-run", runId: null };
   if (pathname === "/runs") return { route: "runs", runId: null };
+  if (pathname === "/intelligence") return { route: "intelligence", runId: null };
   if (pathname === "/dashboard") return { route: "dashboard", runId: null };
   if (pathname === "/settings") return { route: "settings", runId: null };
   if (pathname === "/billing") return { route: "billing", runId: null };
@@ -2684,6 +2781,7 @@ function routeFromPathname(pathname: string): { route: RouteViewKind; runId: str
 
 function navIdFromRoute(route: RouteViewKind): NavId {
   if (route === "runs" || route === "run") return "runs";
+  if (route === "intelligence") return "intelligence";
   if (route === "dashboard") return "dashboard";
   if (route === "integration-test") return "integration-test";
   return "new-run";
@@ -2746,10 +2844,8 @@ function GNSISWorkspacePreview() {
     } catch {
       // transient network error — keep showing the last known list
     }
-    try {
-      setBalances(await getBalances());
-    } catch {
-      // transient error / not yet reachable — keep the last value
+    if (!publicBetaMode()) {
+      try { setBalances(await getBalances()); } catch { /* keep the last value */ }
     }
   }, []);
 
@@ -2766,13 +2862,18 @@ function GNSISWorkspacePreview() {
   useEffect(() => {
     if (route === "new-run") setView({ kind: "composer" });
     else if (route === "runs") setView({ kind: "runs" });
-    else if (route === "dashboard") setView({ kind: "dashboard" });
+    else if (route === "intelligence") setView({ kind: "intelligence" });
+    else if (route === "dashboard") {
+      if (publicBetaMode()) navigate("/new", { replace: true }); else setView({ kind: "dashboard" });
+    }
     else if (route === "settings") setView({ kind: "settings" });
-    else if (route === "billing") setView({ kind: "billing" });
+    else if (route === "billing") {
+      if (publicBetaMode()) navigate("/new", { replace: true }); else setView({ kind: "billing" });
+    }
     else if (route === "integration-test") {
       // The route itself is gated, not just the nav link — a direct URL visit
       // when the flag is off must not reach the Integration Lab.
-      if (integrationLabEnabled()) {
+      if (!publicBetaMode() && integrationLabEnabled()) {
         setView({ kind: "integration-test" });
       } else {
         navigate("/new", { replace: true });
@@ -2835,6 +2936,7 @@ function GNSISWorkspacePreview() {
     const nextPath: Record<NavId, string> = {
       "new-run": "/new",
       runs: "/runs",
+      intelligence: "/intelligence",
       dashboard: "/dashboard",
       "integration-test": "/integration-test",
     };

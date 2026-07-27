@@ -23,12 +23,14 @@ vi.mock("@/components/ApiKeysSection", () => ({ default: () => <div>API keys</di
 vi.mock("@/lib/useVirtualKeys", () => ({
   useVirtualKeys: () => ({ keys: [], loading: false, error: null, createKey: vi.fn(), rotateKey: vi.fn(), disableKey: vi.fn() }),
 }));
+const publicBetaModeMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("@/lib/env", () => ({
   apiBaseUrl: () => "https://api.example.test",
   authBaseUrl: () => "https://auth.example.test",
   githubAppSlug: () => "gnsis-test-app",
   integrationLabEnabled: () => false,
+  publicBetaMode: () => publicBetaModeMock(),
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
@@ -61,6 +63,10 @@ vi.mock("@/lib/api", () => ({
   listRepositories: (...a: unknown[]) => apiMocks.listRepositoriesMock(...a),
   listBranches: (...a: unknown[]) => apiMocks.listBranchesMock(...a),
   listModels: (...a: unknown[]) => apiMocks.listModelsMock(...a),
+  queryRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
+  getRunIntelligenceProposals: vi.fn(async () => ({ object: "list", data: [] })),
+  approveRun: vi.fn(),
+  publishRun: vi.fn(),
   listUsageEvents: vi.fn(async () => []),
   matchesGatewayRequest: vi.fn(() => false),
   rejectJob: vi.fn(),
@@ -78,6 +84,7 @@ function renderApp() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publicBetaModeMock.mockReturnValue(false);
   apiMocks.listJobsMock.mockResolvedValue([]);
   apiMocks.createJobMock.mockResolvedValue({
     id: "run-99",
@@ -400,6 +407,19 @@ describe("NewRunComposer", () => {
 });
 
 describe("NewRunComposer layout contract", () => {
+  it("omits Advisor and advisor_model in public beta", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    const user = userEvent.setup(); renderApp();
+    expect(await screen.findByRole("combobox", { name: "Repository" })).toBeInTheDocument();
+    expect(screen.queryByText("+ Add Advisor")).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText(/Describe the change/), "Implement a secure repository change");
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Start run/ })[0]).toBeEnabled());
+    await user.click(screen.getAllByRole("button", { name: /Start run/ })[0]);
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalled());
+    expect(apiMocks.createJobMock.mock.calls[0][0]).not.toHaveProperty("advisor_model");
+    expect(apiMocks.createJobMock.mock.calls[0][0]).not.toHaveProperty("memory_ids");
+  });
+
   it("renders Repository, Branch, Model as three independent controls plus a separate Start run action", async () => {
     renderApp();
 

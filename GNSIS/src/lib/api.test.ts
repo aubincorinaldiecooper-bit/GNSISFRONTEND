@@ -3,7 +3,7 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/env", () => ({ apiBaseUrl: () => "https://api.example.test", isApiConfigured: () => true }));
 vi.mock("@/lib/authToken", () => ({ getBackendToken: vi.fn(async () => "session-jwt"), emitUnauthorized: vi.fn() }));
 
-import { parseError, ApiError, getRunReceipt, getAllRunEvents, getRunEventsSince, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
+import { parseError, ApiError, getRunReceipt, getAllRepositories, getAllRunEvents, getRunEventsSince, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
 
 function res(body: unknown, init?: ResponseInit): Response {
   return new Response(typeof body === "string" ? body : JSON.stringify(body), init);
@@ -47,6 +47,21 @@ describe("run event pagination", () => {
     expect(await getRunEventsSince("run", 100)).toEqual([]);
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String(fetchMock.mock.calls[0][0])).toContain("offset=100");
+  });
+});
+
+describe("repository pagination", () => {
+  it("preserves ordering, deduplicates IDs, and includes a repository from page two", async () => {
+    const first = Array.from({ length: 100 }, (_, index) => ({ id: `repo-${index}`, full_name: `acme/repo-${index}` }));
+    const second = [{ id: "repo-99", full_name: "duplicate" }, { id: "repo-100", full_name: "acme/second-page" }];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      return res(offset === 0 ? first : second, { status: 200 });
+    });
+    const repositories = await getAllRepositories();
+    expect(repositories).toHaveLength(101);
+    expect(repositories.at(-1)).toEqual(expect.objectContaining({ id: "repo-100", full_name: "acme/second-page" }));
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("offset"))).toEqual(["0", "100"]);
   });
 });
 

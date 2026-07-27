@@ -20,6 +20,7 @@ const sessionValue = {
 };
 
 const useSessionMock = vi.fn(() => sessionValue);
+const publicBetaModeMock = vi.hoisted(() => vi.fn(() => false));
 vi.mock("@/lib/session", () => ({ useSession: () => useSessionMock() }));
 vi.mock("@/pages/IntegrationTestPage", () => ({ default: () => <h1>Integration test</h1> }));
 vi.mock("@/components/ApiKeysSection", () => ({ default: () => <div>API keys</div> }));
@@ -29,6 +30,7 @@ vi.mock("@/lib/env", () => ({
   authBaseUrl: () => "https://auth.example.test",
   githubAppSlug: () => "gnsis-test-app",
   integrationLabEnabled: () => true,
+  publicBetaMode: () => publicBetaModeMock(),
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
@@ -87,6 +89,11 @@ vi.mock("@/lib/api", () => ({
   listRepositories: (...args: unknown[]) => apiMocks.listRepositoriesMock(...args),
   listBranches: (...args: unknown[]) => apiMocks.listBranchesMock(...args),
   listModels: (...args: unknown[]) => apiMocks.listModelsMock(...args),
+  listRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
+  queryRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
+  getRunIntelligenceProposals: vi.fn(async () => ({ object: "list", data: [] })),
+  approveRun: vi.fn(),
+  publishRun: vi.fn(),
   listUsageEvents: vi.fn(async () => ({ items: [] })),
   matchesGatewayRequest: vi.fn(() => false),
   rejectJob: vi.fn(),
@@ -196,6 +203,7 @@ function renderFull(initialPath: string, status: "authenticated" | "unauthentica
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionMock.mockReturnValue(sessionValue);
+  publicBetaModeMock.mockReturnValue(false);
   apiMocks.listJobsMock.mockResolvedValue(jobs);
   apiMocks.getJobMock.mockImplementation(async (id: string) => {
     const job = jobs.find((candidate) => candidate.id === id);
@@ -236,6 +244,18 @@ beforeEach(() => {
 });
 
 describe("workspace routing", () => {
+  it("shows only beta navigation and redirects hidden routes", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    const view = renderWorkspace("/dashboard");
+    expect(await screen.findByText("What should Genesis work on?")).toBeInTheDocument();
+    expect(view.getByTestId("pathname")).toHaveTextContent("/new");
+    expect(screen.getAllByText("New run")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Runs")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Intelligence")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    expect(screen.queryByText("Integration test")).not.toBeInTheDocument();
+  });
+
   it("renders Settings from /settings after initial load", async () => {
     renderWorkspace("/settings");
 
