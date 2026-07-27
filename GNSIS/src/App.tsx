@@ -55,6 +55,7 @@ import {
   getJobLogs,
   getJobDiff,
   getRunReceipt,
+  getRunEvents,
   getJobThread,
   followUpJob,
   approveJob,
@@ -68,12 +69,15 @@ import {
   type LogRecord,
   type DiffRecord,
   type RunReceipt,
+  type RunEvent,
   type RepositoryRecord,
   type ModelInfo,
   type Balances,
 } from "@/lib/api";
 import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
+import { RunActivityTimeline, type ReceiptActivityState } from "@/components/RunActivityTimeline";
+import { mergeRunEvents } from "@/lib/timelineEvents";
 import {
   Tooltip,
   TooltipContent,
@@ -1223,6 +1227,9 @@ interface RunState {
   diff: DiffRecord | null;
   actionPending: "approve" | "reject" | null;
   actionError: string | null;
+  events: RunEvent[];
+  eventsLoading: boolean;
+  eventsReconnecting: boolean;
 }
 
 // A conversation thread: an ordered list of linked runs (oldest first). The runs
@@ -1242,20 +1249,6 @@ function activeRun(thread: ThreadState): RunState {
   return thread.runs[thread.runs.length - 1];
 }
 
-
-const phaseStatusLabel: Record<JobStatus, string> = {
-  queued: "Genesis is queued…",
-  planning: "Genesis is planning the change…",
-  patching: "Genesis is writing the patch…",
-  testing: "Running tests…",
-  summarizing: "Genesis is summarizing the change…",
-  awaiting_approval: "Genesis is ready for review",
-  approved: "Approved — preparing to publish…",
-  publishing: "Opening the pull request…",
-  completed: "Run complete",
-  rejected: "Run rejected",
-  failed: "Run failed",
-};
 
 // =============================================================================
 // THREAD SUB-COMPONENTS
@@ -1395,17 +1388,6 @@ function InstructionMessage({ job }: { job: JobRecord }) {
         {job.instruction}
       </p>
       <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
-    </div>
-  );
-}
-
-const inFlightStatuses: JobStatus[] = ["queued", "planning", "patching", "testing", "summarizing", "approved", "publishing"];
-
-function StatusMessage({ status }: { status: JobStatus }) {
-  return (
-    <div className="flex items-center gap-2.5 py-4 border-b border-border">
-      <Loader2 className="h-4 w-4 text-blue-500 animate-spin motion-reduce:animate-none shrink-0" />
-      <p className="text-sm text-muted-foreground">{phaseStatusLabel[status]}</p>
     </div>
   );
 }
@@ -1606,7 +1588,7 @@ function RunExecution({
   const { job, diff, logs, actionPending, actionError } = run;
   return (
     <div className="mt-1">
-      {inFlightStatuses.includes(job.status) && <StatusMessage status={job.status} />}
+      <RunActivityTimeline run={job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(job.status)} reconnecting={run.eventsReconnecting} compact />
 
       {job.status === "awaiting_approval" && (
         <div className="pt-3">
@@ -1621,7 +1603,7 @@ function RunExecution({
       )}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
-      {job.status === "failed" && <FailedMessage job={job} />}
+      {job.status === "failed" && run.events.length === 0 && <FailedMessage job={job} />}
       {job.status === "rejected" && <RejectedMessage />}
     </div>
   );
@@ -1791,59 +1773,11 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
 
 
 // =============================================================================
-// ACTIVITY PANEL (real log stream from GET /jobs/{id}/logs)
+// ACTIVITY PANEL (structured lifecycle stream from GET /v1/runs/{id}/events)
 // =============================================================================
 
-function LogRow({ log }: { log: LogRecord }) {
-  const icon =
-    log.level === "error" ? (
-      <CircleX className="h-3.5 w-3.5 text-red-500" />
-    ) : log.level === "warning" ? (
-      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-    ) : (
-      <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
-    );
-
-  return (
-    <div className="flex items-start gap-2.5 px-4 py-2.5 border-b border-border last:border-b-0">
-      <span className="shrink-0 mt-0.5">{icon}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-2">
-          {log.phase && (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 truncate">
-              {log.phase}
-            </span>
-          )}
-          <span className="text-xs text-muted-foreground/60 font-mono shrink-0 ml-auto">
-            {timeAgo(log.created_at)}
-          </span>
-        </div>
-        <p className="text-sm text-foreground/90 leading-relaxed mt-0.5 break-words">{log.message}</p>
-      </div>
-    </div>
-  );
-}
-
-function ActivityPanel({ run }: { run: RunState }) {
-  if (run.logs.length === 0) {
-    return (
-      <EmptyState
-        icon={<ActivityGlyph className="h-8 w-8" />}
-        title="No activity yet"
-        description="Logs will appear here as Genesis works on this run."
-      />
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto flex flex-col">
-      <div className="flex-1">
-        {run.logs.map((log, i) => (
-          <LogRow key={i} log={log} />
-        ))}
-      </div>
-    </div>
-  );
+function ActivityPanel({ run, receiptState, onRetryReceipt }: { run: RunState; receiptState?: ReceiptActivityState; onRetryReceipt?: () => void }) {
+  return <RunActivityTimeline run={run.job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(run.job.status)} reconnecting={run.eventsReconnecting} receiptState={receiptState} onRetryReceipt={onRetryReceipt} />;
 }
 
 // =============================================================================
@@ -2091,6 +2025,7 @@ function RunPanelRegion({
   const [receiptState, setReceiptState] = useState<
     { kind: "idle" } | { kind: "loaded"; runId: string; receipt: RunReceipt } | { kind: "unavailable" | "error"; runId: string; message: string }
   >({ kind: "idle" });
+  const [receiptAttempt, setReceiptAttempt] = useState(0);
 
   useEffect(() => {
     if (!selectedRun || !receiptRunId || !isTerminalStatus(selectedRun.job.status)) {
@@ -2109,7 +2044,7 @@ function RunPanelRegion({
       },
     );
     return () => { cancelled = true; };
-  }, [receiptRunId, selectedRun?.job.status]);
+  }, [receiptRunId, selectedRun?.job.status, receiptAttempt]);
 
   // Scroll positions per tab
   const activityScrollRef = useRef<HTMLDivElement>(null);
@@ -2206,14 +2141,14 @@ function RunPanelRegion({
         )
       ) : tab === "activity" && selectedRun ? (
         <div ref={activityScrollRef} className="flex-1 overflow-y-auto">
-          <ActivityPanel run={selectedRun} />
+          <ActivityPanel run={selectedRun} receiptState={receiptState.kind === "idle" ? "idle" : receiptState.kind === "loaded" ? "loaded" : receiptState.kind} onRetryReceipt={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }} />
         </div>
       ) : selectedRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
           {receiptState.kind === "loaded" && receiptState.runId === receiptRunId ? (
             <ReceiptPanel receipt={receiptState.receipt} />
           ) : (receiptState.kind === "error" || receiptState.kind === "unavailable") && receiptState.runId === receiptRunId ? (
-            <EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description={receiptState.message} />
+            <div className="p-4"><EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description="The run outcome is known, but its detailed receipt could not be loaded." /><Button variant="outline" size="sm" className="mx-auto flex" onClick={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }}>Retry receipt</Button></div>
           ) : (
             <EmptyState icon={<Loader2 className="h-8 w-8 animate-spin" />} title="Loading receipt" description="Fetching the canonical receipt for this run…" />
           )}
@@ -2748,7 +2683,7 @@ function navIdFromRoute(route: RouteViewKind): NavId {
 }
 
 function runStateFromJob(job: JobRecord, logs: LogRecord[] = [], diff: DiffRecord | null = null): RunState {
-  return { job, logs, diff, actionPending: null, actionError: null };
+  return { job, logs, diff, actionPending: null, actionError: null, events: [], eventsLoading: true, eventsReconnecting: false };
 }
 
 // A run always belongs to a thread; when the backend omits thread_id (older
@@ -2862,8 +2797,12 @@ function GNSISWorkspacePreview() {
         if (threadJobs.length === 0) throw new ApiError(404, "Run not found");
         const runs = await Promise.all(
           threadJobs.map(async (j) => {
-            const [logs, diff] = await Promise.all([getJobLogs(j.id), getJobDiff(j.id)]);
-            return runStateFromJob(j, logs, diff);
+            const [logs, diff, eventList] = await Promise.all([
+              getJobLogs(j.id),
+              getJobDiff(j.id),
+              getRunEvents(j.id).catch(() => null),
+            ]);
+            return { ...runStateFromJob(j, logs, diff), events: mergeRunEvents([], eventList?.data ?? []), eventsLoading: false, eventsReconnecting: eventList === null };
           })
         );
         if (cancelled) return;
@@ -2944,6 +2883,7 @@ function GNSISWorkspacePreview() {
   // (including follow-ups appended after it was set up).
   const threadRef = useRef<ThreadState | null>(null);
   threadRef.current = view.kind === "thread" ? view.thread : null;
+  const finalEventsFetched = useRef(new Set<string>());
 
   // Poll every non-terminal run in the conversation for live status/logs/diff.
   // The interval runs while a thread is open; when all runs are terminal each
@@ -2960,23 +2900,32 @@ function GNSISWorkspacePreview() {
       await Promise.all(
         pending.map(async (r) => {
           try {
-            const [job, logs, diff] = await Promise.all([
+            const [job, logs, diff, eventResult] = await Promise.all([
               getJob(r.job.id),
               getJobLogs(r.job.id),
               getJobDiff(r.job.id),
+              getRunEvents(r.job.id),
             ]);
             if (cancelled) return;
-            updateRun(job.id, (cur) => ({ ...cur, job, logs, diff: diff ?? cur.diff }));
+            let events = eventResult.data;
+            // Settlement can race the concurrent event request. Observe the
+            // terminal status first, then make one final lifecycle fetch.
+            if (isTerminalStatus(job.status) && !finalEventsFetched.current.has(job.id)) {
+              finalEventsFetched.current.add(job.id);
+              try { events = mergeRunEvents(events, (await getRunEvents(job.id)).data); } catch { /* keep the observed events */ }
+            }
+            updateRun(job.id, (cur) => ({ ...cur, job, logs, diff: diff ?? cur.diff, events: mergeRunEvents(cur.events, events), eventsLoading: false, eventsReconnecting: false }));
             setJobs((prev) => upsertJob(prev, job));
           } catch {
-            // transient network error — keep polling
+            // Activity failure is not run failure: retain evidence and retry.
+            updateRun(r.job.id, (cur) => ({ ...cur, eventsLoading: false, eventsReconnecting: true }));
           }
         })
       );
     };
 
     poll();
-    const timer = setInterval(poll, 2500);
+    const timer = setInterval(poll, 1000);
     return () => {
       cancelled = true;
       clearInterval(timer);

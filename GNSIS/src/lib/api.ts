@@ -209,6 +209,35 @@ export interface RunReceipt {
   patch_hash?: string | null;
 }
 
+/** One durable, backend-authored lifecycle fact for a run. */
+export interface RunEvent {
+  id: string;
+  run_id: string;
+  sequence: number;
+  type: string;
+  at: string;
+  payload: {
+    message?: string;
+    stage?: string;
+    execution_started?: boolean;
+    model_called?: boolean;
+    retryable?: boolean;
+    next_action?: string | null;
+    duration_seconds?: number | null;
+    technical?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+}
+
+export interface RunEventList {
+  object: "list";
+  data: RunEvent[];
+  has_more: boolean;
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface CreateJobInput {
   repository_id: string;
   instruction: string;
@@ -253,6 +282,12 @@ export function getJobDiff(jobId: string): Promise<DiffRecord | null> {
 /** The public API's backend-assembled, immutable receipt for one run. */
 export function getRunReceipt(runId: string): Promise<RunReceipt> {
   return request(`/v1/runs/${encodeURIComponent(runId)}/receipt`);
+}
+
+/** Structured lifecycle evidence; deliberately independent of the receipt. */
+export function getRunEvents(runId: string, limit = 100, offset = 0): Promise<RunEventList> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request(`/v1/runs/${encodeURIComponent(runId)}/events?${query.toString()}`);
 }
 
 /**
