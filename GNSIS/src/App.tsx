@@ -1479,12 +1479,16 @@ function ApprovalBlock({
   error,
   onApprove,
   onReject,
+  disabled = false,
 }: {
   diff: DiffRecord | null;
   pending: "approve" | "reject" | null;
   error: string | null;
   onApprove: () => void;
   onReject: () => void;
+  // True while a different mutually-exclusive run action (e.g. Cancel) is
+  // in flight, so approve/reject can't race it.
+  disabled?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
@@ -1501,7 +1505,7 @@ function ApprovalBlock({
       <div className="flex items-center gap-2 pt-1 flex-wrap">
         <Button
           size="sm"
-          disabled={pending !== null}
+          disabled={pending !== null || disabled}
           onClick={onApprove}
           className="h-8 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
         >
@@ -1511,7 +1515,7 @@ function ApprovalBlock({
         <Button
           size="sm"
           variant="outline"
-          disabled={pending !== null}
+          disabled={pending !== null || disabled}
           onClick={onReject}
           className="h-8 rounded-lg"
         >
@@ -1523,12 +1527,32 @@ function ApprovalBlock({
   );
 }
 
-function BetaRunReview({ job, diff, onStatusChange }: { job: JobRecord; diff: DiffRecord | null; onStatusChange: (runId: string, status: JobStatus) => void }) {
+function BetaRunReview({
+  job,
+  diff,
+  onStatusChange,
+  disabled = false,
+  onPendingChange,
+}: {
+  job: JobRecord;
+  diff: DiffRecord | null;
+  onStatusChange: (runId: string, status: JobStatus) => void;
+  // True while a different mutually-exclusive run action (e.g. Cancel) is
+  // in flight, so approve/publish can't race it.
+  disabled?: boolean;
+  // Reports this component's own pending state up so a sibling action
+  // (Cancel) can disable itself while approve/publish is in flight.
+  onPendingChange?: (pending: boolean) => void;
+}) {
   const [proposals, setProposals] = useState<IntelligenceProposal[]>([]);
   const [choices, setChoices] = useState<Record<string, { selected: boolean; content: string }>>({});
   const [proposalState, setProposalState] = useState<"loading" | "loaded" | "error">(job.status === "awaiting_approval" ? "loading" : "loaded");
   const [proposalAttempt, setProposalAttempt] = useState(0);
-  const [pending, setPending] = useState<"approve" | "publish" | null>(null);
+  const [pending, setPendingState] = useState<"approve" | "publish" | null>(null);
+  const setPending = (value: "approve" | "publish" | null) => {
+    setPendingState(value);
+    onPendingChange?.(value !== null);
+  };
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1561,7 +1585,7 @@ function BetaRunReview({ job, diff, onStatusChange }: { job: JobRecord; diff: Di
 
   if (job.status === "approved") return <>
     {diffBlock}
-    <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-muted-foreground">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red-600">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>
+    <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-muted-foreground">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red-600">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null || disabled}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>
   </>;
   if (job.status !== "awaiting_approval") return null;
   return <>
@@ -1575,7 +1599,7 @@ function BetaRunReview({ job, diff, onStatusChange }: { job: JobRecord; diff: Di
       </li>)}</ul> : null}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
-      <Button size="sm" className="mt-3" onClick={approve} disabled={pending !== null || proposalState !== "loaded"}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
+      <Button size="sm" className="mt-3" onClick={approve} disabled={pending !== null || proposalState !== "loaded" || disabled}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
     </div>
   </>;
 }
@@ -1694,12 +1718,24 @@ function CancelledMessage() {
 // onStatusChange updater every other mutation uses.
 function CancelRunControl({
   job,
+  disabled = false,
+  onPendingChange,
   onStatusChange,
 }: {
   job: JobRecord;
+  // True while a different mutually-exclusive run action (approve/reject/
+  // publish) is in flight, so Cancel can't race it.
+  disabled?: boolean;
+  // Reports this component's own pending state up so a sibling action
+  // (approve/reject/publish) can disable itself while cancellation runs.
+  onPendingChange?: (pending: boolean) => void;
   onStatusChange: (runId: string, status: JobStatus) => void;
 }) {
-  const [pending, setPending] = useState(false);
+  const [pending, setPendingState] = useState(false);
+  const setPending = (value: boolean) => {
+    setPendingState(value);
+    onPendingChange?.(value);
+  };
   const [error, setError] = useState<string | null>(null);
 
   if (isTerminalStatus(job.status)) return null;
@@ -1722,7 +1758,7 @@ function CancelRunControl({
       <Button
         size="sm"
         variant="outline"
-        disabled={pending}
+        disabled={pending || disabled}
         onClick={cancel}
         className="h-8 gap-1.5 rounded-lg text-muted-foreground"
       >
@@ -1752,11 +1788,21 @@ function RunExecution({
   onStatusChange: (runId: string, status: JobStatus) => void;
 }) {
   const { job, diff, logs, actionPending, actionError } = run;
+  // Cancel and approve/reject/publish are mutually exclusive mutations on the
+  // same run: each disables the other while it's in flight, so a user can't
+  // fire both at once and race their responses (or hit an avoidable 409).
+  const [cancelPending, setCancelPending] = useState(false);
+  const [reviewPending, setReviewPending] = useState(false);
   return (
     <div className="mt-1">
       <RunActivityTimeline run={job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(job.status)} reconnecting={run.eventsReconnecting} compact />
 
-      <CancelRunControl job={job} onStatusChange={onStatusChange} />
+      <CancelRunControl
+        job={job}
+        disabled={actionPending !== null || reviewPending}
+        onPendingChange={setCancelPending}
+        onStatusChange={onStatusChange}
+      />
 
       {!publicBetaMode() && job.status === "awaiting_approval" && (
         <div className="pt-3">
@@ -1766,10 +1812,19 @@ function RunExecution({
             error={actionError}
             onApprove={onApprove}
             onReject={onReject}
+            disabled={cancelPending}
           />
         </div>
       )}
-      {publicBetaMode() && (job.status === "awaiting_approval" || job.status === "approved") && <BetaRunReview job={job} diff={diff} onStatusChange={onStatusChange} />}
+      {publicBetaMode() && (job.status === "awaiting_approval" || job.status === "approved") && (
+        <BetaRunReview
+          job={job}
+          diff={diff}
+          onStatusChange={onStatusChange}
+          disabled={cancelPending}
+          onPendingChange={setReviewPending}
+        />
+      )}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
       {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
@@ -2165,7 +2220,7 @@ function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
     ? "completed"
     : jobStatus === "blocked"
     ? "waiting"
-    : jobStatus === "failed" || jobStatus === "rejected"
+    : jobStatus === "failed" || jobStatus === "rejected" || jobStatus === "cancelled"
     ? "failed"
     : jobStatus === "awaiting_approval"
     ? "waiting"
