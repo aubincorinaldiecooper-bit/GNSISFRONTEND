@@ -73,12 +73,14 @@ vi.mock("@/lib/api", () => ({
   getJobDiff: (...a: unknown[]) => apiMocks.getJobDiffMock(...a),
   getRunReceipt: (...a: unknown[]) => apiMocks.getRunReceiptMock(...a),
   getRunEvents: vi.fn(async () => ({ object: "list", data: [], has_more: false, total: 0, limit: 100, offset: 0 })),
+  getRunEventsSince: vi.fn(async () => []),
+  getAllRunEvents: vi.fn(async () => []),
   getJobLogs: (...a: unknown[]) => apiMocks.getJobLogsMock(...a),
   getJobThread: (...a: unknown[]) => apiMocks.getJobThreadMock(...a),
   followUpJob: (...a: unknown[]) => apiMocks.followUpJobMock(...a),
   health: vi.fn(),
   isApiConfigured: () => true,
-  isTerminalStatus: (s: string) => ["completed", "rejected", "failed"].includes(s),
+  isTerminalStatus: (s: string) => ["completed", "rejected", "blocked", "failed"].includes(s),
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...a: unknown[]) => apiMocks.listJobsMock(...a),
   listRepositories: vi.fn(async () => []),
@@ -273,6 +275,14 @@ describe("failed run presentation", () => {
     mockThread([job({ id: "run-root", instruction: "Ship it", status: "completed" })]);
     renderThread("/runs/run-root");
     expect(await screen.findByRole("button", { name: /Run again/i })).toBeInTheDocument();
+  });
+
+  it("treats a blocked tip as terminal and offers Retry run", async () => {
+    mockThread([job({ id: "run-root", instruction: "Start it", status: "blocked" })]);
+    renderThread("/runs/run-root");
+    expect(await screen.findByText("Run could not start")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
+    expect(apiMocks.getJobMock).not.toHaveBeenCalled();
   });
 });
 

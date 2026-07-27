@@ -55,7 +55,8 @@ import {
   getJobLogs,
   getJobDiff,
   getRunReceipt,
-  getRunEvents,
+  getRunEventsSince,
+  getAllRunEvents,
   getJobThread,
   followUpJob,
   approveJob,
@@ -77,7 +78,7 @@ import {
 import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
 import { RunActivityTimeline, type ReceiptActivityState } from "@/components/RunActivityTimeline";
-import { mergeRunEvents } from "@/lib/timelineEvents";
+import { isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
 import {
   Tooltip,
   TooltipContent,
@@ -258,7 +259,7 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed";
+type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "blocked" | "failed";
 type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
@@ -272,6 +273,8 @@ function jobStatusToRunStatus(status: JobStatus): RunStatus {
       return "complete";
     case "rejected":
       return "rejected";
+    case "blocked":
+      return "blocked";
     case "failed":
       return "failed";
     default:
@@ -285,6 +288,7 @@ const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
   awaiting_approval: { label: "Needs approval", cls: "text-amber-600" },
   complete: { label: "Complete", cls: "text-emerald-600" },
   rejected: { label: "Rejected", cls: "text-muted-foreground" },
+  blocked: { label: "Blocked", cls: "text-amber-700" },
   failed: { label: "Failed", cls: "text-red-600" },
 };
 
@@ -397,6 +401,7 @@ const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
   awaiting_approval: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
   complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
   rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
+  blocked: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
   failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
 };
 
@@ -1603,7 +1608,7 @@ function RunExecution({
       )}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
-      {job.status === "failed" && run.events.length === 0 && <FailedMessage job={job} />}
+      {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
       {job.status === "rejected" && <RejectedMessage />}
     </div>
   );
@@ -1621,8 +1626,8 @@ function RunActions({
   pending: boolean;
   onRetry: () => void;
 }) {
-  if (job.status !== "failed" && job.status !== "completed" && job.status !== "rejected") return null;
-  const retry = job.status === "failed";
+  if (job.status !== "failed" && job.status !== "blocked" && job.status !== "completed" && job.status !== "rejected") return null;
+  const retry = job.status === "failed" || job.status === "blocked";
   return (
     <div className="mt-3">
       <Button
@@ -1969,6 +1974,8 @@ function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
     ? "idle"
     : jobStatus === "completed"
     ? "completed"
+    : jobStatus === "blocked"
+    ? "waiting"
     : jobStatus === "failed" || jobStatus === "rejected"
     ? "failed"
     : jobStatus === "awaiting_approval"
@@ -2194,7 +2201,7 @@ function RunsFilterSelect({
 }
 
 const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
-const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "failed"];
+const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "blocked", "failed"];
 
 function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void }) {
   return (
@@ -2373,7 +2380,7 @@ function DashboardView({
     (acc, r) => {
       acc.total += 1;
       if (r.status === "complete") acc.complete += 1;
-      else if (r.status === "failed" || r.status === "rejected") acc.failed += 1;
+      else if (r.status === "failed" || r.status === "blocked" || r.status === "rejected") acc.failed += 1;
       else acc.active += 1;
       return acc;
     },
@@ -2800,9 +2807,9 @@ function GNSISWorkspacePreview() {
             const [logs, diff, eventList] = await Promise.all([
               getJobLogs(j.id),
               getJobDiff(j.id),
-              getRunEvents(j.id).catch(() => null),
+              getAllRunEvents(j.id).catch(() => null),
             ]);
-            return { ...runStateFromJob(j, logs, diff), events: mergeRunEvents([], eventList?.data ?? []), eventsLoading: false, eventsReconnecting: eventList === null };
+            return { ...runStateFromJob(j, logs, diff), events: mergeRunEvents([], eventList ?? []), eventsLoading: false, eventsReconnecting: eventList === null };
           })
         );
         if (cancelled) return;
@@ -2899,25 +2906,42 @@ function GNSISWorkspacePreview() {
       if (pending.length === 0) return;
       await Promise.all(
         pending.map(async (r) => {
-          try {
-            const [job, logs, diff, eventResult] = await Promise.all([
-              getJob(r.job.id),
-              getJobLogs(r.job.id),
-              getJobDiff(r.job.id),
-              getRunEvents(r.job.id),
-            ]);
-            if (cancelled) return;
-            let events = eventResult.data;
-            // Settlement can race the concurrent event request. Observe the
-            // terminal status first, then make one final lifecycle fetch.
-            if (isTerminalStatus(job.status) && !finalEventsFetched.current.has(job.id)) {
-              finalEventsFetched.current.add(job.id);
-              try { events = mergeRunEvents(events, (await getRunEvents(job.id)).data); } catch { /* keep the observed events */ }
-            }
-            updateRun(job.id, (cur) => ({ ...cur, job, logs, diff: diff ?? cur.diff, events: mergeRunEvents(cur.events, events), eventsLoading: false, eventsReconnecting: false }));
+          // Core run state and lifecycle evidence have independent failure
+          // boundaries: an events outage must never freeze terminal status,
+          // approval, diff, or receipt eligibility.
+          const [jobResult, logsResult, diffResult] = await Promise.allSettled([
+            getJob(r.job.id), getJobLogs(r.job.id), getJobDiff(r.job.id),
+          ]);
+          if (cancelled) return;
+
+          const job = jobResult.status === "fulfilled" ? jobResult.value : null;
+          if (job) {
+            updateRun(job.id, (cur) => ({
+              ...cur,
+              job,
+              logs: logsResult.status === "fulfilled" ? logsResult.value : cur.logs,
+              diff: diffResult.status === "fulfilled" ? diffResult.value ?? cur.diff : cur.diff,
+            }));
             setJobs((prev) => upsertJob(prev, job));
+          }
+
+          try {
+            const settledNow = !!job && isTerminalStatus(job.status);
+            let events: RunEvent[];
+            if (settledNow && !finalEventsFetched.current.has(r.job.id)) {
+              // Settlement always reconciles from zero so missed or replaced
+              // pages cannot leave an incomplete terminal history.
+              events = await getAllRunEvents(r.job.id);
+              finalEventsFetched.current.add(r.job.id);
+            } else {
+              // Offset uses raw backend evidence, never grouped UI row count.
+              events = await getRunEventsSince(r.job.id, r.events.length);
+            }
+            if (cancelled) return;
+            updateRun(r.job.id, (cur) => ({ ...cur, events: mergeRunEvents(cur.events, events), eventsLoading: false, eventsReconnecting: false }));
           } catch {
-            // Activity failure is not run failure: retain evidence and retry.
+            if (cancelled) return;
+            // Preserve previously loaded evidence and retry on the next tick.
             updateRun(r.job.id, (cur) => ({ ...cur, eventsLoading: false, eventsReconnecting: true }));
           }
         })

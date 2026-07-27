@@ -27,6 +27,10 @@ export function eventLabel(event: RunEvent): string {
 }
 
 export type TimelineItem = { event: RunEvent; label: string; paths?: string[]; count?: number };
+export function isFailureEvent(event: RunEvent): boolean {
+  return event.type === "run.failed" || event.type.endsWith(".failed") ||
+    event.type === "run.blocked" || event.type.endsWith(".blocked");
+}
 export function mergeRunEvents(current: RunEvent[], incoming: RunEvent[]): RunEvent[] {
   return [...new Map([...current, ...incoming].map((event) => [event.id, event])).values()].sort((a, b) => a.sequence - b.sequence);
 }
