@@ -338,6 +338,74 @@ describe("cancel run", () => {
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     expect(apiMocks.cancelJobMock).not.toHaveBeenCalled();
   });
+
+  it("disables Approve run while Cancel is in flight, and Cancel while Approve is in flight (beta mode)", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    let resolveCancel!: (value: JobRecord) => void;
+    apiMocks.cancelJobMock.mockReturnValue(new Promise((resolve) => { resolveCancel = resolve; }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    const approveButton = await screen.findByRole("button", { name: "Approve run" });
+    expect(approveButton).toBeEnabled();
+
+    await userEvent.click(cancelButton);
+    // Cancelling is in flight: approving the same run must not be possible.
+    expect(approveButton).toBeDisabled();
+    resolveCancel(job({ id: "run-root", instruction: "Review it", status: "cancelled" }));
+    await screen.findByText("This run was cancelled before it finished.");
+  });
+
+  it("disables Cancel run while Approve is in flight (beta mode)", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    let resolveApprove!: (value: JobRecord) => void;
+    apiMocks.approveRunMock.mockReturnValue(new Promise((resolve) => { resolveApprove = resolve; }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    const approveButton = await screen.findByRole("button", { name: "Approve run" });
+
+    await userEvent.click(approveButton);
+    // Approving is in flight: cancelling the same run must not be possible.
+    expect(cancelButton).toBeDisabled();
+    resolveApprove(job({ id: "run-root", instruction: "Review it", status: "approved" }));
+    await screen.findByText("Run approved");
+  });
+
+  it("treats a cancelled run as terminal (not active) in the collapsed run panel", async () => {
+    mockThread([job({ id: "run-root", instruction: "Do it", status: "cancelled" })]);
+    const { container } = renderThread("/runs/run-root");
+    await screen.findByText("This run was cancelled before it finished.");
+    await userEvent.click(screen.getByRole("button", { name: "Collapse run panel" }));
+    // The animated "active" ping is only rendered for a genuinely in-flight
+    // run; a cancelled run must not still look like it's executing.
+    expect(container.querySelector(".animate-ping")).not.toBeInTheDocument();
+  });
+
+  it("disables Approve & publish / Reject while Cancel is in flight (non-beta ApprovalBlock)", async () => {
+    publicBetaModeMock.mockReturnValue(false);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.getJobDiffMock.mockResolvedValue({ patch: "diff", files_changed: ["a.ts"] });
+    let resolveCancel!: (value: JobRecord) => void;
+    apiMocks.cancelJobMock.mockReturnValue(new Promise((resolve) => { resolveCancel = resolve; }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    const approveButton = await screen.findByRole("button", { name: "Approve & publish" });
+    const rejectButton = screen.getByRole("button", { name: "Reject" });
+    expect(approveButton).toBeEnabled();
+    expect(rejectButton).toBeEnabled();
+
+    await userEvent.click(cancelButton);
+    expect(approveButton).toBeDisabled();
+    expect(rejectButton).toBeDisabled();
+    resolveCancel(job({ id: "run-root", instruction: "Review it", status: "cancelled" }));
+    await screen.findByText("This run was cancelled before it finished.");
+  });
 });
 
 describe("public beta intelligence review", () => {
