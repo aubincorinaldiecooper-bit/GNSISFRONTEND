@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { JobRecord, RunEvent } from "@/lib/api";
 import { RunActivityTimeline } from "./RunActivityTimeline";
-import { eventLabel, groupRunEvents, mergeRunEvents } from "@/lib/timelineEvents";
+import { eventLabel, groupRunEvents, isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
 
 const job = (status: JobRecord["status"] = "planning"): JobRecord => ({ id: "run/1", repo: "acme/repo", instruction: "Do it", base_branch: "main", engine: "agent", model: "model", advisor_model: null, status, branch: null, error: null, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", usage: {} });
 const event = (id: string, sequence: number, type: string, payload: RunEvent["payload"] = {}): RunEvent => ({ id, run_id: "run/1", sequence, type, at: `2026-01-01T00:00:0${sequence}Z`, payload });
@@ -25,6 +25,12 @@ describe("RunActivityTimeline", () => {
     expect(grouped.map((item) => item.label)).toEqual(["Reviewed 2 project files", "Updated 2 files"]);
   });
 
+  it("recognizes only failed and blocked lifecycle evidence as failure events", () => {
+    expect(isFailureEvent(event("ok", 1, "repository.access_verified"))).toBe(false);
+    expect(isFailureEvent(event("failed", 2, "source.download.failed"))).toBe(true);
+    expect(isFailureEvent(event("blocked", 3, "run.blocked"))).toBe(true);
+  });
+
   it("keeps failure guidance visible, technical details collapsed, and copies only technical data", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -43,5 +49,11 @@ describe("RunActivityTimeline", () => {
     await userEvent.click(screen.getByRole("button", { name: "Retry receipt" }));
     expect(retryReceipt).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Retry run" })).not.toBeInTheDocument();
+  });
+
+  it("treats blocked as a distinct terminal state", () => {
+    render(<RunActivityTimeline run={job("blocked")} events={[event("b", 1, "run.blocked", { next_action: "Try again." })]} loading={false} polling={false} reconnecting={false} compact />);
+    expect(screen.getAllByText("Run could not start")[0]).toHaveClass("text-amber-700");
+    expect(screen.queryByText("GNSIS is working")).not.toBeInTheDocument();
   });
 });

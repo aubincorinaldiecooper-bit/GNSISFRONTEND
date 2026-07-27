@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Check, Circle, CircleX, Copy, Loader2 } from "lucide-react";
 import type { JobRecord, RunEvent } from "@/lib/api";
-import { groupRunEvents } from "@/lib/timelineEvents";
+import { groupRunEvents, isFailureEvent } from "@/lib/timelineEvents";
 import { cn } from "@/lib/utils";
 
 export type ReceiptActivityState = "idle" | "loading" | "loaded" | "unavailable" | "error";
@@ -10,7 +10,7 @@ function safeText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-const terminal = new Set(["completed", "failed", "rejected"]);
+const terminal = new Set(["completed", "failed", "rejected", "blocked"]);
 const failedType = (type: string) => type === "run.failed" || type.endsWith(".failed");
 const blockedType = (type: string) => type === "run.blocked" || type.endsWith(".blocked");
 
@@ -20,12 +20,12 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
 }) {
   const items = useMemo(() => groupRunEvents(events), [events]);
   const settled = terminal.has(run.status);
-  const failed = run.status === "failed" || items.some((item) => failedType(item.event.type) || blockedType(item.event.type));
+  const failed = run.status === "failed" || run.status === "blocked" || items.some((item) => isFailureEvent(item.event));
   const [expanded, setExpanded] = useState(!settled || failed);
   const [copied, setCopied] = useState(false);
 
   const visible = items.length ? items : [{ event: { id: "created", run_id: run.id, sequence: 0, type: "run.created", at: run.created_at, payload: {} }, label: "Request received" }];
-  const failure = [...visible].reverse().find((item) => failedType(item.event.type) || blockedType(item.event.type));
+  const failure = [...visible].reverse().find((item) => isFailureEvent(item.event));
   const technical = failure?.event.payload.technical;
   const copyTechnical = async () => {
     if (!technical || !navigator.clipboard?.writeText) return;
@@ -40,7 +40,7 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
 
   return <section className={cn("py-3", compact ? "mt-1 border-b border-border" : "px-4")} aria-label="Run activity timeline">
     <div className="flex items-center justify-between gap-2 mb-2">
-      <h3 className="text-sm font-semibold">{settled ? failed ? "GNSIS stopped" : "GNSIS finished" : "GNSIS is working"}</h3>
+      <h3 className={cn("text-sm font-semibold", run.status === "blocked" && "text-amber-700")}>{run.status === "blocked" ? "Run could not start" : settled ? failed ? "GNSIS stopped" : "GNSIS finished" : "GNSIS is working"}</h3>
       {compact && settled && <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setExpanded(false)}>Collapse</button>}
     </div>
     <ol className="relative ml-1 border-l border-border" aria-live="off">
