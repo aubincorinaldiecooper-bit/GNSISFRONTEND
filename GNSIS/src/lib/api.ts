@@ -397,6 +397,29 @@ export function listRepositoryIntelligence(repositoryId: string, limit = 100, of
   return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence?${query}`);
 }
 
+const MAX_REPOSITORY_INTELLIGENCE_PAGES = 100;
+
+/** Load the complete ordered intelligence collection using backend pagination. */
+export async function getAllRepositoryIntelligence(repositoryId: string, limit = 100): Promise<RepositoryIntelligence[]> {
+  const intelligence: RepositoryIntelligence[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  for (let pageNumber = 0; pageNumber < MAX_REPOSITORY_INTELLIGENCE_PAGES; pageNumber += 1) {
+    const page = await listRepositoryIntelligence(repositoryId, limit, offset);
+    if (page.data.length === 0) break;
+    let added = 0;
+    for (const item of page.data) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      intelligence.push(item);
+      added += 1;
+    }
+    if (!page.has_more || added === 0) break;
+    offset += page.data.length;
+  }
+  return intelligence;
+}
+
 export function queryRepositoryIntelligence(repositoryId: string, task: string, limit = 5): Promise<IntelligenceList<IntelligencePreview>> {
   return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence/query`, {
     method: "POST", body: JSON.stringify({ task, limit }),

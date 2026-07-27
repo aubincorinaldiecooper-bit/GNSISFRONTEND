@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getAllRepositories, listRepositoryIntelligence, type RepositoryIntelligence, type RepositoryRecord } from "@/lib/api";
+import { getAllRepositories, getAllRepositoryIntelligence, type RepositoryIntelligence, type RepositoryRecord } from "@/lib/api";
 
 function provenance(item: RepositoryIntelligence) {
   const facts = [item.type, item.source_model && `Source model: ${item.source_model}`, item.approved_by && `Approved by ${item.approved_by}`].filter(Boolean);
@@ -31,8 +31,8 @@ export default function IntelligencePage() {
   useEffect(() => {
     if (repositoryState !== "loaded" || !repositoryId) return;
     let cancelled = false;
-    void listRepositoryIntelligence(repositoryId).then(
-      (result) => { if (!cancelled) { setItems(result.data); setIntelligenceState("loaded"); } },
+    void getAllRepositoryIntelligence(repositoryId).then(
+      (result) => { if (!cancelled) { setItems(result); setIntelligenceState("loaded"); } },
       () => { if (!cancelled) setIntelligenceState("error"); },
     );
     return () => { cancelled = true; };
@@ -46,7 +46,7 @@ export default function IntelligencePage() {
       : repositories.length === 0 ? <p className="py-10 text-sm text-muted-foreground">No repositories available.</p>
       : <>
         <label className="mt-6 block text-xs font-medium">Repository
-          <select aria-label="Intelligence repository" className="mt-1 block h-10 w-full rounded-md border bg-background px-3 text-sm" value={repositoryId} onChange={(event) => { setIntelligenceState("loading"); setRepositoryId(event.target.value); }}>
+          <select aria-label="Intelligence repository" className="mt-1 block h-10 w-full rounded-md border bg-background px-3 text-sm" value={repositoryId} onChange={(event) => { setItems([]); setIntelligenceState("loading"); setRepositoryId(event.target.value); }}>
             {repositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.full_name}</option>)}
           </select>
         </label>

@@ -793,6 +793,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<IntelligencePreview[] | null>(null);
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [previewFor, setPreviewFor] = useState<{ repo: string; prompt: string } | null>(null);
   const previewRequest = useRef(0);
 
   // Repositories currently accessible through GitHub App access — the New
@@ -890,11 +891,12 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
       return;
     }
     const requestId = ++previewRequest.current;
+    const trimmedPrompt = prompt.trim();
     const timer = setTimeout(() => {
       setPreviewState("loading");
-      void queryRepositoryIntelligence(repositoryId, prompt.trim(), 5).then(
-        (result) => { if (previewRequest.current === requestId) { setPreview(result.data); setPreviewState("loaded"); } },
-        () => { if (previewRequest.current === requestId) { setPreview(null); setPreviewState("error"); } },
+      void queryRepositoryIntelligence(repositoryId, trimmedPrompt, 5).then(
+        (result) => { if (previewRequest.current === requestId) { setPreviewFor({ repo: repositoryId, prompt: trimmedPrompt }); setPreview(result.data); setPreviewState("loaded"); } },
+        () => { if (previewRequest.current === requestId) { setPreviewFor(null); setPreview(null); setPreviewState("error"); } },
       );
     }, 400);
     return () => clearTimeout(timer);
@@ -1007,11 +1009,16 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             }}
           />
 
-          {publicBetaMode() && prompt.trim().length >= 12 && <div className="border-t px-4 py-3 text-xs" aria-live="polite">
-            <p className="font-semibold">Repository intelligence</p>
-            <p className="mt-0.5 text-muted-foreground">{previewState === "loading" ? "Checking approved intelligence…" : previewState === "error" ? "Intelligence preview is temporarily unavailable." : previewState === "loaded" && preview?.length ? `${preview.length} approved insight${preview.length === 1 ? " is" : "s are"} relevant to this task.` : previewState === "loaded" ? "No approved intelligence is relevant yet." : "The backend selects intelligence authoritatively when the run starts."}</p>
-            {!!preview?.length && <details className="mt-1"><summary className="cursor-pointer">Preview candidates</summary><ul className="mt-2 space-y-2">{preview.map((item) => <li key={item.memory_id}><p>{item.content}</p><p className="text-muted-foreground">{item.kind}</p></li>)}</ul></details>}
-          </div>}
+          {publicBetaMode() && prompt.trim().length >= 12 && (() => {
+            const fresh = previewFor?.repo === repositoryId && previewFor?.prompt === prompt.trim();
+            const shownPreview = fresh ? preview : null;
+            const shownState: "idle" | "loading" | "loaded" | "error" = fresh ? previewState : (previewState === "error" ? "error" : "loading");
+            return <div className="border-t px-4 py-3 text-xs" aria-live="polite">
+              <p className="font-semibold">Repository intelligence</p>
+              <p className="mt-0.5 text-muted-foreground">{shownState === "loading" ? "Checking approved intelligence…" : shownState === "error" ? "Intelligence preview is temporarily unavailable." : shownState === "loaded" && shownPreview?.length ? `${shownPreview.length} approved insight${shownPreview.length === 1 ? " is" : "s are"} relevant to this task.` : shownState === "loaded" ? "No approved intelligence is relevant yet." : "The backend selects intelligence authoritatively when the run starts."}</p>
+              {!!shownPreview?.length && <details className="mt-1"><summary className="cursor-pointer">Preview candidates</summary><ul className="mt-2 space-y-2">{shownPreview.map((item) => <li key={item.memory_id}><p>{item.content}</p><p className="text-muted-foreground">{item.kind}</p></li>)}</ul></details>}
+            </div>;
+          })()}
 
           <Divider orientation="horizontal" />
 
@@ -1511,7 +1518,7 @@ function ApprovalBlock({
   );
 }
 
-function BetaRunReview({ job }: { job: JobRecord }) {
+function BetaRunReview({ job, diff, onStatusChange }: { job: JobRecord; diff: DiffRecord | null; onStatusChange: (runId: string, status: JobStatus) => void }) {
   const [proposals, setProposals] = useState<IntelligenceProposal[]>([]);
   const [choices, setChoices] = useState<Record<string, { selected: boolean; content: string }>>({});
   const [proposalState, setProposalState] = useState<"loading" | "loaded" | "error">(job.status === "awaiting_approval" ? "loading" : "loaded");
@@ -1535,23 +1542,37 @@ function BetaRunReview({ job }: { job: JobRecord }) {
     if (proposalState !== "loaded") return;
     setPending("approve"); setError(null);
     const intelligence: IntelligenceApprovalSelection[] = proposals.map((item) => ({ proposal_id: item.id, selected: choices[item.id]?.selected ?? false, ...(choices[item.id]?.selected && choices[item.id]?.content !== item.content ? { content: choices[item.id].content } : {}) }));
-    try { await approveRun(job.id, intelligence); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Approval failed."); } finally { setPending(null); }
+    try {
+      const response = await approveRun(job.id, intelligence);
+      onStatusChange(response.id, response.status);
+    } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Approval failed."); } finally { setPending(null); }
   };
-  const publish = async () => { setPending("publish"); setError(null); try { await publishRun(job.id); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Publishing failed. The approval remains recorded."); } finally { setPending(null); } };
+  const publish = async () => { setPending("publish"); setError(null); try { const response = await publishRun(job.id); onStatusChange(response.id, response.status); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Publishing failed. The approval remains recorded."); } finally { setPending(null); } };
 
-  if (job.status === "approved") return <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-muted-foreground">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red-600">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>;
-  if (job.status !== "awaiting_approval") return null;
-  return <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
-    <h3 className="text-sm font-semibold">Proposed intelligence</h3>
-    <p className="mt-1 text-xs text-muted-foreground">Nothing becomes approved intelligence until you select it and approve the run.</p>
-    {proposalState === "loading" ? <p className="mt-3 text-xs">Loading proposals…</p> : proposalState === "loaded" && proposals.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">No intelligence was proposed. You can still approve the run.</p> : proposalState === "loaded" ? <ul className="mt-3 space-y-3">{proposals.map((item) => <li key={item.id} className="flex items-start gap-2">
-      <input aria-label={`Select proposal ${item.id}`} type="checkbox" checked={choices[item.id]?.selected ?? false} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: event.target.checked, content: current[item.id]?.content ?? item.content } }))} />
-      <div className="flex-1"><Textarea aria-label={`Edit proposal ${item.id}`} value={choices[item.id]?.content ?? item.content} disabled={!choices[item.id]?.selected} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: current[item.id]?.selected ?? true, content: event.target.value } }))} className="min-h-16 text-xs" /><p className="mt-1 text-xs text-muted-foreground">{item.kind}</p></div>
-    </li>)}</ul> : null}
-    {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-    {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
-    <Button size="sm" className="mt-3" onClick={approve} disabled={pending !== null || proposalState !== "loaded"}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
+  const diffBlock = <div className="mt-3 rounded-xl border p-4 space-y-3">
+    <p className="text-sm font-semibold">Proposed changes</p>
+    {diff ? <DiffSummary diff={diff} /> : <p className="text-xs text-muted-foreground">Loading the proposed diff…</p>}
   </div>;
+
+  if (job.status === "approved") return <>
+    {diffBlock}
+    <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-muted-foreground">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red-600">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>
+  </>;
+  if (job.status !== "awaiting_approval") return null;
+  return <>
+    {diffBlock}
+    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+      <h3 className="text-sm font-semibold">Proposed intelligence</h3>
+      <p className="mt-1 text-xs text-muted-foreground">Nothing becomes approved intelligence until you select it and approve the run.</p>
+      {proposalState === "loading" ? <p className="mt-3 text-xs">Loading proposals…</p> : proposalState === "loaded" && proposals.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">No intelligence was proposed. You can still approve the run.</p> : proposalState === "loaded" ? <ul className="mt-3 space-y-3">{proposals.map((item) => <li key={item.id} className="flex items-start gap-2">
+        <input aria-label={`Select proposal ${item.id}`} type="checkbox" checked={choices[item.id]?.selected ?? false} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: event.target.checked, content: current[item.id]?.content ?? item.content } }))} />
+        <div className="flex-1"><Textarea aria-label={`Edit proposal ${item.id}`} value={choices[item.id]?.content ?? item.content} disabled={!choices[item.id]?.selected} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: current[item.id]?.selected ?? true, content: event.target.value } }))} className="min-h-16 text-xs" /><p className="mt-1 text-xs text-muted-foreground">{item.kind}</p></div>
+      </li>)}</ul> : null}
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
+      <Button size="sm" className="mt-3" onClick={approve} disabled={pending !== null || proposalState !== "loaded"}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
+    </div>
+  </>;
 }
 
 const prUrlPattern = /opened PR #\d+: (\S+)/;
@@ -1658,10 +1679,12 @@ function RunExecution({
   run,
   onApprove,
   onReject,
+  onStatusChange,
 }: {
   run: RunState;
   onApprove: () => void;
   onReject: () => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
 }) {
   const { job, diff, logs, actionPending, actionError } = run;
   return (
@@ -1679,7 +1702,7 @@ function RunExecution({
           />
         </div>
       )}
-      {publicBetaMode() && (job.status === "awaiting_approval" || job.status === "approved") && <BetaRunReview job={job} />}
+      {publicBetaMode() && (job.status === "awaiting_approval" || job.status === "approved") && <BetaRunReview job={job} diff={diff} onStatusChange={onStatusChange} />}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
       {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
@@ -1726,6 +1749,7 @@ function ConversationTurn({
   retryPending,
   onApprove,
   onReject,
+  onStatusChange,
   onRetry,
 }: {
   run: RunState;
@@ -1733,12 +1757,13 @@ function ConversationTurn({
   retryPending: boolean;
   onApprove: () => void;
   onReject: () => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: () => void;
 }) {
   return (
     <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
       <InstructionMessage job={run.job} />
-      <RunExecution run={run} onApprove={onApprove} onReject={onReject} />
+      <RunExecution run={run} onApprove={onApprove} onReject={onReject} onStatusChange={onStatusChange} />
       {isTip && isTerminalStatus(run.job.status) && (
         <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
       )}
@@ -1750,11 +1775,13 @@ function RunThread({
   thread,
   onApprove,
   onReject,
+  onStatusChange,
   onRetry,
 }: {
   thread: ThreadState;
   onApprove: (runId: string) => void;
   onReject: (runId: string) => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
 }) {
   return (
@@ -1768,6 +1795,7 @@ function RunThread({
           retryPending={thread.retryPending}
           onApprove={() => onApprove(run.job.id)}
           onReject={() => onReject(run.job.id)}
+          onStatusChange={onStatusChange}
           onRetry={() => onRetry(run.job.id)}
         />
       ))}
@@ -2641,6 +2669,7 @@ function WorkspaceRegion({
   onSubmit,
   onApprove,
   onReject,
+  onRunStatusChange,
   onRetry,
   onFollowUp,
   onSelectRun,
@@ -2654,6 +2683,7 @@ function WorkspaceRegion({
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
   onApprove: (runId: string) => void;
   onReject: (runId: string) => void;
+  onRunStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
   onFollowUp: (instruction: string) => Promise<void>;
   onSelectRun: (id: string) => void;
@@ -2677,6 +2707,7 @@ function WorkspaceRegion({
               thread={view.thread}
               onApprove={onApprove}
               onReject={onReject}
+              onStatusChange={onRunStatusChange}
               onRetry={onRetry}
             />
           </div>
@@ -2978,6 +3009,14 @@ function GNSISWorkspacePreview() {
     });
   }, []);
 
+  // Mutation responses are authoritative for their returned status. Apply them
+  // immediately while preserving the rest of the cached record; polling may
+  // subsequently reconcile the complete JobRecord.
+  const applyRunStatus = useCallback((runId: string, status: JobStatus) => {
+    updateRun(runId, (run) => ({ ...run, job: { ...run.job, status } }));
+    setJobs((current) => current.map((job) => job.id === runId ? { ...job, status } : job));
+  }, [updateRun]);
+
   // Append a new linked run (a follow-up / retry) to the active thread, in place,
   // so the conversation and the follow-up composer stay mounted.
   const appendRun = useCallback((job: JobRecord) => {
@@ -3225,6 +3264,7 @@ function GNSISWorkspacePreview() {
             onSubmit={handleComposerSubmit}
             onApprove={handleApproveJob}
             onReject={handleRejectJob}
+            onRunStatusChange={applyRunStatus}
             onRetry={handleRetryRun}
             onFollowUp={handleFollowUpSubmit}
             onSelectRun={handleRunSelect}

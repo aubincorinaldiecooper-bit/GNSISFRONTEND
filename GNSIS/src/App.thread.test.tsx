@@ -336,6 +336,52 @@ describe("public beta intelligence review", () => {
     await userEvent.click(screen.getByRole("button", { name: "Approve run" }));
     await waitFor(() => expect(apiMocks.approveRunMock).toHaveBeenCalledWith("run-root", []));
   });
+
+  it("applies approval immediately, prevents a stale second approval, and exposes publishing", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.approveRunMock.mockResolvedValue({ id: "run-root", status: "approved" });
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Approve run" }));
+    expect(await screen.findByText("Run approved")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Publish pull request" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve run" })).not.toBeInTheDocument();
+    expect(apiMocks.approveRunMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps approval available with an error when the mutation fails", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.approveRunMock.mockRejectedValue(new apiMocks.MockApiError(503, "Approval unavailable"));
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Approve run" }));
+    expect(await screen.findByText("Approval unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve run" })).toBeEnabled();
+  });
+
+  it("applies a successful publish response immediately", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Publish it", status: "approved" })]);
+    apiMocks.publishRunMock.mockResolvedValue({ id: "run-root", status: "completed" });
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Publish pull request" }));
+    expect(await screen.findByText("Run complete")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Publish pull request" })).not.toBeInTheDocument();
+    expect(apiMocks.publishRunMock).toHaveBeenCalledOnce();
+  });
+
+  it("still lets polling replace the mutation-updated status with the authoritative record", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Reconcile it", status: "awaiting_approval" })]);
+    let resolvePoll!: (value: JobRecord) => void;
+    apiMocks.getJobMock.mockReturnValue(new Promise((resolve) => { resolvePoll = resolve; }));
+    apiMocks.approveRunMock.mockResolvedValue({ id: "run-root", status: "approved" });
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Approve run" }));
+    expect(await screen.findByText("Run approved")).toBeInTheDocument();
+    resolvePoll(job({ id: "run-root", instruction: "Reconcile it", status: "completed", branch: "authoritative" }));
+    expect(await screen.findByText("Run complete")).toBeInTheDocument();
+  });
 });
 
 describe("canonical run receipt", () => {
