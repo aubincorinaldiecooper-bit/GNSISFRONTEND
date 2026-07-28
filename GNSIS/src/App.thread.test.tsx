@@ -59,20 +59,17 @@ const apiMocks = vi.hoisted(() => {
     getRunReceiptMock: vi.fn(),
     getJobThreadMock: vi.fn(),
     followUpJobMock: vi.fn(),
-    approveJobMock: vi.fn(),
-    rejectJobMock: vi.fn(),
     cancelJobMock: vi.fn(),
     listJobsMock: vi.fn(),
     proposalsMock: vi.fn(),
     approveRunMock: vi.fn(),
     publishRunMock: vi.fn(),
+    rejectRunMock: vi.fn(),
   };
 });
 
 vi.mock("@/lib/api", () => ({
   ApiError: apiMocks.MockApiError,
-  approveJob: (...a: unknown[]) => apiMocks.approveJobMock(...a),
-  rejectJob: (...a: unknown[]) => apiMocks.rejectJobMock(...a),
   cancelJob: (...a: unknown[]) => apiMocks.cancelJobMock(...a),
   createJob: vi.fn(),
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
@@ -96,6 +93,7 @@ vi.mock("@/lib/api", () => ({
   getRunIntelligenceProposals: (...a: unknown[]) => apiMocks.proposalsMock(...a),
   approveRun: (...a: unknown[]) => apiMocks.approveRunMock(...a),
   publishRun: (...a: unknown[]) => apiMocks.publishRunMock(...a),
+  rejectRun: (...a: unknown[]) => apiMocks.rejectRunMock(...a),
   queryRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
   listUsageEvents: vi.fn(async () => ({ items: [] })),
   matchesGatewayRequest: vi.fn(() => false),
@@ -386,25 +384,49 @@ describe("cancel run", () => {
     expect(container.querySelector(".animate-ping")).not.toBeInTheDocument();
   });
 
-  it("disables Approve & publish / Reject while Cancel is in flight (non-beta ApprovalBlock)", async () => {
-    publicBetaModeMock.mockReturnValue(false);
+  it("disables Reject while Cancel is in flight, and Cancel while Reject is in flight (beta mode)", async () => {
+    publicBetaModeMock.mockReturnValue(true);
     mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
-    apiMocks.getJobDiffMock.mockResolvedValue({ patch: "diff", files_changed: ["a.ts"] });
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
     let resolveCancel!: (value: JobRecord) => void;
     apiMocks.cancelJobMock.mockReturnValue(new Promise((resolve) => { resolveCancel = resolve; }));
     renderThread("/runs/run-root");
 
     const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
-    const approveButton = await screen.findByRole("button", { name: "Approve & publish" });
-    const rejectButton = screen.getByRole("button", { name: "Reject" });
-    expect(approveButton).toBeEnabled();
+    const rejectButton = await screen.findByRole("button", { name: "Reject" });
     expect(rejectButton).toBeEnabled();
 
     await userEvent.click(cancelButton);
-    expect(approveButton).toBeDisabled();
     expect(rejectButton).toBeDisabled();
     resolveCancel(job({ id: "run-root", instruction: "Review it", status: "cancelled" }));
     await screen.findByText("This run was cancelled before it finished.");
+  });
+});
+
+describe("beta run rejection", () => {
+  it("rejects a run and applies the response status immediately", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    apiMocks.rejectRunMock.mockResolvedValue({ id: "run-root", status: "rejected" });
+    renderThread("/runs/run-root");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(apiMocks.rejectRunMock).toHaveBeenCalledWith("run-root"));
+    expect(await screen.findByText("The proposed change was reviewed and rejected before publishing.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Reject available with an error when the mutation fails", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    apiMocks.rejectRunMock.mockRejectedValue(new apiMocks.MockApiError(409, "run already approved"));
+    renderThread("/runs/run-root");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    expect(await screen.findByText("run already approved")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
   });
 });
 
