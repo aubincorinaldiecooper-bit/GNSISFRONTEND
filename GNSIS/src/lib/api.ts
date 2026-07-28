@@ -441,6 +441,12 @@ export function publishRun(runId: string): Promise<{ id: string; status: JobStat
   return request(`/v1/runs/${encodeURIComponent(runId)}/publish`, { method: "POST" });
 }
 
+export function rejectRun(runId: string, note = ""): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/reject`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });
+}
+
 /** Structured lifecycle evidence; deliberately independent of the receipt. */
 export function getRunEventsPage(runId: string, limit = 100, offset = 0): Promise<RunEventList> {
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
@@ -492,20 +498,12 @@ export function followUpJob(parentJobId: string, instruction?: string): Promise<
   return request(`/jobs/${parentJobId}/follow-up`, { method: "POST", body });
 }
 
-export function approveJob(jobId: string, note = "", actor = "human"): Promise<JobRecord> {
-  return request(`/jobs/${jobId}/approve`, { method: "POST", body: JSON.stringify({ actor, note }) });
-}
-
-export function rejectJob(jobId: string, note = "", actor = "human"): Promise<JobRecord> {
-  return request(`/jobs/${jobId}/reject`, { method: "POST", body: JSON.stringify({ actor, note }) });
-}
-
 /** Stop a run before it reaches a terminal state. Revokes its run token backend-side. */
 export function cancelJob(jobId: string): Promise<JobRecord> {
   return request(`/jobs/${jobId}/cancel`, { method: "POST" });
 }
 
-export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "blocked", "failed", "cancelled"]);
+const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "blocked", "failed", "cancelled"]);
 
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);

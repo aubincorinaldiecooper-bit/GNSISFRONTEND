@@ -68,7 +68,6 @@ const apiMocks = vi.hoisted(() => {
 
 vi.mock("@/lib/api", () => ({
   ApiError: apiMocks.MockApiError,
-  approveJob: vi.fn(),
   claimGitHubInstallation: (...args: unknown[]) => apiMocks.claimGitHubInstallationMock(...args),
   createJob: vi.fn(),
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
@@ -94,9 +93,9 @@ vi.mock("@/lib/api", () => ({
   getRunIntelligenceProposals: vi.fn(async () => ({ object: "list", data: [] })),
   approveRun: vi.fn(),
   publishRun: vi.fn(),
+  rejectRun: vi.fn(),
   listUsageEvents: vi.fn(async () => ({ items: [] })),
   matchesGatewayRequest: vi.fn(() => false),
-  rejectJob: vi.fn(),
 }));
 
 import App from "@/App";

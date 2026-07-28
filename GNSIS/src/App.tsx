@@ -61,8 +61,6 @@ import {
   getAllRunEvents,
   getJobThread,
   followUpJob,
-  approveJob,
-  rejectJob,
   cancelJob,
   isApiConfigured,
   ApiError,
@@ -72,6 +70,7 @@ import {
   getRunIntelligenceProposals,
   approveRun,
   publishRun,
+  rejectRun,
   type JobRecord,
   type JobStatus,
   type LogRecord,
@@ -1266,14 +1265,12 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 // A thread mirrors one real backend job: status drives which messages render,
 // logs are the real per-phase event stream, diff is the proposed patch (once
 // the engine has produced one).
-// One immutable execution within a conversation: its job, live logs, proposed
-// diff, and any in-flight approve/reject action.
+// One immutable execution within a conversation: its job, live logs, and
+// proposed diff.
 interface RunState {
   job: JobRecord;
   logs: LogRecord[];
   diff: DiffRecord | null;
-  actionPending: "approve" | "reject" | null;
-  actionError: string | null;
   events: RunEvent[];
   eventsLoading: boolean;
   eventsReconnecting: boolean;
@@ -1473,59 +1470,6 @@ function DiffSummary({ diff }: { diff: DiffRecord }) {
   );
 }
 
-function ApprovalBlock({
-  diff,
-  pending,
-  error,
-  onApprove,
-  onReject,
-  disabled = false,
-}: {
-  diff: DiffRecord | null;
-  pending: "approve" | "reject" | null;
-  error: string | null;
-  onApprove: () => void;
-  onReject: () => void;
-  // True while a different mutually-exclusive run action (e.g. Cancel) is
-  // in flight, so approve/reject can't race it.
-  disabled?: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <StatusIndicator status="waiting" />
-        <p className="text-sm font-semibold text-foreground">Genesis is ready for review</p>
-      </div>
-      {diff ? (
-        <DiffSummary diff={diff} />
-      ) : (
-        <p className="text-sm text-muted-foreground">Loading the proposed diff…</p>
-      )}
-      {error && <p className="text-xs text-red-600">{error}</p>}
-      <div className="flex items-center gap-2 pt-1 flex-wrap">
-        <Button
-          size="sm"
-          disabled={pending !== null || disabled}
-          onClick={onApprove}
-          className="h-8 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
-        >
-          {pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Approve &amp; publish
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={pending !== null || disabled}
-          onClick={onReject}
-          className="h-8 rounded-lg"
-        >
-          {pending === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Reject
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 function BetaRunReview({
   job,
@@ -1548,8 +1492,8 @@ function BetaRunReview({
   const [choices, setChoices] = useState<Record<string, { selected: boolean; content: string }>>({});
   const [proposalState, setProposalState] = useState<"loading" | "loaded" | "error">(job.status === "awaiting_approval" ? "loading" : "loaded");
   const [proposalAttempt, setProposalAttempt] = useState(0);
-  const [pending, setPendingState] = useState<"approve" | "publish" | null>(null);
-  const setPending = (value: "approve" | "publish" | null) => {
+  const [pending, setPendingState] = useState<"approve" | "reject" | "publish" | null>(null);
+  const setPending = (value: "approve" | "reject" | "publish" | null) => {
     setPendingState(value);
     onPendingChange?.(value !== null);
   };
@@ -1577,6 +1521,7 @@ function BetaRunReview({
     } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Approval failed."); } finally { setPending(null); }
   };
   const publish = async () => { setPending("publish"); setError(null); try { const response = await publishRun(job.id); onStatusChange(response.id, response.status); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Publishing failed. The approval remains recorded."); } finally { setPending(null); } };
+  const reject = async () => { setPending("reject"); setError(null); try { const response = await rejectRun(job.id); onStatusChange(response.id, response.status); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Rejection failed."); } finally { setPending(null); } };
 
   const diffBlock = <div className="mt-3 rounded-xl border p-4 space-y-3">
     <p className="text-sm font-semibold">Proposed changes</p>
@@ -1599,7 +1544,10 @@ function BetaRunReview({
       </li>)}</ul> : null}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
-      <Button size="sm" className="mt-3" onClick={approve} disabled={pending !== null || proposalState !== "loaded" || disabled}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        <Button size="sm" onClick={approve} disabled={pending !== null || proposalState !== "loaded" || disabled}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
+        <Button size="sm" variant="outline" onClick={reject} disabled={pending !== null || disabled}>{pending === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Reject</Button>
+      </div>
     </div>
   </>;
 }
@@ -1684,30 +1632,16 @@ function FailedMessage({ job }: { job: JobRecord }) {
   );
 }
 
-function RejectedMessage() {
+// Shared neutral-terminal-state message: rejected and cancelled render
+// identically apart from their heading/body text.
+function TerminalMessage({ title, description }: { title: string; description: string }) {
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
         <CircleX className="h-4 w-4 text-muted-foreground shrink-0" />
-        <p className="text-sm font-semibold text-foreground">Run rejected</p>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
-        The proposed change was reviewed and rejected before publishing.
-      </p>
-    </div>
-  );
-}
-
-function CancelledMessage() {
-  return (
-    <div className="py-4 space-y-1.5">
-      <div className="flex items-center gap-2">
-        <CircleX className="h-4 w-4 text-muted-foreground shrink-0" />
-        <p className="text-sm font-semibold text-foreground">Run cancelled</p>
-      </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
-        This run was cancelled before it finished.
-      </p>
+      <p className="text-sm text-muted-foreground leading-relaxed pl-6">{description}</p>
     </div>
   );
 }
@@ -1778,16 +1712,12 @@ function CancelRunControl({
 // terminal result.
 function RunExecution({
   run,
-  onApprove,
-  onReject,
   onStatusChange,
 }: {
   run: RunState;
-  onApprove: () => void;
-  onReject: () => void;
   onStatusChange: (runId: string, status: JobStatus) => void;
 }) {
-  const { job, diff, logs, actionPending, actionError } = run;
+  const { job, diff, logs } = run;
   // Cancel and approve/reject/publish are mutually exclusive mutations on the
   // same run: each disables the other while it's in flight, so a user can't
   // fire both at once and race their responses (or hit an avoidable 409).
@@ -1799,24 +1729,12 @@ function RunExecution({
 
       <CancelRunControl
         job={job}
-        disabled={actionPending !== null || reviewPending}
+        disabled={reviewPending}
         onPendingChange={setCancelPending}
         onStatusChange={onStatusChange}
       />
 
-      {!publicBetaMode() && job.status === "awaiting_approval" && (
-        <div className="pt-3">
-          <ApprovalBlock
-            diff={diff}
-            pending={actionPending}
-            error={actionError}
-            onApprove={onApprove}
-            onReject={onReject}
-            disabled={cancelPending}
-          />
-        </div>
-      )}
-      {publicBetaMode() && (job.status === "awaiting_approval" || job.status === "approved") && (
+      {(job.status === "awaiting_approval" || job.status === "approved") && (
         <BetaRunReview
           job={job}
           diff={diff}
@@ -1828,8 +1746,8 @@ function RunExecution({
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
       {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
-      {job.status === "rejected" && <RejectedMessage />}
-      {job.status === "cancelled" && <CancelledMessage />}
+      {job.status === "rejected" && <TerminalMessage title="Run rejected" description="The proposed change was reviewed and rejected before publishing." />}
+      {job.status === "cancelled" && <TerminalMessage title="Run cancelled" description="This run was cancelled before it finished." />}
     </div>
   );
 }
@@ -1870,23 +1788,19 @@ function ConversationTurn({
   run,
   isTip,
   retryPending,
-  onApprove,
-  onReject,
   onStatusChange,
   onRetry,
 }: {
   run: RunState;
   isTip: boolean;
   retryPending: boolean;
-  onApprove: () => void;
-  onReject: () => void;
   onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: () => void;
 }) {
   return (
     <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
       <InstructionMessage job={run.job} />
-      <RunExecution run={run} onApprove={onApprove} onReject={onReject} onStatusChange={onStatusChange} />
+      <RunExecution run={run} onStatusChange={onStatusChange} />
       {isTip && isTerminalStatus(run.job.status) && (
         <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
       )}
@@ -1896,14 +1810,10 @@ function ConversationTurn({
 
 function RunThread({
   thread,
-  onApprove,
-  onReject,
   onStatusChange,
   onRetry,
 }: {
   thread: ThreadState;
-  onApprove: (runId: string) => void;
-  onReject: (runId: string) => void;
   onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
 }) {
@@ -1916,8 +1826,6 @@ function RunThread({
           run={run}
           isTip={i === thread.runs.length - 1}
           retryPending={thread.retryPending}
-          onApprove={() => onApprove(run.job.id)}
-          onReject={() => onReject(run.job.id)}
           onStatusChange={onStatusChange}
           onRetry={() => onRetry(run.job.id)}
         />
@@ -2328,7 +2236,6 @@ function RunPanelRegion({
   useEffect(() => {
     if (!hasThread) {
       prevStatusRef.current = null;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets view state when the selected thread changes
       setTab("activity");
       activityScrollPos.current = 0;
       receiptScrollPos.current = 0;
@@ -2448,23 +2355,87 @@ function RunsFilterSelect({
 const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
 const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "blocked", "failed", "cancelled"];
 
-function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void }) {
+// Shared by RunsView and DashboardView's "Recent runs" section: a
+// responsive (desktop grid / mobile stacked cards) list of runs, differing
+// only in column widths, header labels, and the empty-state message.
+function RunsTable({
+  runs,
+  onSelectRun,
+  columns,
+  headers,
+  emptyMessage,
+}: {
+  runs: RecentRun[];
+  onSelectRun: (id: string) => void;
+  columns: string;
+  headers: [string, string, string, string, string];
+  emptyMessage: string;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-border last:border-b-0",
-        "hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        runsColumns
-      )}
-    >
-      <span className="text-sm text-foreground truncate">{run.title}</span>
-      <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-      <span className="text-xs text-muted-foreground truncate">{run.model}</span>
-      <span className="text-xs"><StatusLabel status={run.status} /></span>
-      <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
-    </button>
+    <>
+      <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", columns)}>
+        {headers.map((label, i) => (
+          <span key={label} className={i === headers.length - 1 ? "text-right" : undefined}>{label}</span>
+        ))}
+      </div>
+
+      <div className="hidden md:block border-t border-border">
+        {runs.length === 0 ? (
+          <div className="px-3 py-8 text-center">
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          </div>
+        ) : (
+          runs.map((run) => (
+            <button
+              key={run.id}
+              type="button"
+              onClick={() => onSelectRun(run.id)}
+              className={cn(
+                "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-border last:border-b-0",
+                "hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                columns
+              )}
+            >
+              <span className="text-sm text-foreground truncate">{run.title}</span>
+              <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
+              <span className="text-xs text-muted-foreground truncate">{run.model}</span>
+              <span className="text-xs"><StatusLabel status={run.status} /></span>
+              <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="md:hidden space-y-2 mt-2">
+        {runs.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          </div>
+        ) : (
+          runs.map((run) => (
+            <button
+              key={run.id}
+              type="button"
+              onClick={() => onSelectRun(run.id)}
+              className="w-full rounded-lg border border-border bg-white p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
+                <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="font-mono">{run.repo}</span>
+                <span>·</span>
+                <span>{run.model}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <StatusLabel status={run.status} />
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </>
   );
 }
 
@@ -2511,58 +2482,13 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
         {filtered.length} {filtered.length === 1 ? "run" : "runs"}
       </p>
 
-      {/* Desktop header */}
-      <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", runsColumns)}>
-        <span>Task</span>
-        <span>Repository</span>
-        <span>Engine</span>
-        <span>Status</span>
-        <span className="text-right">Updated</span>
-      </div>
-
-      {/* Desktop rows */}
-      <div className="hidden md:block border-t border-border">
-        {filtered.length === 0 ? (
-          <div className="px-3 py-8 text-center">
-            <p className="text-sm text-muted-foreground">No runs match your filters.</p>
-          </div>
-        ) : (
-          filtered.map((run) => (
-            <RunsTableRow key={run.id} run={run} onClick={() => onSelectRun(run.id)} />
-          ))
-        )}
-      </div>
-
-      {/* Mobile stacked rows */}
-      <div className="md:hidden space-y-2 mt-2">
-        {filtered.length === 0 ? (
-          <div className="py-8 text-center">
-            <p className="text-sm text-muted-foreground">No runs match your filters.</p>
-          </div>
-        ) : (
-          filtered.map((run) => (
-            <button
-              key={run.id}
-              type="button"
-              onClick={() => onSelectRun(run.id)}
-              className="w-full rounded-lg border border-border bg-white p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
-                <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-mono">{run.repo}</span>
-                <span>·</span>
-                <span>{run.model}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <StatusLabel status={run.status} />
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <RunsTable
+        runs={filtered}
+        onSelectRun={onSelectRun}
+        columns={runsColumns}
+        headers={["Task", "Repository", "Engine", "Status", "Updated"]}
+        emptyMessage="No runs match your filters."
+      />
     </div>
   );
 }
@@ -2715,67 +2641,13 @@ function DashboardView({
       {/* Recent runs (real) */}
       <div>
         <p className="text-sm font-semibold text-foreground mb-2">Recent runs</p>
-        <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", dashboardColumns)}>
-          <span>Run</span>
-          <span>Repository</span>
-          <span>Engine</span>
-          <span>Status</span>
-          <span className="text-right">Updated</span>
-        </div>
-        <div className="hidden md:block border-t border-border">
-          {runs.length === 0 ? (
-            <div className="px-3 py-8 text-center">
-              <p className="text-sm text-muted-foreground">No runs yet.</p>
-            </div>
-          ) : (
-            runs.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                onClick={() => onSelectRun(run.id)}
-                className={cn(
-                  "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-border last:border-b-0",
-                  "hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                  dashboardColumns
-                )}
-              >
-                <span className="text-sm text-foreground truncate">{run.title}</span>
-                <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-                <span className="text-xs text-muted-foreground truncate">{run.model}</span>
-                <span className="text-xs"><StatusLabel status={run.status} /></span>
-                <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
-              </button>
-            ))
-          )}
-        </div>
-        <div className="md:hidden space-y-2 mt-2">
-          {runs.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm text-muted-foreground">No runs yet.</p>
-            </div>
-          ) : (
-            runs.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                onClick={() => onSelectRun(run.id)}
-                className="w-full rounded-lg border border-border bg-white p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
-                  <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="font-mono">{run.repo}</span>
-                  <span>·</span>
-                  <span>{run.model}</span>
-                  <span>·</span>
-                  <StatusLabel status={run.status} />
-                </div>
-              </button>
-            ))
-          )}
-        </div>
+        <RunsTable
+          runs={runs}
+          onSelectRun={onSelectRun}
+          columns={dashboardColumns}
+          headers={["Run", "Repository", "Engine", "Status", "Updated"]}
+          emptyMessage="No runs yet."
+        />
       </div>
     </div>
   );
@@ -2790,8 +2662,6 @@ function WorkspaceRegion({
   runs,
   balances,
   onSubmit,
-  onApprove,
-  onReject,
   onRunStatusChange,
   onRetry,
   onFollowUp,
@@ -2804,8 +2674,6 @@ function WorkspaceRegion({
   runs: RecentRun[];
   balances: Balances | null;
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
-  onApprove: (runId: string) => void;
-  onReject: (runId: string) => void;
   onRunStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
   onFollowUp: (instruction: string) => Promise<void>;
@@ -2828,8 +2696,6 @@ function WorkspaceRegion({
             <RunThread
               key={view.threadKey}
               thread={view.thread}
-              onApprove={onApprove}
-              onReject={onReject}
               onStatusChange={onRunStatusChange}
               onRetry={onRetry}
             />
@@ -2942,7 +2808,7 @@ function navIdFromRoute(route: RouteViewKind): NavId {
 }
 
 function runStateFromJob(job: JobRecord, logs: LogRecord[] = [], diff: DiffRecord | null = null): RunState {
-  return { job, logs, diff, actionPending: null, actionError: null, events: [], eventsLoading: true, eventsReconnecting: false };
+  return { job, logs, diff, events: [], eventsLoading: true, eventsReconnecting: false };
 }
 
 // A run always belongs to a thread; when the backend omits thread_id (older
@@ -3221,36 +3087,6 @@ function GNSISWorkspacePreview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.kind === "thread" ? view.threadKey : null, updateRun]);
 
-  const handleApproveJob = async (runId: string) => {
-    updateRun(runId, (r) => ({ ...r, actionPending: "approve", actionError: null }));
-    try {
-      const job = await approveJob(runId);
-      updateRun(runId, (r) => ({ ...r, job, actionPending: null }));
-      setJobs((prev) => upsertJob(prev, job));
-    } catch (err) {
-      updateRun(runId, (r) => ({
-        ...r,
-        actionPending: null,
-        actionError: err instanceof ApiError ? err.message : "Failed to approve the run.",
-      }));
-    }
-  };
-
-  const handleRejectJob = async (runId: string) => {
-    updateRun(runId, (r) => ({ ...r, actionPending: "reject", actionError: null }));
-    try {
-      const job = await rejectJob(runId);
-      updateRun(runId, (r) => ({ ...r, job, actionPending: null }));
-      setJobs((prev) => upsertJob(prev, job));
-    } catch (err) {
-      updateRun(runId, (r) => ({
-        ...r,
-        actionPending: null,
-        actionError: err instanceof ApiError ? err.message : "Failed to reject the run.",
-      }));
-    }
-  };
-
   // Send a follow-up message: a new linked run, same conversation. Errors
   // propagate to the composer so it preserves the text and shows the reason.
   const handleFollowUpSubmit = async (instruction: string) => {
@@ -3385,8 +3221,6 @@ function GNSISWorkspacePreview() {
             runs={runs}
             balances={balances}
             onSubmit={handleComposerSubmit}
-            onApprove={handleApproveJob}
-            onReject={handleRejectJob}
             onRunStatusChange={applyRunStatus}
             onRetry={handleRetryRun}
             onFollowUp={handleFollowUpSubmit}
