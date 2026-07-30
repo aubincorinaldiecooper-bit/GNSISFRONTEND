@@ -67,7 +67,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-white p-5">
+    <section className="rounded-xl border border-border bg-card p-5">
       <div className="mb-4 flex items-center gap-2.5">
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white">
           {step}
@@ -226,10 +226,10 @@ function ApiKeySection({
       </p>
 
       {!isApiConfigured() ? (
-        <p className="text-sm text-amber-600">Configure VITE_API_BASE_URL to manage keys.</p>
+        <p className="text-sm text-amber-400">Configure VITE_API_BASE_URL to manage keys.</p>
       ) : haveSecret && activeKeyId ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm text-emerald-700">
+          <div className="flex items-center gap-2 text-sm text-emerald-400">
             <CheckCircle2 className="h-4 w-4" />
             Test key ready — secret held in memory.
           </div>
@@ -240,7 +240,7 @@ function ApiKeySection({
           <Button
             onClick={createTestKey}
             disabled={creating}
-            className="gap-1.5 bg-neutral-900 text-white hover:bg-neutral-800"
+            className="gap-1.5"
           >
             {creating && <Loader2 className="h-4 w-4 animate-spin" />}
             Create "{DEFAULT_KEY_NAME}" test key
@@ -348,7 +348,7 @@ function GatewaySection({
   return (
     <SectionCard step={3} title="Gateway request">
       {!secret && (
-        <p className="mb-3 text-sm text-amber-600">Create a test key in step 2 first.</p>
+        <p className="mb-3 text-sm text-amber-400">Create a test key in step 2 first.</p>
       )}
       <div className="space-y-3">
         <div>
@@ -382,7 +382,7 @@ function GatewaySection({
           <Button
             onClick={send}
             disabled={!canSend}
-            className="h-9 gap-1.5 bg-neutral-900 text-white hover:bg-neutral-800"
+            className="h-9 gap-1.5"
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Send request
@@ -391,15 +391,15 @@ function GatewaySection({
       </div>
 
       {result && !result.ok && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50/60 p-3">
+        <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3">
           <div className="mb-1 flex items-center gap-2">
-            <XCircle className="h-4 w-4 text-red-500" />
-            <span className="text-sm font-semibold text-red-700">
+            <XCircle className="h-4 w-4 text-red-400" />
+            <span className="text-sm font-semibold text-red-400">
               {failureCopy[result.kind]}
             </span>
           </div>
-          <p className="text-xs text-red-700/90">{result.message}</p>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-red-700/70">
+          <p className="text-xs text-red-400/90">{result.message}</p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-red-400/70">
             {result.httpStatus != null && <span>HTTP {result.httpStatus}</span>}
             {result.code && <span>code: {result.code}</span>}
             {result.requestId && <span className="font-mono">{result.requestId}</span>}
@@ -409,14 +409,14 @@ function GatewaySection({
       )}
 
       {result && result.ok && (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+        <div className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
           <div className="mb-3 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            <span className="text-sm font-semibold text-emerald-700">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            <span className="text-sm font-semibold text-emerald-400">
               HTTP {result.httpStatus} · {result.durationMs} ms
             </span>
           </div>
-          <div className="mb-3 rounded-md border border-border bg-white p-3">
+          <div className="mb-3 rounded-md border border-border bg-card p-3">
             <p className="mb-1 text-xs text-muted-foreground">Model response</p>
             <p className="whitespace-pre-wrap text-sm text-foreground">{result.content || "(empty)"}</p>
           </div>
@@ -506,7 +506,7 @@ function UsageSection({ success }: { success: GatewaySuccess | null }) {
                   <Copy className="h-3 w-3" />
                 </button>
               )}
-              {copied && <span className="text-emerald-600">copied</span>}
+              {copied && <span className="text-emerald-400">copied</span>}
             </span>
             <span className="font-mono">{success.runId}</span>
           </div>
@@ -520,7 +520,7 @@ function UsageSection({ success }: { success: GatewaySuccess | null }) {
 
           {timedOut && !event && (
             <div className="space-y-2 py-2">
-              <p className="text-sm text-amber-600">
+              <p className="text-sm text-amber-400">
                 No matching usage event found within {POLL_BUDGET_MS / 1000}s. Metering may lag
                 slightly under load.
               </p>
@@ -532,10 +532,10 @@ function UsageSection({ success }: { success: GatewaySuccess | null }) {
           )}
 
           {event && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
               <div className="mb-3 flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span className="text-sm font-semibold text-emerald-700">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <span className="text-sm font-semibold text-emerald-400">
                   Metering active · Billing not enabled
                 </span>
               </div>

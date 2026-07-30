@@ -1,3 +1,13 @@
+/* Astryx design system — self-contained (StyleX-authored, pre-built) CSS.
+   Loads before Tailwind so Tailwind utility classes still win when applied
+   directly; Astryx components carry their own styling and don't depend on
+   Tailwind at all. GNSIS is on Tailwind v3, so the v4-only tailwind-theme.css
+   token bridge isn't used here — new Astryx-composed views use Astryx's own
+   component props/tokens, existing Tailwind-based pages are untouched. */
+@import '@astryxdesign/core/reset.css';
+@import '@astryxdesign/core/astryx.css';
+@import '@astryxdesign/theme-neutral/theme.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -44,42 +54,54 @@
   }
 
   .dark {
-    --background: 0 0% 10%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 15%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 15%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 92%;
-    --primary-foreground: 0 0% 20%;
-    --secondary: 0 0% 17%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 17%;
-    --muted-foreground: 0 0% 65%;
-    --accent: 0 0% 17%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 60% 45%;
+    /* Astryx-derived: near-black surfaces, subtle borders, one blue accent. */
+    --background: 0 0% 7%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 11%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 94%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 58%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 100% / 10%;
-    --input: 0 0% 100% / 15%;
-    --ring: 0 0% 55%;
+    --border: 0 0% 100% / 8%;
+    --input: 0 0% 100% / 12%;
+    --ring: 217 91% 60%;
+
+    /* Astryx's one accent color — mention tokens, links, active state. */
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    /* Code block chrome sits a shade darker than card, matching the screenshot. */
+    --code: 0 0% 6%;
+    --code-foreground: 0 0% 90%;
+    --code-border: 0 0% 100% / 6%;
 
     /* Chart colors (dark) */
-    --chart-1: 260 60% 55%;
+    --chart-1: 217 91% 60%;
     --chart-2: 160 50% 45%;
     --chart-3: 35 90% 55%;
     --chart-4: 300 60% 55%;
     --chart-5: 15 70% 50%;
 
     /* Sidebar variables (dark) */
-    --sidebar: 0 0% 15%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 260 60% 55%;
+    --sidebar: 0 0% 9%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 17%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 0 0% 100% / 10%;
-    --sidebar-ring: 0 0% 55%;
+    --sidebar-accent: 0 0% 14%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 100% / 8%;
+    --sidebar-ring: 217 91% 60%;
   }
 }
 

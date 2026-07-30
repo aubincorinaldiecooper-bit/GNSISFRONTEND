@@ -29,9 +29,9 @@ function shortDate(iso: string): string {
 }
 
 const statusStyles: Record<VirtualKey["status"], string> = {
-  active: "text-emerald-700 bg-emerald-50",
-  disabled: "text-muted-foreground bg-neutral-100",
-  rotated: "text-muted-foreground bg-neutral-100",
+  active: "text-emerald-400 bg-emerald-500/10",
+  disabled: "text-muted-foreground bg-muted",
+  rotated: "text-muted-foreground bg-muted",
 };
 
 function ModeBadge({ mode }: { mode: VirtualKeyMode }) {
@@ -39,7 +39,7 @@ function ModeBadge({ mode }: { mode: VirtualKeyMode }) {
     <span
       className={
         "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
-        (mode === "test" ? "bg-blue-50 text-blue-700" : "bg-neutral-900 text-white")
+        (mode === "test" ? "bg-blue-500/10 text-blue-400" : "bg-foreground text-background")
       }
     >
       {mode}
@@ -137,9 +137,9 @@ function CreateKeyDialog({
         </div>
 
         {error && (
-          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50/60 px-3 py-2">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
-            <span className="text-xs text-red-700">{error}</span>
+          <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+            <span className="text-xs text-red-400">{error}</span>
           </div>
         )}
 
@@ -150,7 +150,7 @@ function CreateKeyDialog({
           <Button
             onClick={submit}
             disabled={creating || !name.trim()}
-            className="gap-1.5 bg-neutral-900 text-white hover:bg-neutral-800"
+            className="gap-1.5"
           >
             {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Create key

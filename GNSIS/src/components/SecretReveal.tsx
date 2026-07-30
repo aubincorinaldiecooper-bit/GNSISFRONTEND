@@ -48,21 +48,21 @@ export default function SecretReveal({
   };
 
   return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-emerald-800">
+        <p className="text-xs font-semibold text-emerald-400">
           Secret shown once — copy it now
         </p>
         <button
           type="button"
           onClick={forget}
-          className="text-emerald-700/70 hover:text-emerald-900"
+          className="text-emerald-400/70 hover:text-emerald-300"
           aria-label="Forget secret"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className="flex items-center gap-2 rounded-md border border-border bg-white px-2.5 py-1.5">
+      <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5">
         <code className="flex-1 break-all font-mono text-xs text-foreground">
           {shown ? secret : mask(secret)}
         </code>

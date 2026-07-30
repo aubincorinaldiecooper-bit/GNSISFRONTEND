@@ -97,6 +97,19 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  ChatMessage,
+  ChatMessageBubble,
+  ChatMessageList,
+  ChatSystemMessage,
+  ChatToolCalls,
+  type ChatToolCallItem,
+} from "@astryxdesign/core/Chat";
+import { Avatar } from "@astryxdesign/core/Avatar";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { Toolbar } from "@astryxdesign/core/Toolbar";
+import { Section } from "@astryxdesign/core/Section";
+import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
 
 // =============================================================================
 // UTILITY
@@ -495,7 +508,7 @@ function CollapsedUsageIndicator() {
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="px-4 pb-2.5 pt-3 flex justify-center cursor-pointer">
-            <div className="h-1.5 w-9 rounded-full bg-neutral-200/80 overflow-hidden" />
+            <div className="h-1.5 w-9 rounded-full bg-muted overflow-hidden" />
           </div>
         </TooltipTrigger>
         <TooltipContent side="right" className="text-xs">
@@ -533,7 +546,7 @@ function AccountRow({
       referrerPolicy="no-referrer"
     />
   ) : (
-    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-semibold text-neutral-600 shrink-0">
+    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground shrink-0">
       {initial}
     </div>
   );
@@ -652,7 +665,7 @@ function SidebarRegion({
     <aside
       style={{ width: collapsed ? 68 : 250 }}
       className={cn(
-        "relative flex flex-col h-full shrink-0 bg-neutral-50",
+        "relative flex flex-col h-full shrink-0 bg-muted",
         "transition-[width] duration-200 ease-in-out overflow-hidden"
       )}
     >
@@ -951,7 +964,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
       </div>
 
       {noReposAvailable ? (
-        <div className="rounded-2xl border border-dashed border-border bg-neutral-50/50 px-6 py-10 text-center">
+        <div className="rounded-2xl border border-dashed border-border bg-muted/50 px-6 py-10 text-center">
           <p className="text-sm font-medium text-foreground">No repositories are available.</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Grant GNSIS access to a repository through GitHub to start your first run.
@@ -970,7 +983,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           )}
         </div>
       ) : (
-        <div className="rounded-2xl border border-border bg-white shadow-sm">
+        <div className="rounded-2xl border border-border bg-card shadow-sm">
           {/*
             The card is deliberately overflow-VISIBLE so the non-portal Combobox
             dropdowns can extend past the card's bottom edge. Rounded corners are
@@ -1011,7 +1024,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   placeholder="Select repository"
                   searchPlaceholder="Search repositories…"
                   emptyText="No matching repositories."
-                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1026,7 +1039,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   emptyText={branchesError ? "Could not load branches." : "No branches found."}
                   loading={branchesLoading}
                   disabled={!repositoryId}
-                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1040,7 +1053,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   searchPlaceholder="Search models…"
                   emptyText="No matching models."
                   disabled={(models ?? []).length === 0}
-                  className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                  className="h-9 rounded-lg bg-card px-2.5 text-xs"
                 />
               </div>
               <div className="col-span-2 lg:col-span-1 flex justify-end">
@@ -1048,7 +1061,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   size="sm"
                   disabled={!canSubmit}
                   onClick={handleSubmit}
-                  className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
+                  className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
                 >
                   {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Start run
@@ -1072,7 +1085,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1117,7 +1130,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
               size="sm"
               disabled={!canSubmit}
               onClick={handleSubmit}
-              className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
+              className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
             >
               {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               <span className="text-sm">Start</span>
@@ -1126,7 +1139,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 
           {/* Mobile config sheet — rounded-b so the card's bottom corners stay clean */}
           {showMobileConfig && (
-            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
+            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-muted/50">
               <Combobox
                 ariaLabel="Repository"
                 icon={<FolderGit className="h-3.5 w-3.5" />}
@@ -1136,7 +1149,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 placeholder="Select repository"
                 searchPlaceholder="Search repositories…"
                 emptyText="No matching repositories."
-                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Branch"
@@ -1149,7 +1162,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 emptyText={branchesError ? "Could not load branches." : "No branches found."}
                 loading={branchesLoading}
                 disabled={!repositoryId}
-                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Model"
@@ -1161,7 +1174,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 searchPlaceholder="Search models…"
                 emptyText="No matching models."
                 disabled={(models ?? []).length === 0}
-                className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                className="h-9 rounded-lg bg-card px-2.5 text-xs"
               />
               {showAdvisor ? (
                 <div className="flex items-center gap-2">
@@ -1176,7 +1189,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1403,32 +1416,9 @@ function ThreadHeader({ thread }: { thread: ThreadState }) {
   );
 }
 
-// One submitted instruction, rendered as a message with a quiet metadata row
-// (copy + relative timestamp). Readable width, preserved line breaks.
-function InstructionMessage({ job }: { job: JobRecord }) {
-  return (
-    <div className="pt-1">
-      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
-        {job.instruction}
-      </p>
-      <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
-    </div>
-  );
-}
-
 const inFlightStatuses: JobStatus[] = ["queued", "planning", "patching", "testing", "summarizing", "approved", "publishing"];
 
-function StatusMessage({ status }: { status: JobStatus }) {
-  return (
-    <div className="flex items-center gap-2.5 py-4 border-b border-border">
-      <Loader2 className="h-4 w-4 text-blue-500 animate-spin motion-reduce:animate-none shrink-0" />
-      <p className="text-sm text-muted-foreground">{phaseStatusLabel[status]}</p>
-    </div>
-  );
-}
-
 function DiffSummary({ diff }: { diff: DiffRecord }) {
-  const [showPatch, setShowPatch] = useState(false);
   return (
     <div className="space-y-2">
       <ul className="text-xs text-muted-foreground space-y-1">
@@ -1441,21 +1431,15 @@ function DiffSummary({ diff }: { diff: DiffRecord }) {
         ))}
       </ul>
       {diff.patch && (
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setShowPatch((v) => !v)}
-            className="text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
-          >
-            {showPatch ? "Hide patch" : "View patch"}
-          </button>
-          <CopyButton text={diff.patch} label="Copy patch" />
-        </div>
-      )}
-      {showPatch && diff.patch && (
-        <pre className="max-h-64 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre">
-          {diff.patch}
-        </pre>
+        <CodeBlock
+          title="patch.diff"
+          language="diff"
+          code={diff.patch}
+          width="100%"
+          maxHeight={400}
+          isCollapsible
+          collapsibleThreshold={1}
+        />
       )}
     </div>
   );
@@ -1491,7 +1475,7 @@ function ApprovalBlock({
           size="sm"
           disabled={pending !== null}
           onClick={onApprove}
-          className="h-8 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white"
+          className="h-8 rounded-lg"
         >
           {pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           Approve &amp; publish
@@ -1584,9 +1568,9 @@ function FailedMessage({ job, blocked = false }: { job: JobRecord; blocked?: boo
             {showDetails ? "Hide technical details" : "Show technical details"}
           </button>
           {showDetails && (
-            <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre-wrap break-words">
-              {details}
-            </pre>
+            <div className="mt-2">
+              <CodeBlock language="plaintext" code={details} width="100%" maxHeight={224} isWrapped />
+            </div>
           )}
         </div>
       )}
@@ -1615,8 +1599,9 @@ function RejectedMessage() {
 // RUN THREAD
 // =============================================================================
 
-// The execution beneath one instruction: its live status, approval gate, and
-// terminal result.
+// The assistant's terminal/awaiting content for one run — rendered as the
+// content of a ghost ChatMessageBubble. In-flight status is handled by the
+// caller (ChatSystemMessage), not here, since it isn't sender content.
 function RunExecution({
   run,
   onApprove,
@@ -1627,28 +1612,22 @@ function RunExecution({
   onReject: () => void;
 }) {
   const { job, diff, logs, actionPending, actionError } = run;
-  return (
-    <div className="mt-1">
-      {inFlightStatuses.includes(job.status) && <StatusMessage status={job.status} />}
-
-      {job.status === "awaiting_approval" && (
-        <div className="pt-3">
-          <ApprovalBlock
-            diff={diff}
-            pending={actionPending}
-            error={actionError}
-            onApprove={onApprove}
-            onReject={onReject}
-          />
-        </div>
-      )}
-
-      {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
-      {job.status === "failed" && <FailedMessage job={job} />}
-      {job.status === "blocked" && <FailedMessage job={job} blocked />}
-      {job.status === "rejected" && <RejectedMessage />}
-    </div>
-  );
+  if (job.status === "awaiting_approval") {
+    return (
+      <ApprovalBlock
+        diff={diff}
+        pending={actionPending}
+        error={actionError}
+        onApprove={onApprove}
+        onReject={onReject}
+      />
+    );
+  }
+  if (job.status === "completed") return <RunCompleteMessage job={job} diff={diff} logs={logs} />;
+  if (job.status === "failed") return <FailedMessage job={job} />;
+  if (job.status === "blocked") return <FailedMessage job={job} blocked />;
+  if (job.status === "rejected") return <RejectedMessage />;
+  return null;
 }
 
 // Retry (failed) or Run-again (completed/rejected): a quiet action that queues a
@@ -1666,7 +1645,7 @@ function RunActions({
   if (!["failed", "completed", "rejected", "blocked"].includes(job.status)) return null;
   const retry = job.status === "failed" || job.status === "blocked";
   return (
-    <div className="mt-3">
+    <div className="mt-1 pl-11">
       <Button
         size="sm"
         variant="outline"
@@ -1681,8 +1660,24 @@ function RunActions({
   );
 }
 
-// One turn of the conversation: the submitted instruction and the execution it
-// produced. Immutable — a new turn is appended for every follow-up.
+// Maps the run's phase log (plan/patch/tests/summary/publish) onto
+// ChatToolCalls' item shape. Only fields the backend actually reports are
+// set — no fabricated duration or diff counts, since LogRecord doesn't carry
+// them; this is a bounded, honest rendering of real log/event data, not a
+// standalone tool-call ledger.
+function logsToToolCalls(logs: LogRecord[]): ChatToolCallItem[] {
+  return logs.map((log, i) => ({
+    key: `${log.phase}-${i}`,
+    name: log.phase || "log",
+    target: log.message,
+    status: log.level === "error" ? "error" : "complete",
+  }));
+}
+
+// One turn of the conversation: the submitted instruction (a user chat
+// message) and the execution it produced (an assistant chat message, or a
+// system status line while still in flight). Immutable — a new turn is
+// appended for every follow-up.
 function ConversationTurn({
   run,
   isTip,
@@ -1698,14 +1693,41 @@ function ConversationTurn({
   onReject: () => void;
   onRetry: () => void;
 }) {
+  const { job } = run;
+  const inFlight = inFlightStatuses.includes(job.status);
+  const hasAssistantTurn = !inFlight && job.status !== "queued";
+
   return (
-    <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
-      <InstructionMessage job={run.job} />
-      <RunExecution run={run} onApprove={onApprove} onReject={onReject} />
-      {isTip && isTerminalStatus(run.job.status) && (
-        <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
+    <>
+      <ChatMessage sender="user">
+        <ChatMessageBubble
+          metadata={
+            <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
+          }
+        >
+          <p className="whitespace-pre-wrap break-words">{job.instruction}</p>
+        </ChatMessageBubble>
+      </ChatMessage>
+
+      {inFlight && (
+        <ChatSystemMessage icon={<Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />}>
+          {phaseStatusLabel[job.status]}
+        </ChatSystemMessage>
       )}
-    </div>
+
+      {hasAssistantTurn && (
+        <ChatMessage sender="assistant" avatar={<Avatar name="Genesis" size="md" />}>
+          {run.logs.length > 0 && <ChatToolCalls calls={logsToToolCalls(run.logs)} />}
+          <ChatMessageBubble variant="ghost">
+            <RunExecution run={run} onApprove={onApprove} onReject={onReject} />
+          </ChatMessageBubble>
+        </ChatMessage>
+      )}
+
+      {isTip && isTerminalStatus(job.status) && (
+        <RunActions job={job} pending={retryPending} onRetry={onRetry} />
+      )}
+    </>
   );
 }
 
@@ -1723,17 +1745,19 @@ function RunThread({
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
       <ThreadHeader thread={thread} />
-      {thread.runs.map((run, i) => (
-        <ConversationTurn
-          key={run.job.id}
-          run={run}
-          isTip={i === thread.runs.length - 1}
-          retryPending={thread.retryPending}
-          onApprove={() => onApprove(run.job.id)}
-          onReject={() => onReject(run.job.id)}
-          onRetry={() => onRetry(run.job.id)}
-        />
-      ))}
+      <ChatMessageList density="balanced">
+        {thread.runs.map((run, i) => (
+          <ConversationTurn
+            key={run.job.id}
+            run={run}
+            isTip={i === thread.runs.length - 1}
+            retryPending={thread.retryPending}
+            onApprove={() => onApprove(run.job.id)}
+            onReject={() => onReject(run.job.id)}
+            onRetry={() => onRetry(run.job.id)}
+          />
+        ))}
+      </ChatMessageList>
     </div>
   );
 }
@@ -1780,7 +1804,7 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6">
       {error && <p className="mb-2 text-xs text-red-600" role="alert">{error}</p>}
-      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
+      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -1800,7 +1824,7 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
             title="Send follow-up"
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-              "bg-neutral-900 text-white hover:bg-neutral-800",
+              "bg-primary text-primary-foreground hover:bg-primary/90",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               "disabled:opacity-40 disabled:pointer-events-none"
             )}
@@ -1868,7 +1892,7 @@ function ActivityPanel({ run }: { run: RunState }) {
           <LogRow key={i} log={log} />
         ))}
       </div>
-      <div className="shrink-0 sticky bottom-0 bg-white border-t border-border px-4 py-3 flex items-center justify-between">
+      <div className="shrink-0 sticky bottom-0 bg-card border-t border-border px-4 py-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-foreground">Compute used</span>
         <span className="text-xs text-muted-foreground font-mono">
           {tokens !== null ? `${tokens.toLocaleString()} tokens` : "Not tracked yet"}
@@ -1959,42 +1983,46 @@ function ReceiptPanel({ run }: { run: RunState }) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Run receipt
-        </p>
-        <p className="text-sm font-semibold text-foreground line-clamp-2">{job.instruction}</p>
-        <p className="text-xs text-muted-foreground font-mono">{job.repo}</p>
-        <div className="flex items-center gap-1.5 pt-1">
-          {failed ? (
-            <CircleX className="h-3.5 w-3.5 text-red-500" />
-          ) : (
-            <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
-          )}
-          <span className={cn("text-sm font-semibold", failed ? "text-red-600" : "text-emerald-600")}>
-            {runLabelCls[jobStatusToRunStatus(job.status)].label}
-          </span>
+      <Section padding={4} dividers={["bottom"]}>
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Run receipt
+          </p>
+          <p className="text-sm font-semibold text-foreground line-clamp-2">{job.instruction}</p>
+          <p className="text-xs text-muted-foreground font-mono">{job.repo}</p>
+          <div className="flex items-center gap-1.5 pt-1">
+            {failed ? (
+              <CircleX className="h-3.5 w-3.5 text-red-500" />
+            ) : (
+              <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
+            )}
+            <span className={cn("text-sm font-semibold", failed ? "text-red-600" : "text-emerald-600")}>
+              {runLabelCls[jobStatusToRunStatus(job.status)].label}
+            </span>
+          </div>
         </div>
-      </div>
+      </Section>
 
       {receiptError ? (
-        <div className="px-4 py-4">
+        <Section padding={4}>
           <p className="text-sm text-red-600">{receiptError}</p>
-        </div>
+        </Section>
       ) : !receipt ? (
-        <div className="px-4 py-4">
+        <Section padding={4}>
           <p className="text-sm text-muted-foreground">Loading receipt…</p>
-        </div>
+        </Section>
       ) : (
         <>
-          <div className="px-4 py-4 border-b border-border space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Outcome
-            </p>
-            <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(job, receipt)}</p>
-          </div>
+          <Section padding={4} dividers={["bottom"]}>
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Outcome
+              </p>
+              <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(job, receipt)}</p>
+            </div>
+          </Section>
 
-          <div className="px-4 py-4 border-b border-border space-y-3">
+          <Section padding={4} dividers={receipt.files_changed.length > 0 ? ["bottom"] : undefined}>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
               <SummaryItem label="Execution started" value={receipt.execution_started ? "Yes" : "No"} />
               <SummaryItem label="Tokens" value={tokensDisplay(receipt)} emphasize={!!receipt.tokens} />
@@ -2003,17 +2031,17 @@ function ReceiptPanel({ run }: { run: RunState }) {
               <SummaryItem label="Tests" value={testsDisplay(receipt)} />
               <SummaryItem label="Model" value={displayModel(job)} />
             </div>
-          </div>
+          </Section>
 
           {receipt.files_changed.length > 0 && (
-            <div className="px-4 py-4">
+            <Section padding={4}>
               <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
               <ul className="text-xs text-muted-foreground space-y-1 font-mono">
                 {receipt.files_changed.map((f) => (
                   <li key={f}>{f}</li>
                 ))}
               </ul>
-            </div>
+            </Section>
           )}
         </>
       )}
@@ -2040,68 +2068,74 @@ function RunPanelHeader({
   onToggle: () => void;
   hasActivity: boolean;
 }) {
+  const collapseToggle = (
+    <IconButton
+      icon={collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+      label={collapsed ? "Expand run panel" : "Collapse run panel"}
+      onClick={onToggle}
+      className="shrink-0"
+    />
+  );
+
+  if (collapsed) {
+    return <div className="flex items-center h-14 px-0 shrink-0 justify-center">{collapseToggle}</div>;
+  }
+
   return (
-    <div
-      className={cn(
-        "flex items-center h-14 pl-3 pr-2.5 shrink-0 justify-between gap-1",
-        collapsed && "px-0 justify-center"
-      )}
-    >
-      {!collapsed && (
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => onTabChange("activity")}
-            className={cn(
-              "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150 relative",
-              tab === "activity"
-                ? "bg-black/[0.04] text-foreground"
-                : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
-            )}
-          >
-            Activity
-            {hasActivity && tab !== "activity" && (
-              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
-            )}
-          </button>
-          {receiptEnabled ? (
+    <div className="h-14 flex items-center px-1.5">
+      <Toolbar
+        label="Run panel"
+        startContent={
+          <div className="flex items-center gap-0.5">
             <button
               type="button"
-              onClick={() => onTabChange("receipt")}
+              onClick={() => onTabChange("activity")}
               className={cn(
-                "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150",
-                tab === "receipt"
+                "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150 relative",
+                tab === "activity"
                   ? "bg-black/[0.04] text-foreground"
                   : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
               )}
             >
-              Receipt
+              Activity
+              {hasActivity && tab !== "activity" && (
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
+              )}
             </button>
-          ) : (
-            <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled
-                    className="h-7 px-2.5 rounded-md text-xs font-semibold text-muted-foreground/40 cursor-not-allowed"
-                  >
-                    Receipt
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">
-                  Available when complete
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
-      )}
-      <IconButton
-        icon={collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
-        label={collapsed ? "Expand run panel" : "Collapse run panel"}
-        onClick={onToggle}
-        className="shrink-0"
+            {receiptEnabled ? (
+              <button
+                type="button"
+                onClick={() => onTabChange("receipt")}
+                className={cn(
+                  "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150",
+                  tab === "receipt"
+                    ? "bg-black/[0.04] text-foreground"
+                    : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
+                )}
+              >
+                Receipt
+              </button>
+            ) : (
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      disabled
+                      className="h-7 px-2.5 rounded-md text-xs font-semibold text-muted-foreground/40 cursor-not-allowed"
+                    >
+                      Receipt
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    Available when complete
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+        }
+        endContent={collapseToggle}
       />
     </div>
   );
@@ -2146,10 +2180,12 @@ function RunPanelRegion({
   collapsed,
   onToggle,
   view,
+  width,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   view: WorkspaceView;
+  width: number;
 }) {
   const hasThread = view.kind === "thread";
   // The side panel reflects the conversation tip — the most recent execution.
@@ -2218,10 +2254,11 @@ function RunPanelRegion({
 
   return (
     <aside
-      style={{ width: collapsed ? 48 : 400 }}
+      style={{ width: collapsed ? 48 : width }}
       className={cn(
-        "relative flex flex-col h-full shrink-0 bg-neutral-50/60",
-        "transition-[width] duration-200 ease-in-out overflow-hidden"
+        "relative flex flex-col h-full shrink-0 bg-muted/60",
+        collapsed && "transition-[width] duration-200 ease-in-out",
+        "overflow-hidden"
       )}
     >
       <RunPanelHeader
@@ -2401,7 +2438,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
               key={run.id}
               type="button"
               onClick={() => onSelectRun(run.id)}
-              className="w-full rounded-lg border border-border bg-white p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="w-full rounded-lg border border-border bg-card p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <div className="flex items-center justify-between">
                 <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
@@ -2431,7 +2468,7 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
   if (hasRuns) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-white p-5 mb-8">
+    <div className="rounded-xl border border-border bg-card p-5 mb-8">
       <div className="flex items-start gap-3">
         <div className="shrink-0 mt-0.5">
           <CirclePlus className="h-5 w-5 text-muted-foreground/60" />
@@ -2444,7 +2481,7 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
           <Button
             size="sm"
             onClick={onNewRun}
-            className="h-8 mt-3 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs"
+            className="h-8 mt-3 gap-1.5 rounded-lg text-xs"
           >
             New run
           </Button>
@@ -2498,7 +2535,7 @@ function DashboardView({
         </div>
         <Button
           onClick={onNewRun}
-          className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs px-3"
+          className="h-8 shrink-0 gap-1.5 rounded-lg text-xs px-3"
         >
           <CirclePlus className="h-3.5 w-3.5" />
           <span className="hidden md:inline">New run</span>
@@ -2510,19 +2547,19 @@ function DashboardView({
 
       {/* Run counts (real) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Total runs
           </span>
           <p className="text-2xl font-bold text-foreground">{counts.total}</p>
         </div>
-        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             In progress
           </span>
           <p className="text-2xl font-bold text-foreground">{counts.active}</p>
         </div>
-        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Completed
           </span>
@@ -2533,7 +2570,7 @@ function DashboardView({
       {/* Prepaid balance (real — from GET /v1/balances) */}
       {balances ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Available
             </span>
@@ -2546,13 +2583,13 @@ function DashboardView({
               {usd(balances.available)}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               On hold
             </span>
             <p className="text-2xl font-bold text-foreground">{usd(balances.reserved)}</p>
           </div>
-          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Balance
             </span>
@@ -2615,7 +2652,7 @@ function DashboardView({
                 key={run.id}
                 type="button"
                 onClick={() => onSelectRun(run.id)}
-                className="w-full rounded-lg border border-border bg-white p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="w-full rounded-lg border border-border bg-card p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
@@ -2828,6 +2865,10 @@ function GNSISWorkspacePreview() {
   const [runPanelCollapsed, setRunPanelCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  // Drag-to-resize width for the expanded run panel. Independent of
+  // runPanelCollapsed, which still drives the separate 48px icon-rail state
+  // (collapsing to size 0 isn't this panel's UX — it keeps an icon rail).
+  const runPanel = useResizable({ defaultSize: 400, minSizePx: 320, maxSizePx: 560 });
 
   const { route, runId: routeRunId } = routeFromPathname(location.pathname);
   const activeNav = navIdFromRoute(route);
@@ -3133,7 +3174,7 @@ function GNSISWorkspacePreview() {
 
         {/* Mobile sidebar drawer */}
         <div className={cn("md:hidden fixed inset-y-0 left-0 z-40 w-[260px] h-full transition-transform duration-200 ease-in-out", mobileSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
-          <div className="h-full bg-neutral-50 shadow-xl">
+          <div className="h-full bg-muted shadow-xl">
             <SidebarRegion
               collapsed={false}
               onToggle={() => setMobileSidebarOpen(false)}
@@ -3206,10 +3247,31 @@ function GNSISWorkspacePreview() {
         {showRightPanel && (
           <>
             <div className="hidden md:block">
-              <Divider orientation="vertical" />
+              {runPanelCollapsed ? (
+                <Divider orientation="vertical" />
+              ) : (
+                <ResizeHandle
+                  direction="horizontal"
+                  isReversed
+                  hasDivider
+                  label="Resize run panel"
+                  resizable={runPanel.props}
+                />
+              )}
             </div>
-            <div className="hidden md:block shrink-0 h-full z-20 transition-all duration-200 ease-in-out" style={{ width: runPanelCollapsed ? 48 : 400 }}>
-              <RunPanelRegion collapsed={runPanelCollapsed} onToggle={toggleRunPanel} view={view} />
+            <div
+              className={cn(
+                "hidden md:block shrink-0 h-full z-20",
+                runPanelCollapsed && "transition-all duration-200 ease-in-out"
+              )}
+              style={{ width: runPanelCollapsed ? 48 : runPanel.size }}
+            >
+              <RunPanelRegion
+                collapsed={runPanelCollapsed}
+                onToggle={toggleRunPanel}
+                view={view}
+                width={runPanel.size}
+              />
             </div>
           </>
         )}
@@ -3218,9 +3280,9 @@ function GNSISWorkspacePreview() {
         {mobilePanelOpen && view.kind === "thread" && (
           <>
             <div className="md:hidden fixed inset-0 bg-black/30 z-40" onClick={() => setMobilePanelOpen(false)} />
-            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-neutral-50 rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
+            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-muted rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
               <div className="flex items-center justify-center py-2">
-                <div className="h-1 w-8 rounded-full bg-neutral-300" />
+                <div className="h-1 w-8 rounded-full bg-muted-foreground/30" />
               </div>
               <div className="flex items-center justify-between px-4 pb-2">
                 <span className="text-xs font-semibold text-foreground">Activity</span>

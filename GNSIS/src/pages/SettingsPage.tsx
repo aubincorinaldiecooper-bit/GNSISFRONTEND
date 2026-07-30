@@ -62,7 +62,7 @@ function AccountSection() {
             referrerPolicy="no-referrer"
           />
         ) : (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-sm font-semibold text-neutral-600">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
             {initial}
           </div>
         )}
@@ -183,7 +183,7 @@ export default function SettingsPage({
       </div>
 
       {githubConnected && (
-        <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
           GitHub repositories connected successfully.
         </div>
       )}
