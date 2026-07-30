@@ -54,6 +54,7 @@ import {
   getJob,
   getJobLogs,
   getJobDiff,
+  getJobReceipt,
   getJobThread,
   followUpJob,
   approveJob,
@@ -66,6 +67,7 @@ import {
   type JobStatus,
   type LogRecord,
   type DiffRecord,
+  type Receipt,
   type RepositoryRecord,
   type ModelInfo,
   type Balances,
@@ -1877,8 +1879,13 @@ function ActivityPanel({ run }: { run: RunState }) {
 }
 
 // =============================================================================
-// RECEIPT PANEL (real status/outcome/files; cost & token accounting not
-// tracked by the backend yet, shown as unavailable rather than fabricated)
+// RECEIPT PANEL
+//
+// The backend's GET /jobs/:id/receipt is the sole source of truth for every
+// value shown here. This panel formats those values; it never recomputes
+// them from job.usage, job.context, or client-side settings. A terminal
+// pre-execution run (blocked/failed before the executor started) reports
+// truthful zeros and "Not run" — never "Not tracked yet" for a known value.
 // =============================================================================
 
 function SummaryItem({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
@@ -1892,19 +1899,63 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
   );
 }
 
-function receiptOutcome(run: RunState): string {
-  const { job, diff } = run;
-  if (job.status === "failed" || job.status === "blocked") return splitError(job.error).summary;
+function receiptOutcome(job: JobRecord, receipt: Receipt): string {
+  if (job.status === "failed" || job.status === "blocked") {
+    return splitError(receipt.failure_message ?? job.error).summary;
+  }
   if (job.status === "rejected") return "The proposed change was reviewed and rejected before publishing.";
-  if (diff && diff.files_changed.length > 0) {
-    return `Changed ${diff.files_changed.length} file${diff.files_changed.length === 1 ? "" : "s"} on branch ${job.branch ?? job.base_branch}.`;
+  if (receipt.files_changed.length > 0) {
+    return `Changed ${receipt.files_changed.length} file${receipt.files_changed.length === 1 ? "" : "s"} on branch ${job.branch ?? job.base_branch}.`;
   }
   return "The run finished successfully.";
 }
 
+// Only `receipt.tokens === null` (no execution run exists at all) is genuinely
+// unmeasured; once a run exists its token counters are real numbers, so 0 is
+// shown as 0, not as "unavailable".
+function tokensDisplay(receipt: Receipt): string {
+  if (receipt.tokens) return (receipt.tokens.input + receipt.tokens.output).toLocaleString();
+  return receipt.execution_started ? "Not tracked yet" : "0";
+}
+
+function spentDisplay(receipt: Receipt): string {
+  if (receipt.cost) {
+    const amount = Number(receipt.cost.total_billed);
+    return `$${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"}`;
+  }
+  return receipt.execution_started ? "Not tracked yet" : "$0.00";
+}
+
+function testsDisplay(receipt: Receipt): string {
+  if (receipt.tests === "not_run") return "Not run";
+  if (receipt.tests === null) return receipt.execution_started ? "Not tracked yet" : "Not run";
+  const { passed, failed, skipped } = receipt.tests;
+  return `${passed} passed, ${failed} failed${skipped ? `, ${skipped} skipped` : ""}`;
+}
+
 function ReceiptPanel({ run }: { run: RunState }) {
-  const { job, diff } = run;
+  const { job } = run;
   const failed = job.status === "failed" || job.status === "rejected" || job.status === "blocked";
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+
+  // Keyed by job.id at the call site (see RunPanel), so a different run's
+  // receipt always starts this component fresh rather than needing a manual
+  // state reset here.
+  useEffect(() => {
+    let cancelled = false;
+    getJobReceipt(job.id)
+      .then((r) => {
+        if (!cancelled) setReceipt(r);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setReceiptError(err instanceof ApiError ? err.message : "Couldn't load the receipt.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.id]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -1926,35 +1977,45 @@ function ReceiptPanel({ run }: { run: RunState }) {
         </div>
       </div>
 
-      <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Outcome
-        </p>
-        <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(run)}</p>
-      </div>
-
-      <div className="px-4 py-4 border-b border-border space-y-3">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem
-            label="Tokens"
-            value={totalTokens(job.usage)?.toLocaleString() ?? "Not tracked yet"}
-            emphasize={totalTokens(job.usage) !== null}
-          />
-          <SummaryItem label="Spent" value="Not tracked yet" />
-          <SummaryItem label="Files changed" value={String(diff?.files_changed.length ?? 0)} />
-          <SummaryItem label="Model" value={displayModel(job)} />
-        </div>
-      </div>
-
-      {diff && diff.files_changed.length > 0 && (
+      {receiptError ? (
         <div className="px-4 py-4">
-          <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
-          <ul className="text-xs text-muted-foreground space-y-1 font-mono">
-            {diff.files_changed.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
+          <p className="text-sm text-red-600">{receiptError}</p>
         </div>
+      ) : !receipt ? (
+        <div className="px-4 py-4">
+          <p className="text-sm text-muted-foreground">Loading receipt…</p>
+        </div>
+      ) : (
+        <>
+          <div className="px-4 py-4 border-b border-border space-y-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Outcome
+            </p>
+            <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(job, receipt)}</p>
+          </div>
+
+          <div className="px-4 py-4 border-b border-border space-y-3">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <SummaryItem label="Execution started" value={receipt.execution_started ? "Yes" : "No"} />
+              <SummaryItem label="Tokens" value={tokensDisplay(receipt)} emphasize={!!receipt.tokens} />
+              <SummaryItem label="Spent" value={spentDisplay(receipt)} />
+              <SummaryItem label="Files changed" value={String(receipt.files_changed.length)} />
+              <SummaryItem label="Tests" value={testsDisplay(receipt)} />
+              <SummaryItem label="Model" value={displayModel(job)} />
+            </div>
+          </div>
+
+          {receipt.files_changed.length > 0 && (
+            <div className="px-4 py-4">
+              <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
+              <ul className="text-xs text-muted-foreground space-y-1 font-mono">
+                {receipt.files_changed.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -2198,7 +2259,7 @@ function RunPanelRegion({
         </div>
       ) : tipRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
-          <ReceiptPanel run={tipRun} />
+          <ReceiptPanel key={tipRun.job.id} run={tipRun} />
         </div>
       ) : null}
     </aside>

@@ -54,6 +54,7 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
+    getJobReceiptMock: vi.fn(),
     getJobThreadMock: vi.fn(),
     followUpJobMock: vi.fn(),
     approveJobMock: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock("@/lib/api", () => ({
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...a: unknown[]) => apiMocks.getJobMock(...a),
   getJobDiff: (...a: unknown[]) => apiMocks.getJobDiffMock(...a),
+  getJobReceipt: (...a: unknown[]) => apiMocks.getJobReceiptMock(...a),
   getJobLogs: (...a: unknown[]) => apiMocks.getJobLogsMock(...a),
   getJobThread: (...a: unknown[]) => apiMocks.getJobThreadMock(...a),
   followUpJob: (...a: unknown[]) => apiMocks.followUpJobMock(...a),
@@ -137,6 +139,18 @@ beforeEach(() => {
   apiMocks.listJobsMock.mockResolvedValue([]);
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
+  // Generic canonical receipt shell; individual tests may override with
+  // mockResolvedValueOnce/mockImplementation for receipt-specific assertions.
+  apiMocks.getJobReceiptMock.mockResolvedValue({
+    job_id: "job-1", run_id: null, task: "", repository: "owner/repo",
+    workspace_id: "workspace-1", repository_id: null, agent: "gnsis",
+    status: "completed", approval: null, pull_request: null, files_changed: [],
+    model: "anthropic/claude-opus-4.8", base_sha: null, patch_hash: null,
+    policy: null, memory_ids_consumed: [], reviewed_intelligence_created: [],
+    tokens: null, model_calls: 0, tool_calls: 0, tests: "not_run", cost: null,
+    timing: null, failure_category: null, failure_message: null,
+    execution_started: true,
+  });
   // Deterministic clipboard for the copy-action tests.
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -348,5 +362,81 @@ describe("follow-up composer", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("execution is not configured");
     expect(box.value).toBe("keep me"); // preserved, not cleared
+  });
+});
+
+// -- receipt panel (canonical backend receipt) --------------------------------
+
+describe("receipt panel", () => {
+  it("fetches the canonical receipt for the viewed run and renders its values, not job.usage", async () => {
+    mockThread([
+      job({ id: "run-root", instruction: "Add a login form", status: "completed", usage: { total_tokens: 999999 } }),
+    ]);
+    apiMocks.getJobReceiptMock.mockResolvedValueOnce({
+      job_id: "run-root", run_id: "exec-1", task: "Add a login form", repository: "owner/repo",
+      workspace_id: "workspace-1", repository_id: "repo-1", agent: "gnsis",
+      status: "completed", approval: null, pull_request: null,
+      files_changed: ["src/login.tsx", "src/login.test.tsx"],
+      model: "anthropic/claude-opus-4.8", base_sha: "a".repeat(40), patch_hash: "b".repeat(64),
+      policy: { name: "genesis", version: 1, hash: "c".repeat(64) },
+      memory_ids_consumed: [], reviewed_intelligence_created: [],
+      tokens: { input: 1200, output: 340, cached: 0, reasoning: 0 },
+      model_calls: 3, tool_calls: 5,
+      tests: { runner: "pytest", status: "passed", passed: 6, failed: 0, skipped: 0 },
+      cost: {
+        provider_cost: "0.14", gnsis_service_fee: "0.02", total_billed: "0.16", currency: "USD",
+        pricing_version: null, rate_card_version: null, reconciliation_state: "resolved",
+      },
+      timing: null, failure_category: null, failure_message: null, execution_started: true,
+    });
+    renderThread("/runs/run-root");
+
+    // The canonical endpoint is actually called for this run — not derived
+    // client-side.
+    await waitFor(() => expect(apiMocks.getJobReceiptMock).toHaveBeenCalledWith("run-root"));
+
+    // Values render exactly as the receipt reports them.
+    expect(await screen.findByText("1,540")).toBeInTheDocument(); // 1200 + 340, from the receipt
+    expect(screen.getByText("$0.16")).toBeInTheDocument();
+    expect(screen.getByText("6 passed, 0 failed")).toBeInTheDocument();
+    expect(screen.getByText("src/login.tsx")).toBeInTheDocument();
+    expect(screen.getByText("src/login.test.tsx")).toBeInTheDocument();
+    // The job's own (unrelated, much larger) usage field must never leak in —
+    // proves the panel isn't reconstructing from job.usage.
+    expect(screen.queryByText(/999,999/)).not.toBeInTheDocument();
+  });
+
+  it("shows truthful zero / not-applicable values for a terminal pre-execution block, never 'Not tracked yet'", async () => {
+    mockThread([
+      job({
+        id: "run-root", instruction: "Fix the thing", status: "blocked",
+        error: "GNSIS couldn't start this run because the repository has no commits yet.",
+      }),
+    ]);
+    apiMocks.getJobReceiptMock.mockResolvedValueOnce({
+      job_id: "run-root", run_id: "exec-1", task: "Fix the thing", repository: "owner/repo",
+      workspace_id: "workspace-1", repository_id: "repo-1", agent: "gnsis",
+      status: "blocked", approval: null, pull_request: null, files_changed: [],
+      model: null, base_sha: null, patch_hash: null, policy: null,
+      memory_ids_consumed: [], reviewed_intelligence_created: [],
+      tokens: { input: 0, output: 0, cached: 0, reasoning: 0 },
+      model_calls: 0, tool_calls: 0, tests: "not_run",
+      cost: {
+        provider_cost: "0", gnsis_service_fee: "0", total_billed: "0", currency: "USD",
+        pricing_version: null, rate_card_version: null, reconciliation_state: "resolved",
+      },
+      timing: null, failure_category: "blocked_repository_empty",
+      failure_message: "GNSIS couldn't start this run because the repository has no commits yet.",
+      execution_started: false,
+    });
+    renderThread("/runs/run-root");
+
+    await waitFor(() => expect(apiMocks.getJobReceiptMock).toHaveBeenCalledWith("run-root"));
+
+    expect(await screen.findByText("No")).toBeInTheDocument(); // Execution started
+    expect(screen.getAllByText("0").length).toBeGreaterThanOrEqual(2); // Tokens + Files changed
+    expect(screen.getByText("$0.00")).toBeInTheDocument();
+    expect(screen.getByText("Not run")).toBeInTheDocument();
+    expect(screen.queryByText("Not tracked yet")).not.toBeInTheDocument();
   });
 });

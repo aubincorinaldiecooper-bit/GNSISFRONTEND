@@ -218,6 +218,113 @@ export function getJobDiff(jobId: string): Promise<DiffRecord | null> {
   });
 }
 
+// =============================================================================
+// RECEIPT — the canonical, backend-assembled source of truth for a run's
+// outcome. Assembled on read from immutable records (see
+// gnsisbackend/src/gnsis/service/receipts.py); the UI must render these
+// values as given, not recompute them from job.usage/job.context or settings.
+// =============================================================================
+
+export interface ReceiptTokens {
+  input: number;
+  output: number;
+  cached: number;
+  reasoning: number;
+}
+
+export interface ReceiptCost {
+  provider_cost: string;
+  gnsis_service_fee: string;
+  total_billed: string;
+  currency: string;
+  pricing_version: string | null;
+  rate_card_version: string | null;
+  reconciliation_state: string;
+}
+
+export interface ReceiptTestsSummary {
+  runner: string;
+  status: string;
+  passed: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface ReceiptTiming {
+  dispatched_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface ReceiptPolicy {
+  name: string | null;
+  version: number | null;
+  hash: string | null;
+}
+
+export interface ReceiptApproval {
+  decision: string;
+  approver: string;
+  at: string | null;
+}
+
+export interface ReceiptPullRequest {
+  number: number;
+  url: string;
+  branch: string;
+}
+
+export interface ReceiptIntelligenceProduced {
+  memory_id: string;
+  item_key: string | null;
+  kind: string;
+}
+
+export interface Receipt {
+  job_id: string;
+  run_id: string | null;
+  task: string;
+  repository: string;
+  workspace_id: string | null;
+  repository_id: string | null;
+  agent: string;
+  status: string;
+  approval: ReceiptApproval | null;
+  pull_request: ReceiptPullRequest | null;
+  files_changed: string[];
+  model: string | null;
+  advisor_model?: string | null;
+  models_used?: string[];
+  base_sha: string | null;
+  patch_hash: string | null;
+  policy: ReceiptPolicy | null;
+  memory_ids_consumed: string[];
+  reviewed_intelligence_created: ReceiptIntelligenceProduced[];
+  tokens: ReceiptTokens | null;
+  model_calls: number;
+  tool_calls: number;
+  files_read?: number;
+  // "not_run" is a truthful known-value (execution never started, or started
+  // but no test runner produced a summary) — distinct from `null`, which the
+  // backend reserves for "unknown" (e.g. a mid-execution failure before tests
+  // could run). The UI must render "not_run" as-is, never as "Not tracked yet".
+  tests: ReceiptTestsSummary | "not_run" | null;
+  cost: ReceiptCost | null;
+  timing: ReceiptTiming | null;
+  failure_category: string | null;
+  failure_message: string | null;
+  // True the moment the executor genuinely began work. False means every
+  // other value on this receipt is a known zero/not-applicable, not an
+  // unmeasured unknown.
+  execution_started: boolean;
+}
+
+export function getJobReceipt(jobId: string): Promise<Receipt> {
+  return request(`/jobs/${jobId}/receipt`);
+}
+
 /**
  * Every run of the conversation `jobId` belongs to, oldest first. Opening any
  * run — including a `/runs/:jobId` deep link — resolves the whole thread; a

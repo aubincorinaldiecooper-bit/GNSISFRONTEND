@@ -54,6 +54,7 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
+    getJobReceiptMock: vi.fn(),
     getJobThreadMock: vi.fn(),
     followUpJobMock: vi.fn(),
     claimGitHubInstallationMock: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("@/lib/api", () => ({
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...args: unknown[]) => apiMocks.getJobMock(...args),
   getJobDiff: (...args: unknown[]) => apiMocks.getJobDiffMock(...args),
+  getJobReceipt: (...args: unknown[]) => apiMocks.getJobReceiptMock(...args),
   getJobLogs: (...args: unknown[]) => apiMocks.getJobLogsMock(...args),
   getJobThread: (...args: unknown[]) => apiMocks.getJobThreadMock(...args),
   followUpJob: (...args: unknown[]) => apiMocks.followUpJobMock(...args),
@@ -206,6 +208,16 @@ beforeEach(() => {
   });
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
+  apiMocks.getJobReceiptMock.mockResolvedValue({
+    job_id: "job-1", run_id: null, task: "", repository: "owner/repo",
+    workspace_id: "workspace-1", repository_id: null, agent: "gnsis",
+    status: "completed", approval: null, pull_request: null, files_changed: [],
+    model: "anthropic/claude-opus-4.8", base_sha: null, patch_hash: null,
+    policy: null, memory_ids_consumed: [], reviewed_intelligence_created: [],
+    tokens: null, model_calls: 0, tool_calls: 0, tests: "not_run", cost: null,
+    timing: null, failure_category: null, failure_message: null,
+    execution_started: true,
+  });
   apiMocks.claimGitHubInstallationMock.mockResolvedValue(undefined);
   apiMocks.listRepositoriesMock.mockResolvedValue([
     {
