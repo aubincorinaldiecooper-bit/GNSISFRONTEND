@@ -21,6 +21,7 @@ const sessionValue = {
 };
 
 const useSessionMock = vi.fn(() => sessionValue);
+const publicBetaModeMock = vi.hoisted(() => vi.fn(() => false));
 vi.mock("@/lib/session", () => ({ useSession: () => useSessionMock() }));
 vi.mock("@/pages/IntegrationTestPage", () => ({ default: () => <h1>Integration test</h1> }));
 vi.mock("@/components/ApiKeysSection", () => ({ default: () => <div>API keys</div> }));
@@ -32,6 +33,7 @@ vi.mock("@/lib/env", () => ({
   authBaseUrl: () => "https://auth.example.test",
   githubAppSlug: () => "gnsis-test-app",
   integrationLabEnabled: () => true,
+  publicBetaMode: () => publicBetaModeMock(),
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
@@ -54,35 +56,45 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
-    getJobReceiptMock: vi.fn(),
+    getRunReceiptMock: vi.fn(),
     getJobThreadMock: vi.fn(),
     followUpJobMock: vi.fn(),
-    approveJobMock: vi.fn(),
-    rejectJobMock: vi.fn(),
+    cancelJobMock: vi.fn(),
     listJobsMock: vi.fn(),
+    proposalsMock: vi.fn(),
+    approveRunMock: vi.fn(),
+    publishRunMock: vi.fn(),
+    rejectRunMock: vi.fn(),
   };
 });
 
 vi.mock("@/lib/api", () => ({
   ApiError: apiMocks.MockApiError,
-  approveJob: (...a: unknown[]) => apiMocks.approveJobMock(...a),
-  rejectJob: (...a: unknown[]) => apiMocks.rejectJobMock(...a),
+  cancelJob: (...a: unknown[]) => apiMocks.cancelJobMock(...a),
   createJob: vi.fn(),
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...a: unknown[]) => apiMocks.getJobMock(...a),
   getJobDiff: (...a: unknown[]) => apiMocks.getJobDiffMock(...a),
-  getJobReceipt: (...a: unknown[]) => apiMocks.getJobReceiptMock(...a),
+  getRunReceipt: (...a: unknown[]) => apiMocks.getRunReceiptMock(...a),
+  getRunEvents: vi.fn(async () => ({ object: "list", data: [], has_more: false, total: 0, limit: 100, offset: 0 })),
+  getRunEventsSince: vi.fn(async () => []),
+  getAllRunEvents: vi.fn(async () => []),
   getJobLogs: (...a: unknown[]) => apiMocks.getJobLogsMock(...a),
   getJobThread: (...a: unknown[]) => apiMocks.getJobThreadMock(...a),
   followUpJob: (...a: unknown[]) => apiMocks.followUpJobMock(...a),
   health: vi.fn(),
   isApiConfigured: () => true,
-  isTerminalStatus: (s: string) => ["completed", "rejected", "failed", "blocked"].includes(s),
+  isTerminalStatus: (s: string) => ["completed", "rejected", "blocked", "failed", "cancelled"].includes(s),
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...a: unknown[]) => apiMocks.listJobsMock(...a),
   listRepositories: vi.fn(async () => []),
   listBranches: vi.fn(async () => ({ default_branch: "main", branches: [] })),
   listModels: vi.fn(async () => ({ items: [] })),
+  getRunIntelligenceProposals: (...a: unknown[]) => apiMocks.proposalsMock(...a),
+  approveRun: (...a: unknown[]) => apiMocks.approveRunMock(...a),
+  publishRun: (...a: unknown[]) => apiMocks.publishRunMock(...a),
+  rejectRun: (...a: unknown[]) => apiMocks.rejectRunMock(...a),
+  queryRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
   listUsageEvents: vi.fn(async () => ({ items: [] })),
   matchesGatewayRequest: vi.fn(() => false),
 }));
@@ -136,21 +148,18 @@ function renderThread(path: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionMock.mockReturnValue(sessionValue);
+  publicBetaModeMock.mockReturnValue(false);
+  apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
   apiMocks.listJobsMock.mockResolvedValue([]);
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
-  // Generic canonical receipt shell; individual tests may override with
-  // mockResolvedValueOnce/mockImplementation for receipt-specific assertions.
-  apiMocks.getJobReceiptMock.mockResolvedValue({
-    job_id: "job-1", run_id: null, task: "", repository: "owner/repo",
-    workspace_id: "workspace-1", repository_id: null, agent: "gnsis",
-    status: "completed", approval: null, pull_request: null, files_changed: [],
-    model: "anthropic/claude-opus-4.8", base_sha: null, patch_hash: null,
-    policy: null, memory_ids_consumed: [], reviewed_intelligence_created: [],
-    tokens: null, model_calls: 0, tool_calls: 0, tests: "not_run", cost: null,
-    timing: null, failure_category: null, failure_message: null,
-    execution_started: true,
-  });
+  apiMocks.getRunReceiptMock.mockImplementation(async (id: string) => ({
+    object: "receipt", run_id: id, execution_run_id: `exec-${id}`, task: "Canonical task", repository: "owner/repo",
+    status: "completed", execution_started: true, model: "canonical/model", approval: null,
+    pull_request: null, files_changed: [], tokens: { input: 1, output: 2, cached: 0, reasoning: 0 },
+    tests: "passed", cost: { provider_cost: "0.25", currency: "USD" },
+    failure_category: null, failure_message: null,
+  }));
   // Deterministic clipboard for the copy-action tests.
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -235,10 +244,54 @@ describe("conversational run thread", () => {
   });
 });
 
+// -- attempt grouping ----------------------------------------------------------
+
+describe("attempt grouping", () => {
+  it("labels each turn with its attempt number only when the thread has more than one attempt", async () => {
+    // Both non-collapsible statuses, so both turns render without needing to expand anything first.
+    mockThread([
+      job({ id: "run-root", instruction: "Ship the feature", status: "completed" }),
+      job({ id: "run-2", instruction: "Ship the feature", status: "awaiting_approval", parent_job_id: "run-root" }),
+    ]);
+    renderThread("/runs/run-root");
+    await screen.findAllByText("Ship the feature");
+    expect(document.body.textContent).toMatch(/Attempt 1 · Published/);
+    expect(document.body.textContent).toMatch(/Attempt 2 · Ready for review/);
+  });
+
+  it("shows no attempt label at all for a single-attempt thread", async () => {
+    mockThread([job({ id: "run-root", instruction: "Add a README", status: "completed" })]);
+    renderThread("/runs/run-root");
+    await screen.findAllByText("Add a README");
+    expect(document.body.textContent).not.toMatch(/Attempt \d/);
+  });
+
+  it("collapses a trailing run of stopped earlier attempts by default, without discarding their own records", async () => {
+    mockThread([
+      job({ id: "run-1", instruction: "Ship the feature", status: "failed", error: "first failure" }),
+      job({ id: "run-2", instruction: "Ship the feature", status: "failed", parent_job_id: "run-1", error: "second failure" }),
+      job({ id: "run-3", instruction: "Ship the feature", status: "awaiting_approval", parent_job_id: "run-2" }),
+    ]);
+    renderThread("/runs/run-1");
+
+    // Collapsed by default: a summary + toggle, not each attempt's own instruction.
+    expect(await screen.findByText("2 earlier attempts stopped")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Attempt 1/);
+    expect(document.body.textContent).toMatch(/Attempt 3/);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show attempts" }));
+
+    // Expanding reveals every attempt individually — none merged or overwritten.
+    await waitFor(() => expect(document.body.textContent).toMatch(/Attempt 1/));
+    expect(document.body.textContent).toMatch(/Attempt 2/);
+    expect(document.body.textContent).toMatch(/Attempt 3/);
+  });
+});
+
 // -- failed run ---------------------------------------------------------------
 
 describe("failed run presentation", () => {
-  it("keeps 'Run failed', separates summary from technical details, and offers Retry", async () => {
+  it("keeps 'Attempt stopped', separates summary from technical details, and offers Retry", async () => {
     const user = userEvent.setup();
     mockThread([
       job({
@@ -250,7 +303,9 @@ describe("failed run presentation", () => {
     ]);
     renderThread("/runs/run-root");
 
-    expect(await screen.findByText("Run failed")).toBeInTheDocument();
+    // "Attempt stopped" now appears consistently in more than one place (the
+    // sidebar/collapsed-panel status label as well as the terminal message).
+    expect((await screen.findAllByText("Attempt stopped")).length).toBeGreaterThan(0);
     // Concise summary is the first line; the rest is behind a details toggle.
     // (The summary also appears in the side receipt panel, hence getAllByText.)
     expect(screen.getAllByText("Executor exited with code 1").length).toBeGreaterThan(0);
@@ -273,34 +328,319 @@ describe("failed run presentation", () => {
     await waitFor(() => expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root"));
   });
 
-  it("renders a blocked run distinctly from a runtime failure and offers Retry", async () => {
-    // A run stopped in preflight is NOT an ordinary failure: nothing executed,
-    // so it must not be framed as one, and it stays retryable once the
-    // prerequisite is fixed.
-    mockThread([
-      job({
-        id: "run-root",
-        instruction: "Do the thing",
-        status: "blocked",
-        error: "GNSIS couldn't start this run because CLIPIT does not have an initial commit yet.\n\nTechnical details: GitHub GET .../git/ref/heads/main -> 409",
-      }),
-    ]);
-    renderThread("/runs/run-root");
-
-    expect(await screen.findByText("Run couldn't start")).toBeInTheDocument();
-    expect(screen.queryByText("Run failed")).not.toBeInTheDocument();
-    expect(
-      screen.getAllByText(/does not have an initial commit yet/).length,
-    ).toBeGreaterThan(0);
-    // The raw provider response stays behind the technical-details toggle.
-    expect(screen.queryByText(/409/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
-  });
-
   it("a completed tip offers 'Run again'", async () => {
     mockThread([job({ id: "run-root", instruction: "Ship it", status: "completed" })]);
     renderThread("/runs/run-root");
     expect(await screen.findByRole("button", { name: /Run again/i })).toBeInTheDocument();
+  });
+
+  it("treats a blocked tip as terminal and offers Retry run", async () => {
+    mockThread([job({ id: "run-root", instruction: "Start it", status: "blocked" })]);
+    renderThread("/runs/run-root");
+    // "Attempt stopped" now appears consistently in more than one place (the
+    // sidebar/collapsed-panel status label as well as the terminal message).
+    expect((await screen.findAllByText("Attempt stopped")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
+    expect(apiMocks.getJobMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancel run", () => {
+  it("offers Cancel run while a run is in flight and applies the response status immediately", async () => {
+    mockThread([job({ id: "run-root", instruction: "Do the thing", status: "running" })]);
+    // Hold the background poll open so its (stale) response can't race the
+    // mutation-applied status before the assertions below run — same technique
+    // as the "still lets polling replace..." test above.
+    let resolvePoll!: (value: JobRecord) => void;
+    apiMocks.getJobMock.mockReturnValue(new Promise((resolve) => { resolvePoll = resolve; }));
+    apiMocks.cancelJobMock.mockResolvedValue(job({ id: "run-root", instruction: "Do the thing", status: "cancelled" }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    await userEvent.click(cancelButton);
+
+    await waitFor(() => expect(apiMocks.cancelJobMock).toHaveBeenCalledWith("run-root"));
+    expect(await screen.findByText("This run was cancelled before it finished.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    // A cancelled tip is retry-eligible, same as failed.
+    expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
+    resolvePoll(job({ id: "run-root", instruction: "Do the thing", status: "cancelled" }));
+  });
+
+  it("keeps Cancel run available with an error when the mutation fails", async () => {
+    mockThread([job({ id: "run-root", instruction: "Do the thing", status: "queued" })]);
+    apiMocks.cancelJobMock.mockRejectedValue(new apiMocks.MockApiError(409, "job is already 'completed'"));
+    renderThread("/runs/run-root");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+    expect(await screen.findByText("job is already 'completed'")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel run" })).toBeEnabled();
+  });
+
+  it("does not offer Cancel run once a run has reached a terminal state", async () => {
+    mockThread([job({ id: "run-root", instruction: "Ship it", status: "completed" })]);
+    renderThread("/runs/run-root");
+    await screen.findByText("Run complete");
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    expect(apiMocks.cancelJobMock).not.toHaveBeenCalled();
+  });
+
+  it("disables Approve run while Cancel is in flight, and Cancel while Approve is in flight (beta mode)", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    let resolveCancel!: (value: JobRecord) => void;
+    apiMocks.cancelJobMock.mockReturnValue(new Promise((resolve) => { resolveCancel = resolve; }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    const approveButton = await screen.findByRole("button", { name: "Approve run" });
+    expect(approveButton).toBeEnabled();
+
+    await userEvent.click(cancelButton);
+    // Cancelling is in flight: approving the same run must not be possible.
+    expect(approveButton).toBeDisabled();
+    resolveCancel(job({ id: "run-root", instruction: "Review it", status: "cancelled" }));
+    await screen.findByText("This run was cancelled before it finished.");
+  });
+
+  it("disables Cancel run while Approve is in flight (beta mode)", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    let resolveApprove!: (value: JobRecord) => void;
+    apiMocks.approveRunMock.mockReturnValue(new Promise((resolve) => { resolveApprove = resolve; }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    const approveButton = await screen.findByRole("button", { name: "Approve run" });
+
+    await userEvent.click(approveButton);
+    // Approving is in flight: cancelling the same run must not be possible.
+    expect(cancelButton).toBeDisabled();
+    resolveApprove(job({ id: "run-root", instruction: "Review it", status: "approved" }));
+    await screen.findByText("Run approved");
+  });
+
+  it("treats a cancelled run as terminal (not active) in the collapsed run panel", async () => {
+    mockThread([job({ id: "run-root", instruction: "Do it", status: "cancelled" })]);
+    const { container } = renderThread("/runs/run-root");
+    await screen.findByText("This run was cancelled before it finished.");
+    await userEvent.click(screen.getByRole("button", { name: "Collapse run panel" }));
+    // The animated "active" ping is only rendered for a genuinely in-flight
+    // run; a cancelled run must not still look like it's executing.
+    expect(container.querySelector(".animate-ping")).not.toBeInTheDocument();
+  });
+
+  it("disables Reject while Cancel is in flight, and Cancel while Reject is in flight (beta mode)", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    let resolveCancel!: (value: JobRecord) => void;
+    apiMocks.cancelJobMock.mockReturnValue(new Promise((resolve) => { resolveCancel = resolve; }));
+    renderThread("/runs/run-root");
+
+    const cancelButton = await screen.findByRole("button", { name: "Cancel run" });
+    const rejectButton = await screen.findByRole("button", { name: "Reject" });
+    expect(rejectButton).toBeEnabled();
+
+    await userEvent.click(cancelButton);
+    expect(rejectButton).toBeDisabled();
+    resolveCancel(job({ id: "run-root", instruction: "Review it", status: "cancelled" }));
+    await screen.findByText("This run was cancelled before it finished.");
+  });
+});
+
+describe("beta run rejection", () => {
+  it("rejects a run and applies the response status immediately", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    apiMocks.rejectRunMock.mockResolvedValue({ id: "run-root", status: "rejected" });
+    renderThread("/runs/run-root");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(apiMocks.rejectRunMock).toHaveBeenCalledWith("run-root"));
+    expect(await screen.findByText("The proposed change was reviewed and rejected before publishing.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Reject available with an error when the mutation fails", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    apiMocks.rejectRunMock.mockRejectedValue(new apiMocks.MockApiError(409, "run already approved"));
+    renderThread("/runs/run-root");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    expect(await screen.findByText("run already approved")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+  });
+});
+
+describe("public beta intelligence review", () => {
+  it("submits selected edits and exclusions through approval separately from publishing", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [{ id: "p1", content: "Original", kind: "accepted_change" }, { id: "p2", content: "Exclude", kind: "testing_constraint" }] });
+    apiMocks.approveRunMock.mockResolvedValue({ id: "run-root", status: "approved" });
+    const user = userEvent.setup(); renderThread("/runs/run-root");
+    const edit = await screen.findByRole("textbox", { name: "Edit proposal p1" });
+    await user.clear(edit); await user.type(edit, "Edited authoritative insight");
+    await user.click(screen.getByRole("checkbox", { name: "Select proposal p2" }));
+    await user.click(screen.getByRole("button", { name: "Approve run" }));
+    await waitFor(() => expect(apiMocks.approveRunMock).toHaveBeenCalledWith("run-root", [{ proposal_id: "p1", selected: true, content: "Edited authoritative insight" }, { proposal_id: "p2", selected: false }]));
+    expect(apiMocks.publishRunMock).not.toHaveBeenCalled();
+    expect(screen.queryByText("Approve & publish")).not.toBeInTheDocument();
+  });
+
+  it("disables approval after proposal loading fails and retries without approving an empty list", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce({ object: "list", data: [{ id: "p1", content: "Recovered", kind: "constraint" }] });
+    renderThread("/runs/run-root");
+    expect(await screen.findByText("Proposed intelligence could not be loaded.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve run" })).toBeDisabled();
+    expect(apiMocks.approveRunMock).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("textbox", { name: "Edit proposal p1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve run" })).toBeEnabled();
+  });
+
+  it("allows zero-intelligence approval only after a successful empty response", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
+    apiMocks.approveRunMock.mockResolvedValue({ id: "run-root", status: "approved" });
+    renderThread("/runs/run-root");
+    expect(await screen.findByText("No intelligence was proposed. You can still approve the run.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Approve run" }));
+    await waitFor(() => expect(apiMocks.approveRunMock).toHaveBeenCalledWith("run-root", []));
+  });
+
+  it("applies approval immediately, prevents a stale second approval, and exposes publishing", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.approveRunMock.mockResolvedValue({ id: "run-root", status: "approved" });
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Approve run" }));
+    expect(await screen.findByText("Run approved")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Publish pull request" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve run" })).not.toBeInTheDocument();
+    expect(apiMocks.approveRunMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps approval available with an error when the mutation fails", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Review it", status: "awaiting_approval" })]);
+    apiMocks.approveRunMock.mockRejectedValue(new apiMocks.MockApiError(503, "Approval unavailable"));
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Approve run" }));
+    expect(await screen.findByText("Approval unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve run" })).toBeEnabled();
+  });
+
+  it("applies a successful publish response immediately", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Publish it", status: "approved" })]);
+    apiMocks.publishRunMock.mockResolvedValue({ id: "run-root", status: "completed" });
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Publish pull request" }));
+    expect(await screen.findByText("Run complete")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Publish pull request" })).not.toBeInTheDocument();
+    expect(apiMocks.publishRunMock).toHaveBeenCalledOnce();
+  });
+
+  it("still lets polling replace the mutation-updated status with the authoritative record", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    mockThread([job({ id: "run-root", instruction: "Reconcile it", status: "awaiting_approval" })]);
+    let resolvePoll!: (value: JobRecord) => void;
+    apiMocks.getJobMock.mockReturnValue(new Promise((resolve) => { resolvePoll = resolve; }));
+    apiMocks.approveRunMock.mockResolvedValue({ id: "run-root", status: "approved" });
+    renderThread("/runs/run-root");
+    await userEvent.click(await screen.findByRole("button", { name: "Approve run" }));
+    expect(await screen.findByText("Run approved")).toBeInTheDocument();
+    resolvePoll(job({ id: "run-root", instruction: "Reconcile it", status: "completed", branch: "authoritative" }));
+    expect(await screen.findByText("Run complete")).toBeInTheDocument();
+  });
+});
+
+describe("canonical run receipt", () => {
+  it("keeps selected and executor-attested delivery distinct without semantic-use claims", async () => {
+    mockThread([job({ id: "run-root", instruction: "Cross-model task", status: "completed" })]);
+    apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "run-root", execution_run_id: "exec", task: "Task", repository: "owner/repo", status: "completed", execution_started: true, model: "model-b", approval: null, pull_request: null, files_changed: [], tokens: { input: 0, output: 0, cached: 0, reasoning: 0 }, tests: "not_run", cost: null, failure_category: null, failure_message: null, intelligence: { supplied: [{ memory_id: "memory-1", kind: "testing_constraint", content: "Keep contract tests", selected: true, delivered: false, source_run_id: "run-a", source_model: "model-a", source_advisor_model: null, approval_id: 2, approved_by: "reviewer", approved_at: "2026-01-01T00:00:00Z", destination_run_id: "run-root", destination_model: "model-b" }], proposed: [], approved: [] } });
+    renderThread("/runs/run-root");
+    expect(await screen.findByText("Selected by GNSIS")).toBeInTheDocument();
+    expect(screen.getByText("Delivery not attested")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View source run" })).toHaveAttribute("href", "/runs/run-a");
+    expect(screen.queryByText(/semantic use|used/i)).not.toBeInTheDocument();
+  });
+
+  it("uses the immutable ID from the route rather than a linked job record ID", async () => {
+    const linkedJob = job({ id: "legacy-job-id", instruction: "Task" });
+    apiMocks.getJobThreadMock.mockResolvedValue([linkedJob]);
+    apiMocks.getJobLogsMock.mockResolvedValue([]);
+    apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
+
+    renderThread("/runs/immutable-route-id");
+
+    await waitFor(() => expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("immutable-route-id"));
+    expect(apiMocks.getRunReceiptMock).not.toHaveBeenCalledWith("legacy-job-id");
+  });
+
+  it("requests the selected run receipt and renders known terminal zero values", async () => {
+    mockThread([job({ id: "run-root", instruction: "Legacy task", usage: { total_tokens: 999 } })]);
+    apiMocks.getRunReceiptMock.mockResolvedValue({
+      object: "receipt", run_id: "run-root", execution_run_id: "exec-zero", task: "Canonical blocked task", repository: "canonical/repo",
+      status: "blocked", execution_started: false, model: "canonical/model", approval: null,
+      pull_request: null, files_changed: [], tokens: { input: 0, output: 0, cached: 0, reasoning: 0 },
+      tests: "not_run", cost: { provider_cost: "0", currency: "USD" },
+      failure_category: "blocked_preflight", failure_message: "Canonical failure message",
+    });
+
+    renderThread("/runs/run-root");
+
+    expect(await screen.findByText("Canonical blocked task")).toBeInTheDocument();
+    expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("run-root");
+    expect(screen.getByText("$0.00")).toBeInTheDocument();
+    expect(screen.getByText("Not run")).toBeInTheDocument();
+    expect(screen.getByText("No")).toBeInTheDocument();
+    expect(screen.getAllByText("0").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("999")).not.toBeInTheDocument();
+    expect(screen.queryByText("Not tracked yet")).not.toBeInTheDocument();
+  });
+
+  it("shows receipt loading and request-failure states without crashing", async () => {
+    mockThread([job({ id: "run-root", instruction: "Task" })]);
+    let rejectReceipt!: (error: Error) => void;
+    apiMocks.getRunReceiptMock.mockReturnValue(new Promise((_resolve, reject) => { rejectReceipt = reject; }));
+    renderThread("/runs/run-root");
+
+    expect(await screen.findByText("Loading receipt")).toBeInTheDocument();
+    rejectReceipt(new Error("network down"));
+    expect(await screen.findByText("Receipt request failed")).toBeInTheDocument();
+  });
+
+  it("keeps linked-run receipts separate when a different run is selected", async () => {
+    const runs = [
+      job({ id: "run-root", instruction: "First" }),
+      job({ id: "run-2", instruction: "Second", parent_job_id: "run-root" }),
+    ];
+    mockThread(runs);
+    apiMocks.getRunReceiptMock.mockImplementation(async (id: string) => ({
+      object: "receipt", run_id: id, execution_run_id: `exec-${id}`, task: id === "run-root" ? "First receipt" : "Second receipt",
+      repository: "owner/repo", status: "completed", execution_started: true, model: "model",
+      approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null,
+      failure_category: null, failure_message: null,
+    }));
+
+    const first = renderThread("/runs/run-root");
+    expect(await screen.findByText("First receipt")).toBeInTheDocument();
+    first.unmount();
+    renderThread("/runs/run-2");
+    expect(await screen.findByText("Second receipt")).toBeInTheDocument();
+    expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("run-root");
+    expect(apiMocks.getRunReceiptMock).toHaveBeenCalledWith("run-2");
   });
 });
 
@@ -362,81 +702,5 @@ describe("follow-up composer", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("execution is not configured");
     expect(box.value).toBe("keep me"); // preserved, not cleared
-  });
-});
-
-// -- receipt panel (canonical backend receipt) --------------------------------
-
-describe("receipt panel", () => {
-  it("fetches the canonical receipt for the viewed run and renders its values, not job.usage", async () => {
-    mockThread([
-      job({ id: "run-root", instruction: "Add a login form", status: "completed", usage: { total_tokens: 999999 } }),
-    ]);
-    apiMocks.getJobReceiptMock.mockResolvedValueOnce({
-      job_id: "run-root", run_id: "exec-1", task: "Add a login form", repository: "owner/repo",
-      workspace_id: "workspace-1", repository_id: "repo-1", agent: "gnsis",
-      status: "completed", approval: null, pull_request: null,
-      files_changed: ["src/login.tsx", "src/login.test.tsx"],
-      model: "anthropic/claude-opus-4.8", base_sha: "a".repeat(40), patch_hash: "b".repeat(64),
-      policy: { name: "genesis", version: 1, hash: "c".repeat(64) },
-      memory_ids_consumed: [], reviewed_intelligence_created: [],
-      tokens: { input: 1200, output: 340, cached: 0, reasoning: 0 },
-      model_calls: 3, tool_calls: 5,
-      tests: { runner: "pytest", status: "passed", passed: 6, failed: 0, skipped: 0 },
-      cost: {
-        provider_cost: "0.14", gnsis_service_fee: "0.02", total_billed: "0.16", currency: "USD",
-        pricing_version: null, rate_card_version: null, reconciliation_state: "resolved",
-      },
-      timing: null, failure_category: null, failure_message: null, execution_started: true,
-    });
-    renderThread("/runs/run-root");
-
-    // The canonical endpoint is actually called for this run — not derived
-    // client-side.
-    await waitFor(() => expect(apiMocks.getJobReceiptMock).toHaveBeenCalledWith("run-root"));
-
-    // Values render exactly as the receipt reports them.
-    expect(await screen.findByText("1,540")).toBeInTheDocument(); // 1200 + 340, from the receipt
-    expect(screen.getByText("$0.16")).toBeInTheDocument();
-    expect(screen.getByText("6 passed, 0 failed")).toBeInTheDocument();
-    expect(screen.getByText("src/login.tsx")).toBeInTheDocument();
-    expect(screen.getByText("src/login.test.tsx")).toBeInTheDocument();
-    // The job's own (unrelated, much larger) usage field must never leak in —
-    // proves the panel isn't reconstructing from job.usage.
-    expect(screen.queryByText(/999,999/)).not.toBeInTheDocument();
-  });
-
-  it("shows truthful zero / not-applicable values for a terminal pre-execution block, never 'Not tracked yet'", async () => {
-    mockThread([
-      job({
-        id: "run-root", instruction: "Fix the thing", status: "blocked",
-        error: "GNSIS couldn't start this run because the repository has no commits yet.",
-      }),
-    ]);
-    apiMocks.getJobReceiptMock.mockResolvedValueOnce({
-      job_id: "run-root", run_id: "exec-1", task: "Fix the thing", repository: "owner/repo",
-      workspace_id: "workspace-1", repository_id: "repo-1", agent: "gnsis",
-      status: "blocked", approval: null, pull_request: null, files_changed: [],
-      model: null, base_sha: null, patch_hash: null, policy: null,
-      memory_ids_consumed: [], reviewed_intelligence_created: [],
-      tokens: { input: 0, output: 0, cached: 0, reasoning: 0 },
-      model_calls: 0, tool_calls: 0, tests: "not_run",
-      cost: {
-        provider_cost: "0", gnsis_service_fee: "0", total_billed: "0", currency: "USD",
-        pricing_version: null, rate_card_version: null, reconciliation_state: "resolved",
-      },
-      timing: null, failure_category: "blocked_repository_empty",
-      failure_message: "GNSIS couldn't start this run because the repository has no commits yet.",
-      execution_started: false,
-    });
-    renderThread("/runs/run-root");
-
-    await waitFor(() => expect(apiMocks.getJobReceiptMock).toHaveBeenCalledWith("run-root"));
-
-    expect(await screen.findByText("No")).toBeInTheDocument(); // Execution started
-    expect(screen.getAllByText("0").length).toBeGreaterThanOrEqual(2); // Tokens + Files changed
-    expect(screen.getByText("$0.00")).toBeInTheDocument();
-    expect(screen.getByText("Not run")).toBeInTheDocument();
-    expect(screen.queryByText("Not tracked yet")).not.toBeInTheDocument();
   });
 });

@@ -20,6 +20,7 @@ const sessionValue = {
 };
 
 const useSessionMock = vi.fn(() => sessionValue);
+const publicBetaModeMock = vi.hoisted(() => vi.fn(() => false));
 vi.mock("@/lib/session", () => ({ useSession: () => useSessionMock() }));
 vi.mock("@/pages/IntegrationTestPage", () => ({ default: () => <h1>Integration test</h1> }));
 vi.mock("@/components/ApiKeysSection", () => ({ default: () => <div>API keys</div> }));
@@ -29,6 +30,7 @@ vi.mock("@/lib/env", () => ({
   authBaseUrl: () => "https://auth.example.test",
   githubAppSlug: () => "gnsis-test-app",
   integrationLabEnabled: () => true,
+  publicBetaMode: () => publicBetaModeMock(),
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
@@ -54,7 +56,7 @@ const apiMocks = vi.hoisted(() => {
     getJobMock: vi.fn(),
     getJobLogsMock: vi.fn(),
     getJobDiffMock: vi.fn(),
-    getJobReceiptMock: vi.fn(),
+    getRunReceiptMock: vi.fn(),
     getJobThreadMock: vi.fn(),
     followUpJobMock: vi.fn(),
     claimGitHubInstallationMock: vi.fn(),
@@ -66,27 +68,34 @@ const apiMocks = vi.hoisted(() => {
 
 vi.mock("@/lib/api", () => ({
   ApiError: apiMocks.MockApiError,
-  approveJob: vi.fn(),
   claimGitHubInstallation: (...args: unknown[]) => apiMocks.claimGitHubInstallationMock(...args),
   createJob: vi.fn(),
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: (...args: unknown[]) => apiMocks.getJobMock(...args),
   getJobDiff: (...args: unknown[]) => apiMocks.getJobDiffMock(...args),
-  getJobReceipt: (...args: unknown[]) => apiMocks.getJobReceiptMock(...args),
+  getRunReceipt: (...args: unknown[]) => apiMocks.getRunReceiptMock(...args),
+  getRunEvents: vi.fn(async () => ({ object: "list", data: [], has_more: false, total: 0, limit: 100, offset: 0 })),
+  getRunEventsSince: vi.fn(async () => []),
+  getAllRunEvents: vi.fn(async () => []),
   getJobLogs: (...args: unknown[]) => apiMocks.getJobLogsMock(...args),
   getJobThread: (...args: unknown[]) => apiMocks.getJobThreadMock(...args),
   followUpJob: (...args: unknown[]) => apiMocks.followUpJobMock(...args),
   health: vi.fn(),
   isApiConfigured: () => true,
-  isTerminalStatus: (status: string) => ["completed", "rejected", "failed"].includes(status),
+  isTerminalStatus: (status: string) => ["completed", "rejected", "blocked", "failed"].includes(status),
   listEngines: vi.fn(async () => [{ id: "gnsis", label: "GNSIS" }]),
   listJobs: (...args: unknown[]) => apiMocks.listJobsMock(...args),
   listRepositories: (...args: unknown[]) => apiMocks.listRepositoriesMock(...args),
   listBranches: (...args: unknown[]) => apiMocks.listBranchesMock(...args),
   listModels: (...args: unknown[]) => apiMocks.listModelsMock(...args),
+  listRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
+  queryRepositoryIntelligence: vi.fn(async () => ({ object: "list", data: [] })),
+  getRunIntelligenceProposals: vi.fn(async () => ({ object: "list", data: [] })),
+  approveRun: vi.fn(),
+  publishRun: vi.fn(),
+  rejectRun: vi.fn(),
   listUsageEvents: vi.fn(async () => ({ items: [] })),
   matchesGatewayRequest: vi.fn(() => false),
-  rejectJob: vi.fn(),
 }));
 
 import App from "@/App";
@@ -193,6 +202,7 @@ function renderFull(initialPath: string, status: "authenticated" | "unauthentica
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionMock.mockReturnValue(sessionValue);
+  publicBetaModeMock.mockReturnValue(false);
   apiMocks.listJobsMock.mockResolvedValue(jobs);
   apiMocks.getJobMock.mockImplementation(async (id: string) => {
     const job = jobs.find((candidate) => candidate.id === id);
@@ -208,16 +218,7 @@ beforeEach(() => {
   });
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
-  apiMocks.getJobReceiptMock.mockResolvedValue({
-    job_id: "job-1", run_id: null, task: "", repository: "owner/repo",
-    workspace_id: "workspace-1", repository_id: null, agent: "gnsis",
-    status: "completed", approval: null, pull_request: null, files_changed: [],
-    model: "anthropic/claude-opus-4.8", base_sha: null, patch_hash: null,
-    policy: null, memory_ids_consumed: [], reviewed_intelligence_created: [],
-    tokens: null, model_calls: 0, tool_calls: 0, tests: "not_run", cost: null,
-    timing: null, failure_category: null, failure_message: null,
-    execution_started: true,
-  });
+  apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "job", execution_run_id: null, task: "Task", repository: "owner/repo", status: "completed", model: null, approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null, failure_category: null, failure_message: null });
   apiMocks.claimGitHubInstallationMock.mockResolvedValue(undefined);
   apiMocks.listRepositoriesMock.mockResolvedValue([
     {
@@ -242,6 +243,18 @@ beforeEach(() => {
 });
 
 describe("workspace routing", () => {
+  it("shows only beta navigation and redirects hidden routes", async () => {
+    publicBetaModeMock.mockReturnValue(true);
+    const view = renderWorkspace("/dashboard");
+    expect(await screen.findByText("What should GNSIS work on?")).toBeInTheDocument();
+    expect(view.getByTestId("pathname")).toHaveTextContent("/new");
+    expect(screen.getAllByText("New run")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Runs")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Intelligence")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    expect(screen.queryByText("Integration test")).not.toBeInTheDocument();
+  });
+
   it("renders Settings from /settings after initial load", async () => {
     renderWorkspace("/settings");
 
@@ -398,7 +411,7 @@ describe("workspace routing", () => {
 
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/login"));
     expect(screen.getByRole("heading", { name: "GNSIS" })).toBeInTheDocument();
-    expect(screen.getByText(/Sign in to your Genesis workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sign in to your GNSIS workspace/i)).toBeInTheDocument();
   });
 
   // -- homepage-at-/ + New Run-at-/new routing (PR #24) ----------------------
@@ -409,7 +422,7 @@ describe("workspace routing", () => {
     // ProtectedRoute, so no redirect to /login.
     expect(screen.getByRole("heading", { name: /Own the intelligence your coding agents create/i })).toBeInTheDocument();
     expect(screen.getByTestId("pathname")).toHaveTextContent("/");
-    expect(screen.queryByText(/Sign in to your Genesis workspace/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to your GNSIS workspace/i)).not.toBeInTheDocument();
   });
 
   it("redirects the legacy /welcome path to / (homepage)", async () => {
@@ -420,7 +433,7 @@ describe("workspace routing", () => {
 
   it("renders the New Run composer at /new for an authenticated user", async () => {
     renderWorkspace("/new");
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
   it("the New run sidebar action navigates to /new", async () => {
@@ -431,7 +444,7 @@ describe("workspace routing", () => {
     await user.click(screen.getAllByRole("button", { name: "New run" })[0]);
 
     expect(screen.getByTestId("pathname")).toHaveTextContent("/new");
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
   it("keeps /billing intact", async () => {
@@ -462,7 +475,7 @@ describe("workspace routing", () => {
   it("defaults an authenticated user landing on /login to /new", async () => {
     renderFull("/login", "authenticated");
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
   it("respects an explicit ?next=/runs on /login instead of defaulting to /new", async () => {
@@ -495,6 +508,6 @@ describe("workspace routing", () => {
     // /login?next=/new → authenticated → /new → New Run composer. One settled
     // destination, no bouncing between /, /login and /new.
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 });

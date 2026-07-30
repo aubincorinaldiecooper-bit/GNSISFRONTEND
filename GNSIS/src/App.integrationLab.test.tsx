@@ -10,6 +10,7 @@ vi.mock("@/lib/env", () => ({
   authBaseUrl: () => "https://auth.example.test",
   githubAppSlug: () => "gnsis-test-app",
   integrationLabEnabled: () => integrationLabEnabledRef.current,
+  publicBetaMode: () => false,
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
@@ -38,12 +39,12 @@ vi.mock("@/lib/useVirtualKeys", () => ({
 
 vi.mock("@/lib/api", () => ({
   ApiError: class ApiError extends Error {},
-  approveJob: vi.fn(),
   claimGitHubInstallation: vi.fn(),
   createJob: vi.fn(),
   getBalances: vi.fn(async () => ({ workspace_id: "workspace-1", available: "10", reserved: "0", balance: "10" })),
   getJob: vi.fn(),
   getJobDiff: vi.fn(async () => ({ patch: "", files_changed: [] })),
+  getRunReceipt: vi.fn(),
   getJobLogs: vi.fn(async () => []),
   health: vi.fn(),
   isApiConfigured: () => true,
@@ -55,7 +56,6 @@ vi.mock("@/lib/api", () => ({
   listModels: vi.fn(async () => ({ items: [{ id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8", provider: "anthropic", default: true }] })),
   listUsageEvents: vi.fn(async () => []),
   matchesGatewayRequest: vi.fn(() => false),
-  rejectJob: vi.fn(),
 }));
 
 import App from "@/App";

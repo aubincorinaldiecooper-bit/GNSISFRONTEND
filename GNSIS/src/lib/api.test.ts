@@ -1,10 +1,89 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
-import { parseError, ApiError, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
+vi.mock("@/lib/env", () => ({ apiBaseUrl: () => "https://api.example.test", isApiConfigured: () => true }));
+vi.mock("@/lib/authToken", () => ({ getBackendToken: vi.fn(async () => "session-jwt"), emitUnauthorized: vi.fn() }));
+
+import { parseError, ApiError, getRunReceipt, getAllRepositories, getAllRepositoryIntelligence, getAllRunEvents, getRunEventsSince, matchesGatewayRequest, type UsageEvent } from "@/lib/api";
 
 function res(body: unknown, init?: ResponseInit): Response {
   return new Response(typeof body === "string" ? body : JSON.stringify(body), init);
 }
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("getRunReceipt", () => {
+  it("uses the public immutable-run endpoint with the authenticated API client and no legacy fallback", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(res({ object: "receipt", run_id: "run/immutable" }, { status: 200 }));
+
+    await getRunReceipt("run/immutable");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/v1/runs/run%2Fimmutable/receipt",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer session-jwt" }) }),
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/jobs/"))).toBe(false);
+  });
+});
+
+describe("run event pagination", () => {
+  it("loads a 250-event history across every page", async () => {
+    const all = Array.from({ length: 250 }, (_, sequence) => ({ id: `e${sequence}`, run_id: "run", sequence, type: "agent.progress", at: "2026-01-01T00:00:00Z", payload: {} }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const offset = Number(url.searchParams.get("offset"));
+      const limit = Number(url.searchParams.get("limit"));
+      const data = all.slice(offset, offset + limit);
+      return res({ object: "list", data, has_more: offset + data.length < all.length, total: all.length, limit, offset }, { status: 200 });
+    });
+    expect(await getAllRunEvents("run")).toHaveLength(250);
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("offset"))).toEqual(["0", "100", "200"]);
+  });
+
+  it("polls after offset 100 and stops on an inconsistent empty page", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(res({ object: "list", data: [], has_more: true, total: 101, limit: 100, offset: 100 }, { status: 200 }));
+    expect(await getRunEventsSince("run", 100)).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toContain("offset=100");
+  });
+});
+
+describe("repository pagination", () => {
+  it("preserves ordering, deduplicates IDs, and includes a repository from page two", async () => {
+    const first = Array.from({ length: 100 }, (_, index) => ({ id: `repo-${index}`, full_name: `acme/repo-${index}` }));
+    const second = [{ id: "repo-99", full_name: "duplicate" }, { id: "repo-100", full_name: "acme/second-page" }];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      return res(offset === 0 ? first : second, { status: 200 });
+    });
+    const repositories = await getAllRepositories();
+    expect(repositories).toHaveLength(101);
+    expect(repositories.at(-1)).toEqual(expect.objectContaining({ id: "repo-100", full_name: "acme/second-page" }));
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("offset"))).toEqual(["0", "100"]);
+  });
+});
+
+describe("repository intelligence pagination", () => {
+  it("follows has_more, advances by raw page size, preserves order, and deduplicates IDs", async () => {
+    const first = Array.from({ length: 100 }, (_, index) => ({ id: `intel-${index}`, content: `Item ${index}` }));
+    const second = [{ id: "intel-99", content: "duplicate" }, { id: "intel-100", content: "Second page" }];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      return res({ object: "list", data: offset === 0 ? first : second, has_more: offset === 0, limit: 100, offset }, { status: 200 });
+    });
+    const result = await getAllRepositoryIntelligence("repo");
+    expect(result.map((item) => item.id)).toEqual([...first.map((item) => item.id), "intel-100"]);
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("offset"))).toEqual(["0", "100"]);
+  });
+
+  it("stops safely on an inconsistent empty page", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(res({ object: "list", data: [], has_more: true, limit: 100, offset: 0 }, { status: 200 }));
+    expect(await getAllRepositoryIntelligence("repo")).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
 
 describe("parseError", () => {
   it("parses a FastAPI {detail} string", async () => {

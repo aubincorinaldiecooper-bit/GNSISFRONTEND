@@ -80,7 +80,7 @@ export default function LoginPage() {
           </div>
           <h1 className="text-lg font-bold tracking-tight text-foreground">GNSIS</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign in to your Genesis workspace.
+            Sign in to your GNSIS workspace.
           </p>
         </div>
 

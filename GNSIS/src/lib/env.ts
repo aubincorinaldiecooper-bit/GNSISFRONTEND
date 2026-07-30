@@ -92,6 +92,11 @@ export function integrationLabEnabled(): boolean {
   return raw !== "false" && raw !== "0" && raw !== "off";
 }
 
+/** Public beta is the default product surface; explicit false restores internal tools. */
+export function publicBetaMode(): boolean {
+  return (readPublicConfig("VITE_PUBLIC_BETA_MODE") ?? "true").toLowerCase() !== "false";
+}
+
 /** Default model id pre-filled in the gateway smoke test. */
 export function smokeTestModel(): string {
   return readPublicConfig("VITE_SMOKE_TEST_MODEL") ?? "";

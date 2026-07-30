@@ -133,10 +133,9 @@ export type JobStatus =
   | "publishing"
   | "completed"
   | "rejected"
+  | "blocked"
   | "failed"
-  // A required prerequisite was missing, so execution never began. Distinct
-  // from "failed": nothing ran, so the receipt reports true zeros.
-  | "blocked";
+  | "cancelled";
 
 export interface JobRecord {
   id: string;
@@ -175,6 +174,148 @@ export interface LogRecord {
 export interface DiffRecord {
   patch: string;
   files_changed: string[];
+}
+
+export interface RunReceipt {
+  object: "receipt";
+  run_id: string;
+  execution_run_id: string | null;
+  task: string;
+  repository: string;
+  status: string;
+  execution_started?: boolean;
+  model: string | null;
+  advisor_model?: string | null;
+  approval: { decision: string; approver: string; at: string } | null;
+  pull_request: { number: number; url: string; branch: string } | null;
+  files_changed: string[];
+  tokens: { input: number; output: number; cached: number; reasoning: number } | null;
+  tests: string | Record<string, unknown> | null;
+  cost: {
+    provider_cost: string;
+    gnsis_service_fee?: string;
+    total_billed?: string;
+    currency: string;
+    reconciliation_state?: string;
+  } | null;
+  failure_category: string | null;
+  failure_message: string | null;
+  timing?: {
+    dispatched_at: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    cancelled_at: string | null;
+    duration_seconds: number | null;
+  } | null;
+  base_sha?: string | null;
+  patch_hash?: string | null;
+  policy?: Record<string, unknown> | null;
+  intelligence?: {
+    supplied: SuppliedIntelligence[];
+    proposed: IntelligenceProposal[];
+    approved: ApprovedIntelligence[];
+  };
+}
+
+export interface RepositoryIntelligence {
+  id: string;
+  repository_id: string;
+  content: string;
+  type: string | null;
+  status: "active";
+  source_run_id: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string | null;
+}
+
+export interface IntelligencePreview {
+  memory_id: string;
+  kind: string;
+  content: string;
+  selection_reason: string;
+}
+
+export interface IntelligenceProposal {
+  id: string;
+  content: string;
+  kind: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface SuppliedIntelligence {
+  memory_id: string;
+  kind: string | null;
+  content: string | null;
+  selected: true;
+  delivered: boolean;
+  source_run_id: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  destination_run_id: string;
+  destination_model: string | null;
+}
+
+export interface ApprovedIntelligence {
+  memory_id: string;
+  item_key: string | null;
+  kind: string | null;
+  approval_id: string | number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  source_model: string | null;
+  source_advisor_model: string | null;
+}
+
+export interface IntelligenceList<T> {
+  object: "list";
+  data: T[];
+  has_more?: boolean;
+  total?: number;
+  total_available?: number;
+  truncated?: boolean;
+}
+
+export interface IntelligenceApprovalSelection {
+  proposal_id: string;
+  selected?: boolean;
+  content?: string;
+  kind?: string;
+}
+
+/** One durable, backend-authored lifecycle fact for a run. */
+export interface RunEvent {
+  id: string;
+  run_id: string;
+  sequence: number;
+  type: string;
+  at: string;
+  payload: {
+    message?: string;
+    stage?: string;
+    execution_started?: boolean;
+    model_called?: boolean;
+    retryable?: boolean;
+    next_action?: string | null;
+    duration_seconds?: number | null;
+    technical?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+}
+
+export interface RunEventList {
+  object: "list";
+  data: RunEvent[];
+  has_more: boolean;
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface CreateJobInput {
@@ -218,112 +359,94 @@ export function getJobDiff(jobId: string): Promise<DiffRecord | null> {
   });
 }
 
-// =============================================================================
-// RECEIPT — the canonical, backend-assembled source of truth for a run's
-// outcome. Assembled on read from immutable records (see
-// gnsisbackend/src/gnsis/service/receipts.py); the UI must render these
-// values as given, not recompute them from job.usage/job.context or settings.
-// =============================================================================
-
-export interface ReceiptTokens {
-  input: number;
-  output: number;
-  cached: number;
-  reasoning: number;
+/** The public API's backend-assembled, immutable receipt for one run. */
+export function getRunReceipt(runId: string): Promise<RunReceipt> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/receipt`);
 }
 
-export interface ReceiptCost {
-  provider_cost: string;
-  gnsis_service_fee: string;
-  total_billed: string;
-  currency: string;
-  pricing_version: string | null;
-  rate_card_version: string | null;
-  reconciliation_state: string;
+export function listRepositoryIntelligence(repositoryId: string, limit = 100, offset = 0): Promise<IntelligenceList<RepositoryIntelligence>> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence?${query}`);
 }
 
-export interface ReceiptTestsSummary {
-  runner: string;
-  status: string;
-  passed: number;
-  failed: number;
-  skipped: number;
+const MAX_REPOSITORY_INTELLIGENCE_PAGES = 100;
+
+/** Load the complete ordered intelligence collection using backend pagination. */
+export async function getAllRepositoryIntelligence(repositoryId: string, limit = 100): Promise<RepositoryIntelligence[]> {
+  const intelligence: RepositoryIntelligence[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  for (let pageNumber = 0; pageNumber < MAX_REPOSITORY_INTELLIGENCE_PAGES; pageNumber += 1) {
+    const page = await listRepositoryIntelligence(repositoryId, limit, offset);
+    if (page.data.length === 0) break;
+    let added = 0;
+    for (const item of page.data) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      intelligence.push(item);
+      added += 1;
+    }
+    if (!page.has_more || added === 0) break;
+    offset += page.data.length;
+  }
+  return intelligence;
 }
 
-export interface ReceiptTiming {
-  dispatched_at: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  cancelled_at: string | null;
-  duration_seconds: number | null;
+export function queryRepositoryIntelligence(repositoryId: string, task: string, limit = 5): Promise<IntelligenceList<IntelligencePreview>> {
+  return request(`/v1/repositories/${encodeURIComponent(repositoryId)}/intelligence/query`, {
+    method: "POST", body: JSON.stringify({ task, limit }),
+  });
 }
 
-export interface ReceiptPolicy {
-  name: string | null;
-  version: number | null;
-  hash: string | null;
+export function getRunIntelligenceProposals(runId: string): Promise<IntelligenceList<IntelligenceProposal>> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/intelligence-proposals`);
 }
 
-export interface ReceiptApproval {
-  decision: string;
-  approver: string;
-  at: string | null;
+export function approveRun(runId: string, intelligence: IntelligenceApprovalSelection[], note = ""): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/approve`, {
+    method: "POST", body: JSON.stringify({ note, intelligence }),
+  });
 }
 
-export interface ReceiptPullRequest {
-  number: number;
-  url: string;
-  branch: string;
+export function publishRun(runId: string): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/publish`, { method: "POST" });
 }
 
-export interface ReceiptIntelligenceProduced {
-  memory_id: string;
-  item_key: string | null;
-  kind: string;
+export function rejectRun(runId: string, note = ""): Promise<{ id: string; status: JobStatus }> {
+  return request(`/v1/runs/${encodeURIComponent(runId)}/reject`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });
 }
 
-export interface Receipt {
-  job_id: string;
-  run_id: string | null;
-  task: string;
-  repository: string;
-  workspace_id: string | null;
-  repository_id: string | null;
-  agent: string;
-  status: string;
-  approval: ReceiptApproval | null;
-  pull_request: ReceiptPullRequest | null;
-  files_changed: string[];
-  model: string | null;
-  advisor_model?: string | null;
-  models_used?: string[];
-  base_sha: string | null;
-  patch_hash: string | null;
-  policy: ReceiptPolicy | null;
-  memory_ids_consumed: string[];
-  reviewed_intelligence_created: ReceiptIntelligenceProduced[];
-  tokens: ReceiptTokens | null;
-  model_calls: number;
-  tool_calls: number;
-  files_read?: number;
-  // "not_run" is a truthful known-value (execution never started, or started
-  // but no test runner produced a summary) — distinct from `null`, which the
-  // backend reserves for "unknown" (e.g. a mid-execution failure before tests
-  // could run). The UI must render "not_run" as-is, never as "Not tracked yet".
-  tests: ReceiptTestsSummary | "not_run" | null;
-  cost: ReceiptCost | null;
-  timing: ReceiptTiming | null;
-  failure_category: string | null;
-  failure_message: string | null;
-  // True the moment the executor genuinely began work. False means every
-  // other value on this receipt is a known zero/not-applicable, not an
-  // unmeasured unknown.
-  execution_started: boolean;
+/** Structured lifecycle evidence; deliberately independent of the receipt. */
+export function getRunEventsPage(runId: string, limit = 100, offset = 0): Promise<RunEventList> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request(`/v1/runs/${encodeURIComponent(runId)}/events?${query.toString()}`);
 }
 
-export function getJobReceipt(jobId: string): Promise<Receipt> {
-  return request(`/jobs/${jobId}/receipt`);
+const MAX_RUN_EVENT_PAGES = 100;
+
+/** Fetch every lifecycle page beginning at a raw backend event offset. */
+export async function getRunEventsSince(runId: string, offset: number, limit = 100): Promise<RunEvent[]> {
+  const events: RunEvent[] = [];
+  let nextOffset = offset;
+  for (let pageNumber = 0; pageNumber < MAX_RUN_EVENT_PAGES; pageNumber += 1) {
+    const page = await getRunEventsPage(runId, limit, nextOffset);
+    events.push(...page.data);
+    // An inconsistent empty page must not spin forever even if has_more is true.
+    if (!page.has_more || page.data.length === 0) break;
+    nextOffset += page.data.length;
+  }
+  return events;
 }
+
+/** Fetch the complete lifecycle history, including histories over 100 events. */
+export function getAllRunEvents(runId: string, limit = 100): Promise<RunEvent[]> {
+  return getRunEventsSince(runId, 0, limit);
+}
+
+/** Backwards-compatible page API. Prefer the explicit helpers above. */
+export const getRunEvents = getRunEventsPage;
 
 /**
  * Every run of the conversation `jobId` belongs to, oldest first. Opening any
@@ -346,15 +469,12 @@ export function followUpJob(parentJobId: string, instruction?: string): Promise<
   return request(`/jobs/${parentJobId}/follow-up`, { method: "POST", body });
 }
 
-export function approveJob(jobId: string, note = "", actor = "human"): Promise<JobRecord> {
-  return request(`/jobs/${jobId}/approve`, { method: "POST", body: JSON.stringify({ actor, note }) });
+/** Stop a run before it reaches a terminal state. Revokes its run token backend-side. */
+export function cancelJob(jobId: string): Promise<JobRecord> {
+  return request(`/jobs/${jobId}/cancel`, { method: "POST" });
 }
 
-export function rejectJob(jobId: string, note = "", actor = "human"): Promise<JobRecord> {
-  return request(`/jobs/${jobId}/reject`, { method: "POST", body: JSON.stringify({ actor, note }) });
-}
-
-export const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "failed", "blocked"]);
+const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["completed", "rejected", "blocked", "failed", "cancelled"]);
 
 export function isTerminalStatus(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -414,6 +534,29 @@ export function listRepositories(opts: ListRepositoriesOptions = {}): Promise<Re
   if (opts.offset != null) p.set("offset", String(opts.offset));
   const qs = p.toString();
   return request(`/v1/repositories${qs ? `?${qs}` : ""}`);
+}
+
+const MAX_REPOSITORY_PAGES = 100;
+
+/** Fetch all repositories without losing the backend's ordering. */
+export async function getAllRepositories(limit = 100): Promise<RepositoryRecord[]> {
+  const repositories: RepositoryRecord[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  for (let page = 0; page < MAX_REPOSITORY_PAGES; page += 1) {
+    const result = await listRepositories({ limit, offset });
+    if (result.length === 0) break;
+    let added = 0;
+    for (const repository of result) {
+      if (seen.has(repository.id)) continue;
+      seen.add(repository.id);
+      repositories.push(repository);
+      added += 1;
+    }
+    if (added === 0 || result.length < limit) break;
+    offset += result.length;
+  }
+  return repositories;
 }
 
 export interface BranchInfo {

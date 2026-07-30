@@ -34,17 +34,20 @@ import {
   Circle,
   ExternalLink,
   AlertTriangle,
+  Clock,
   Activity as ActivityGlyph,
   Menu,
   X,
+  Brain,
 } from "lucide-react";
 import { useNavigate, useLocation, matchPath } from "react-router";
 import SettingsPage from "@/pages/SettingsPage";
 import BillingPage from "@/pages/BillingPage";
 import IntegrationTestPage from "@/pages/IntegrationTestPage";
 import GitHubOnboardingPage from "@/pages/GitHubOnboardingPage";
+import IntelligencePage from "@/pages/IntelligencePage";
 import { useSession } from "@/lib/session";
-import { githubAppSlug, integrationLabEnabled } from "@/lib/env";
+import { githubAppSlug, integrationLabEnabled, publicBetaMode } from "@/lib/env";
 import {
   createJob,
   listJobs,
@@ -54,26 +57,55 @@ import {
   getJob,
   getJobLogs,
   getJobDiff,
-  getJobReceipt,
+  getRunReceipt,
+  getRunEventsSince,
+  getAllRunEvents,
   getJobThread,
   followUpJob,
-  approveJob,
-  rejectJob,
+  cancelJob,
   isApiConfigured,
   ApiError,
   isTerminalStatus,
   getBalances,
+  queryRepositoryIntelligence,
+  getRunIntelligenceProposals,
+  approveRun,
+  publishRun,
+  rejectRun,
   type JobRecord,
   type JobStatus,
   type LogRecord,
   type DiffRecord,
-  type Receipt,
+  type RunReceipt,
+  type RunEvent,
   type RepositoryRecord,
   type ModelInfo,
   type Balances,
+  type IntelligencePreview,
+  type IntelligenceProposal,
+  type IntelligenceApprovalSelection,
 } from "@/lib/api";
-import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
+import {
+  threadTitle,
+  relativeTime,
+  fullDateTime,
+  groupJobsIntoThreadRows,
+  getAttemptSummary,
+  collapsibleAttemptIds,
+  summarizeCollapsedAttempts,
+  type RecentRun,
+} from "@/lib/threads";
+import {
+  getRunLifecycleState,
+  isReceiptEligibleStatus,
+  LIFECYCLE_FILTER_OPTIONS,
+  LIFECYCLE_STAGE_LABELS,
+  type LifecycleStageId,
+} from "@/lib/runLifecycle";
+import { getReceiptSections } from "@/lib/receiptSections";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
+import { RunActivityTimeline, AttemptActivityStrip, type ReceiptActivityState } from "@/components/RunActivityTimeline";
+import { isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
 import {
   Tooltip,
   TooltipContent,
@@ -97,19 +129,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  ChatMessage,
-  ChatMessageBubble,
-  ChatMessageList,
-  ChatSystemMessage,
-  ChatToolCalls,
-  type ChatToolCallItem,
-} from "@astryxdesign/core/Chat";
-import { Avatar } from "@astryxdesign/core/Avatar";
-import { CodeBlock } from "@astryxdesign/core/CodeBlock";
-import { Toolbar } from "@astryxdesign/core/Toolbar";
-import { Section } from "@astryxdesign/core/Section";
-import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
 
 // =============================================================================
 // UTILITY
@@ -267,52 +286,31 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "failed" | "blocked";
-type NavId = "new-run" | "runs" | "dashboard" | "integration-test";
+type NavId = "new-run" | "runs" | "intelligence" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
-function jobStatusToRunStatus(status: JobStatus): RunStatus {
-  switch (status) {
-    case "queued":
-      return "queued";
-    case "awaiting_approval":
-      return "awaiting_approval";
-    case "completed":
-      return "complete";
-    case "rejected":
-      return "rejected";
-    case "failed":
-      return "failed";
-    case "blocked":
-      return "blocked";
-    default:
-      return "running";
-  }
-}
-
-const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
-  queued: { label: "Queued", cls: "text-muted-foreground" },
-  running: { label: "Running", cls: "text-blue-600" },
-  awaiting_approval: { label: "Needs approval", cls: "text-amber-600" },
-  complete: { label: "Complete", cls: "text-emerald-600" },
-  rejected: { label: "Rejected", cls: "text-muted-foreground" },
-  failed: { label: "Failed", cls: "text-red-600" },
-  blocked: { label: "Blocked", cls: "text-amber-700" },
+// Text color per lifecycle stage — the label text is always the primary
+// signal (never color alone); "Ready for review" and "Approved" deliberately
+// share amber since they're distinguished by wording, not hue.
+const lifecycleStageCls: Record<LifecycleStageId, string> = {
+  queued: "text-muted-foreground",
+  working: "text-blue-600",
+  ready_for_review: "text-amber-600",
+  approved: "text-amber-600",
+  published: "text-emerald-600",
+  attempt_stopped: "text-red-600",
+  publication_failed: "text-red-600",
+  rejected: "text-muted-foreground",
+  cancelled: "text-muted-foreground",
 };
 
-function StatusLabel({ status }: { status: RunStatus }) {
-  const s = runLabelCls[status];
-  return <span className={cn("font-medium", s.cls)}>{s.label}</span>;
-}
-
-// Sidebar/table row shape, derived from a real JobRecord — no fabricated fields.
-interface RecentRun {
-  id: string;
-  title: string;
-  repo: string;
-  model: string;
-  status: RunStatus;
-  updatedAt: string;
+function StatusLabel({ stage, qualifier }: { stage: LifecycleStageId; qualifier?: string | null }) {
+  return (
+    <span className={cn("font-medium", lifecycleStageCls[stage])}>
+      {LIFECYCLE_STAGE_LABELS[stage]}
+      {qualifier && <span className="font-normal text-muted-foreground"> · {qualifier}</span>}
+    </span>
+  );
 }
 
 // Legacy jobs created before model selection carry no model — never invent one.
@@ -323,17 +321,6 @@ function displayModel(job: JobRecord): string {
 // Historical and primary-only jobs may have no Advisor pinned — never invent one.
 function displayAdvisorModel(job: JobRecord): string {
   return job.advisor_model ?? "—";
-}
-
-function toRecentRun(job: JobRecord): RecentRun {
-  return {
-    id: job.id,
-    title: job.instruction.split("\n")[0].slice(0, 140) || job.instruction,
-    repo: job.repo,
-    model: displayModel(job),
-    status: jobStatusToRunStatus(job.status),
-    updatedAt: job.updated_at,
-  };
 }
 
 function timeAgo(iso: string): string {
@@ -348,18 +335,6 @@ function timeAgo(iso: string): string {
   if (hr < 24) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   return `${day}d ago`;
-}
-
-// Not every engine reports usage (the "claude"/"openhands" engines don't yet;
-// "gnsis" does). Returns null rather than "0" when there's nothing to show.
-function totalTokens(usage: Record<string, number> | undefined): number | null {
-  if (!usage || Object.keys(usage).length === 0) return null;
-  if (typeof usage.total_tokens === "number") return usage.total_tokens;
-  const prompt = usage.prompt_tokens ?? 0;
-  const completion = usage.completion_tokens ?? 0;
-  if (prompt || completion) return prompt + completion;
-  const sum = Object.values(usage).reduce((s, v) => (typeof v === "number" ? s + v : s), 0);
-  return sum || null;
 }
 
 // =============================================================================
@@ -415,14 +390,16 @@ function SidebarNavItem({
 // SIDEBAR RUN ROW (full-width click target)
 // =============================================================================
 
-const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
+const sidebarStatusIcon: Record<LifecycleStageId, React.ReactNode> = {
   queued: <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 self-start mt-0.5" />,
-  running: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
-  awaiting_approval: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
-  complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
+  working: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
+  ready_for_review: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
+  approved: <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
+  published: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
   rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
-  failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
-  blocked: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
+  attempt_stopped: <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0 self-start mt-0.5" />,
+  publication_failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
+  cancelled: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
 };
 
 function SidebarRunRow({
@@ -444,7 +421,7 @@ function SidebarRunRow({
             <button
               type="button"
               onClick={onClick}
-              aria-label={`${run.title} \u2014 ${runLabelCls[run.status].label}`}
+              aria-label={`${run.title} \u2014 ${LIFECYCLE_STAGE_LABELS[run.status]}`}
               className={cn(
                 "flex items-center justify-center h-8 w-8 mx-auto rounded-lg transition-colors duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -477,8 +454,10 @@ function SidebarRunRow({
         <span className="block text-sm text-foreground truncate leading-tight">
           {run.title}
         </span>
-        <span className="block text-xs text-muted-foreground truncate leading-tight mt-0.5">
-          {timeAgo(run.updatedAt)}
+        <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground truncate leading-tight">
+          <span className={cn("font-medium", lifecycleStageCls[run.status])}>{LIFECYCLE_STAGE_LABELS[run.status]}</span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="truncate">{timeAgo(run.updatedAt)}</span>
         </span>
       </span>
     </button>
@@ -508,7 +487,7 @@ function CollapsedUsageIndicator() {
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="px-4 pb-2.5 pt-3 flex justify-center cursor-pointer">
-            <div className="h-1.5 w-9 rounded-full bg-muted overflow-hidden" />
+            <div className="h-1.5 w-9 rounded-full bg-neutral-200/80 overflow-hidden" />
           </div>
         </TooltipTrigger>
         <TooltipContent side="right" className="text-xs">
@@ -546,7 +525,7 @@ function AccountRow({
       referrerPolicy="no-referrer"
     />
   ) : (
-    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground shrink-0">
+    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-semibold text-neutral-600 shrink-0">
       {initial}
     </div>
   );
@@ -607,10 +586,9 @@ function AccountRow({
           <Settings2 className="h-4 w-4" />
           Settings
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={onBilling}>
-          <CreditCard className="h-4 w-4" />
-          Billing
-        </DropdownMenuItem>
+        {!publicBetaMode() && <DropdownMenuItem onClick={onBilling}>
+          <CreditCard className="h-4 w-4" />Billing
+        </DropdownMenuItem>}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={() => void signOut()}>
           <LogOut className="h-4 w-4" />
@@ -655,8 +633,8 @@ function SidebarRegion({
   const navItems: Array<{ id: NavId; label: string; icon: React.ReactNode }> = [
     { id: "new-run", label: "New run", icon: <CirclePlus /> },
     { id: "runs", label: "Runs", icon: <ListChecks /> },
-    { id: "dashboard", label: "Dashboard", icon: <LayoutGrid /> },
-    ...(integrationLabEnabled()
+    ...(publicBetaMode() ? [{ id: "intelligence" as NavId, label: "Intelligence", icon: <Brain /> }] : [{ id: "dashboard" as NavId, label: "Dashboard", icon: <LayoutGrid /> }]),
+    ...(!publicBetaMode() && integrationLabEnabled()
       ? [{ id: "integration-test" as NavId, label: "Integration test", icon: <FlaskConical /> }]
       : []),
   ];
@@ -665,7 +643,7 @@ function SidebarRegion({
     <aside
       style={{ width: collapsed ? 68 : 250 }}
       className={cn(
-        "relative flex flex-col h-full shrink-0 bg-muted",
+        "relative flex flex-col h-full shrink-0 bg-neutral-50",
         "transition-[width] duration-200 ease-in-out overflow-hidden"
       )}
     >
@@ -756,9 +734,7 @@ function SidebarRegion({
       <Divider orientation="horizontal" />
 
       {/* Usage meter — fixed */}
-      {collapsed ? <CollapsedUsageIndicator /> : <UsageMeter available={available} />}
-
-      <Divider orientation="horizontal" />
+      {!publicBetaMode() && <>{collapsed ? <CollapsedUsageIndicator /> : <UsageMeter available={available} />}<Divider orientation="horizontal" /></>}
 
       {/* Account — fixed */}
       <AccountRow collapsed={collapsed} onSettings={onSettings} onBilling={onBilling} />
@@ -805,6 +781,10 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   const [showMobileConfig, setShowMobileConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<IntelligencePreview[] | null>(null);
+  const [previewState, setPreviewState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [previewFor, setPreviewFor] = useState<{ repo: string; prompt: string } | null>(null);
+  const previewRequest = useRef(0);
 
   // Repositories currently accessible through GitHub App access — the New
   // Run source of truth. There is no in-GNSIS enable step: what the App can
@@ -896,6 +876,22 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   // branch list hasn't arrived (or failed) yet.
   const branchesLoading = repositoryId !== null && branches === null && !branchesError;
 
+  useEffect(() => {
+    if (!publicBetaMode() || !repositoryId || prompt.trim().length < 12) {
+      return;
+    }
+    const requestId = ++previewRequest.current;
+    const trimmedPrompt = prompt.trim();
+    const timer = setTimeout(() => {
+      setPreviewState("loading");
+      void queryRepositoryIntelligence(repositoryId, trimmedPrompt, 5).then(
+        (result) => { if (previewRequest.current === requestId) { setPreviewFor({ repo: repositoryId, prompt: trimmedPrompt }); setPreview(result.data); setPreviewState("loaded"); } },
+        () => { if (previewRequest.current === requestId) { setPreviewFor(null); setPreview(null); setPreviewState("error"); } },
+      );
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [repositoryId, prompt]);
+
   const selectedRepo = repos?.find((r) => r.id === repositoryId) ?? null;
 
   const repoOptions: ComboboxOption[] = (repos ?? []).map((r) => ({
@@ -933,7 +929,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         repositoryFullName: selectedRepo.full_name,
         branch,
         model,
-        advisorModel: showAdvisor ? advisorModel : null,
+        advisorModel: !publicBetaMode() && showAdvisor ? advisorModel : null,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start the run.");
@@ -956,7 +952,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     <div className="w-full max-w-4xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
       <div className="text-center space-y-2 mb-6">
         <h1 className="text-lg font-semibold tracking-tight text-foreground">
-          What should Genesis work on?
+          What should GNSIS work on?
         </h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
           Choose your repository, describe the task, and start the run.
@@ -964,7 +960,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
       </div>
 
       {noReposAvailable ? (
-        <div className="rounded-2xl border border-dashed border-border bg-muted/50 px-6 py-10 text-center">
+        <div className="rounded-2xl border border-dashed border-border bg-neutral-50/50 px-6 py-10 text-center">
           <p className="text-sm font-medium text-foreground">No repositories are available.</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Grant GNSIS access to a repository through GitHub to start your first run.
@@ -983,7 +979,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           )}
         </div>
       ) : (
-        <div className="rounded-2xl border border-border bg-card shadow-sm">
+        <div className="rounded-2xl border border-border bg-white shadow-sm">
           {/*
             The card is deliberately overflow-VISIBLE so the non-portal Combobox
             dropdowns can extend past the card's bottom edge. Rounded corners are
@@ -993,7 +989,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the change you want Genesis to make…"
+            placeholder="Describe the change you want GNSIS to make…"
             className="min-h-28 resize-none border-none shadow-none rounded-t-2xl rounded-b-none px-4 py-3.5 text-sm focus-visible:ring-0"
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -1002,6 +998,17 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
               }
             }}
           />
+
+          {publicBetaMode() && prompt.trim().length >= 12 && (() => {
+            const fresh = previewFor?.repo === repositoryId && previewFor?.prompt === prompt.trim();
+            const shownPreview = fresh ? preview : null;
+            const shownState: "idle" | "loading" | "loaded" | "error" = fresh ? previewState : (previewState === "error" ? "error" : "loading");
+            return <div className="border-t px-4 py-3 text-xs" aria-live="polite">
+              <p className="font-semibold">Repository intelligence</p>
+              <p className="mt-0.5 text-muted-foreground">{shownState === "loading" ? "Checking approved intelligence…" : shownState === "error" ? "Intelligence preview is temporarily unavailable." : shownState === "loaded" && shownPreview?.length ? `${shownPreview.length} approved insight${shownPreview.length === 1 ? " is" : "s are"} relevant to this task.` : shownState === "loaded" ? "No approved intelligence is relevant yet." : "The backend selects intelligence authoritatively when the run starts."}</p>
+              {!!shownPreview?.length && <details className="mt-1"><summary className="cursor-pointer">Preview candidates</summary><ul className="mt-2 space-y-2">{shownPreview.map((item) => <li key={item.memory_id}><p>{item.content}</p><p className="text-muted-foreground">{item.kind}</p></li>)}</ul></details>}
+            </div>;
+          })()}
 
           <Divider orientation="horizontal" />
 
@@ -1024,7 +1031,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   placeholder="Select repository"
                   searchPlaceholder="Search repositories…"
                   emptyText="No matching repositories."
-                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1039,7 +1046,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   emptyText={branchesError ? "Could not load branches." : "No branches found."}
                   loading={branchesLoading}
                   disabled={!repositoryId}
-                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1053,7 +1060,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   searchPlaceholder="Search models…"
                   emptyText="No matching models."
                   disabled={(models ?? []).length === 0}
-                  className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                  className="h-9 rounded-lg bg-white px-2.5 text-xs"
                 />
               </div>
               <div className="col-span-2 lg:col-span-1 flex justify-end">
@@ -1061,7 +1068,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   size="sm"
                   disabled={!canSubmit}
                   onClick={handleSubmit}
-                  className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
+                  className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
                 >
                   {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Start run
@@ -1070,7 +1077,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             </div>
 
             {/* Advisor — optional, its own row so it never crowds the core flow */}
-            <div className="flex items-center gap-2 min-w-0">
+            {!publicBetaMode() && <div className="flex items-center gap-2 min-w-0">
               {showAdvisor ? (
                 <>
                   <span className="shrink-0 text-xs text-muted-foreground">Advisor</span>
@@ -1085,7 +1092,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1111,7 +1118,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   + Add Advisor
                 </Button>
               )}
-            </div>
+            </div>}
           </div>
 
           {/* Mobile bottom bar */}
@@ -1130,7 +1137,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
               size="sm"
               disabled={!canSubmit}
               onClick={handleSubmit}
-              className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
+              className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
             >
               {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               <span className="text-sm">Start</span>
@@ -1139,7 +1146,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 
           {/* Mobile config sheet — rounded-b so the card's bottom corners stay clean */}
           {showMobileConfig && (
-            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-muted/50">
+            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
               <Combobox
                 ariaLabel="Repository"
                 icon={<FolderGit className="h-3.5 w-3.5" />}
@@ -1149,7 +1156,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 placeholder="Select repository"
                 searchPlaceholder="Search repositories…"
                 emptyText="No matching repositories."
-                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Branch"
@@ -1162,7 +1169,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 emptyText={branchesError ? "Could not load branches." : "No branches found."}
                 loading={branchesLoading}
                 disabled={!repositoryId}
-                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Model"
@@ -1174,9 +1181,9 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 searchPlaceholder="Search models…"
                 emptyText="No matching models."
                 disabled={(models ?? []).length === 0}
-                className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                className="h-9 rounded-lg bg-white px-2.5 text-xs"
               />
-              {showAdvisor ? (
+              {!publicBetaMode() && (showAdvisor ? (
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <Combobox
@@ -1189,7 +1196,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1214,7 +1221,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 >
                   + Add Advisor
                 </Button>
-              )}
+              ))}
             </div>
           )}
         </div>
@@ -1244,14 +1251,15 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 // A thread mirrors one real backend job: status drives which messages render,
 // logs are the real per-phase event stream, diff is the proposed patch (once
 // the engine has produced one).
-// One immutable execution within a conversation: its job, live logs, proposed
-// diff, and any in-flight approve/reject action.
+// One immutable execution within a conversation: its job, live logs, and
+// proposed diff.
 interface RunState {
   job: JobRecord;
   logs: LogRecord[];
   diff: DiffRecord | null;
-  actionPending: "approve" | "reject" | null;
-  actionError: string | null;
+  events: RunEvent[];
+  eventsLoading: boolean;
+  eventsReconnecting: boolean;
 }
 
 // A conversation thread: an ordered list of linked runs (oldest first). The runs
@@ -1271,21 +1279,6 @@ function activeRun(thread: ThreadState): RunState {
   return thread.runs[thread.runs.length - 1];
 }
 
-
-const phaseStatusLabel: Record<JobStatus, string> = {
-  queued: "Genesis is queued…",
-  planning: "Genesis is planning the change…",
-  patching: "Genesis is writing the patch…",
-  testing: "Running tests…",
-  summarizing: "Genesis is summarizing the change…",
-  awaiting_approval: "Genesis is ready for review",
-  approved: "Approved — preparing to publish…",
-  publishing: "Opening the pull request…",
-  completed: "Run complete",
-  rejected: "Run rejected",
-  failed: "Run failed",
-  blocked: "Run couldn't start",
-};
 
 // =============================================================================
 // THREAD SUB-COMPONENTS
@@ -1416,9 +1409,21 @@ function ThreadHeader({ thread }: { thread: ThreadState }) {
   );
 }
 
-const inFlightStatuses: JobStatus[] = ["queued", "planning", "patching", "testing", "summarizing", "approved", "publishing"];
+// One submitted instruction, rendered as a message with a quiet metadata row
+// (copy + relative timestamp). Readable width, preserved line breaks.
+function InstructionMessage({ job }: { job: JobRecord }) {
+  return (
+    <div className="pt-1">
+      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+        {job.instruction}
+      </p>
+      <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
+    </div>
+  );
+}
 
 function DiffSummary({ diff }: { diff: DiffRecord }) {
+  const [showPatch, setShowPatch] = useState(false);
   return (
     <div className="space-y-2">
       <ul className="text-xs text-muted-foreground space-y-1">
@@ -1431,68 +1436,106 @@ function DiffSummary({ diff }: { diff: DiffRecord }) {
         ))}
       </ul>
       {diff.patch && (
-        <CodeBlock
-          title="patch.diff"
-          language="diff"
-          code={diff.patch}
-          width="100%"
-          maxHeight={400}
-          isCollapsible
-          collapsibleThreshold={1}
-        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowPatch((v) => !v)}
+            className="text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+          >
+            {showPatch ? "Hide patch" : "View patch"}
+          </button>
+          <CopyButton text={diff.patch} label="Copy patch" />
+        </div>
+      )}
+      {showPatch && diff.patch && (
+        <pre className="max-h-64 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre">
+          {diff.patch}
+        </pre>
       )}
     </div>
   );
 }
 
-function ApprovalBlock({
+
+function BetaRunReview({
+  job,
   diff,
-  pending,
-  error,
-  onApprove,
-  onReject,
+  onStatusChange,
+  disabled = false,
+  onPendingChange,
 }: {
+  job: JobRecord;
   diff: DiffRecord | null;
-  pending: "approve" | "reject" | null;
-  error: string | null;
-  onApprove: () => void;
-  onReject: () => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
+  // True while a different mutually-exclusive run action (e.g. Cancel) is
+  // in flight, so approve/publish can't race it.
+  disabled?: boolean;
+  // Reports this component's own pending state up so a sibling action
+  // (Cancel) can disable itself while approve/publish is in flight.
+  onPendingChange?: (pending: boolean) => void;
 }) {
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <StatusIndicator status="waiting" />
-        <p className="text-sm font-semibold text-foreground">Genesis is ready for review</p>
-      </div>
-      {diff ? (
-        <DiffSummary diff={diff} />
-      ) : (
-        <p className="text-sm text-muted-foreground">Loading the proposed diff…</p>
-      )}
-      {error && <p className="text-xs text-red-600">{error}</p>}
-      <div className="flex items-center gap-2 pt-1 flex-wrap">
-        <Button
-          size="sm"
-          disabled={pending !== null}
-          onClick={onApprove}
-          className="h-8 rounded-lg"
-        >
-          {pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Approve &amp; publish
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={pending !== null}
-          onClick={onReject}
-          className="h-8 rounded-lg"
-        >
-          {pending === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Reject
-        </Button>
+  const [proposals, setProposals] = useState<IntelligenceProposal[]>([]);
+  const [choices, setChoices] = useState<Record<string, { selected: boolean; content: string }>>({});
+  const [proposalState, setProposalState] = useState<"loading" | "loaded" | "error">(job.status === "awaiting_approval" ? "loading" : "loaded");
+  const [proposalAttempt, setProposalAttempt] = useState(0);
+  const [pending, setPendingState] = useState<"approve" | "reject" | "publish" | null>(null);
+  const setPending = (value: "approve" | "reject" | "publish" | null) => {
+    setPendingState(value);
+    onPendingChange?.(value !== null);
+  };
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (job.status !== "awaiting_approval") return;
+    let cancelled = false;
+    void getRunIntelligenceProposals(job.id).then((result) => {
+      if (cancelled) return;
+      setProposals(result.data);
+      setChoices(Object.fromEntries(result.data.map((item) => [item.id, { selected: true, content: item.content }])));
+      setProposalState("loaded");
+    }, () => { if (!cancelled) { setError("Proposed intelligence could not be loaded."); setProposalState("error"); } });
+    return () => { cancelled = true; };
+  }, [job.id, job.status, proposalAttempt]);
+
+  const approve = async () => {
+    if (proposalState !== "loaded") return;
+    setPending("approve"); setError(null);
+    const intelligence: IntelligenceApprovalSelection[] = proposals.map((item) => ({ proposal_id: item.id, selected: choices[item.id]?.selected ?? false, ...(choices[item.id]?.selected && choices[item.id]?.content !== item.content ? { content: choices[item.id].content } : {}) }));
+    try {
+      const response = await approveRun(job.id, intelligence);
+      onStatusChange(response.id, response.status);
+    } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Approval failed."); } finally { setPending(null); }
+  };
+  const publish = async () => { setPending("publish"); setError(null); try { const response = await publishRun(job.id); onStatusChange(response.id, response.status); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Publishing failed. The approval remains recorded."); } finally { setPending(null); } };
+  const reject = async () => { setPending("reject"); setError(null); try { const response = await rejectRun(job.id); onStatusChange(response.id, response.status); } catch (cause) { setError(cause instanceof ApiError ? cause.message : "Rejection failed."); } finally { setPending(null); } };
+
+  const diffBlock = <div className="mt-3 rounded-xl border p-4 space-y-3">
+    <p className="text-sm font-semibold">Proposed changes</p>
+    {diff ? <DiffSummary diff={diff} /> : <p className="text-xs text-muted-foreground">Loading the proposed diff…</p>}
+  </div>;
+
+  if (job.status === "approved") return <>
+    {diffBlock}
+    <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-muted-foreground">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red-600">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null || disabled}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>
+  </>;
+  if (job.status !== "awaiting_approval") return null;
+  return <>
+    {diffBlock}
+    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+      <h3 className="text-sm font-semibold">Proposed intelligence</h3>
+      <p className="mt-1 text-xs text-muted-foreground">Nothing becomes approved intelligence until you select it and approve the run.</p>
+      {proposalState === "loading" ? <p className="mt-3 text-xs">Loading proposals…</p> : proposalState === "loaded" && proposals.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">No intelligence was proposed. You can still approve the run.</p> : proposalState === "loaded" ? <ul className="mt-3 space-y-3">{proposals.map((item) => <li key={item.id} className="flex items-start gap-2">
+        <input aria-label={`Select proposal ${item.id}`} type="checkbox" checked={choices[item.id]?.selected ?? false} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: event.target.checked, content: current[item.id]?.content ?? item.content } }))} />
+        <div className="flex-1"><Textarea aria-label={`Edit proposal ${item.id}`} value={choices[item.id]?.content ?? item.content} disabled={!choices[item.id]?.selected} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: current[item.id]?.selected ?? true, content: event.target.value } }))} className="min-h-16 text-xs" /><p className="mt-1 text-xs text-muted-foreground">{item.kind}</p></div>
+      </li>)}</ul> : null}
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        <Button size="sm" onClick={approve} disabled={pending !== null || proposalState !== "loaded" || disabled}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
+        <Button size="sm" variant="outline" onClick={reject} disabled={pending !== null || disabled}>{pending === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Reject</Button>
       </div>
     </div>
-  );
+  </>;
 }
 
 const prUrlPattern = /opened PR #\d+: (\S+)/;
@@ -1536,26 +1579,20 @@ function RunCompleteMessage({ job, diff, logs }: { job: JobRecord; diff: DiffRec
 // provider payload) is technical detail kept out of the way behind a toggle.
 function splitError(error: string | null): { summary: string; details: string | null } {
   const raw = (error || "").trim();
-  if (!raw) return { summary: "The run failed before it could finish.", details: null };
+  if (!raw) return { summary: "The attempt stopped before it could finish.", details: null };
   const nl = raw.indexOf("\n");
   if (nl === -1) return { summary: raw, details: null };
   return { summary: raw.slice(0, nl).trim(), details: raw.slice(nl + 1).trim() || null };
 }
 
-function FailedMessage({ job, blocked = false }: { job: JobRecord; blocked?: boolean }) {
+function FailedMessage({ job }: { job: JobRecord }) {
   const { summary, details } = splitError(job.error);
   const [showDetails, setShowDetails] = useState(false);
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
-        {blocked ? (
-          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-        ) : (
-          <CircleX className="h-4 w-4 text-red-500 shrink-0" />
-        )}
-        <p className={cn("text-sm font-semibold", blocked ? "text-amber-700" : "text-red-600")}>
-          {blocked ? "Run couldn't start" : "Run failed"}
-        </p>
+        <CircleX className="h-4 w-4 text-red-500 shrink-0" />
+        <p className="text-sm font-semibold text-red-600">Attempt stopped</p>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed pl-6 break-words">{summary}</p>
       {details && (
@@ -1568,9 +1605,9 @@ function FailedMessage({ job, blocked = false }: { job: JobRecord; blocked?: boo
             {showDetails ? "Hide technical details" : "Show technical details"}
           </button>
           {showDetails && (
-            <div className="mt-2">
-              <CodeBlock language="plaintext" code={details} width="100%" maxHeight={224} isWrapped />
-            </div>
+            <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre-wrap break-words">
+              {details}
+            </pre>
           )}
         </div>
       )}
@@ -1581,16 +1618,74 @@ function FailedMessage({ job, blocked = false }: { job: JobRecord; blocked?: boo
   );
 }
 
-function RejectedMessage() {
+// Shared neutral-terminal-state message: rejected and cancelled render
+// identically apart from their heading/body text.
+function TerminalMessage({ title, description }: { title: string; description: string }) {
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
         <CircleX className="h-4 w-4 text-muted-foreground shrink-0" />
-        <p className="text-sm font-semibold text-foreground">Run rejected</p>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
-        The proposed change was reviewed and rejected before publishing.
-      </p>
+      <p className="text-sm text-muted-foreground leading-relaxed pl-6">{description}</p>
+    </div>
+  );
+}
+
+// Lets the user stop a run at any point before it reaches a terminal state.
+// Self-contained (mirrors BetaRunReview): calls the API directly and reports
+// the authoritative {id, status} response through the same centralized
+// onStatusChange updater every other mutation uses.
+function CancelRunControl({
+  job,
+  disabled = false,
+  onPendingChange,
+  onStatusChange,
+}: {
+  job: JobRecord;
+  // True while a different mutually-exclusive run action (approve/reject/
+  // publish) is in flight, so Cancel can't race it.
+  disabled?: boolean;
+  // Reports this component's own pending state up so a sibling action
+  // (approve/reject/publish) can disable itself while cancellation runs.
+  onPendingChange?: (pending: boolean) => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
+}) {
+  const [pending, setPendingState] = useState(false);
+  const setPending = (value: boolean) => {
+    setPendingState(value);
+    onPendingChange?.(value);
+  };
+  const [error, setError] = useState<string | null>(null);
+
+  if (isTerminalStatus(job.status)) return null;
+
+  const cancel = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await cancelJob(job.id);
+      onStatusChange(result.id, result.status);
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : "Failed to cancel the run.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="pt-3 flex items-center gap-2 flex-wrap">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={pending || disabled}
+        onClick={cancel}
+        className="h-8 gap-1.5 rounded-lg text-muted-foreground"
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+        Cancel run
+      </Button>
+      {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
 }
@@ -1599,35 +1694,48 @@ function RejectedMessage() {
 // RUN THREAD
 // =============================================================================
 
-// The assistant's terminal/awaiting content for one run — rendered as the
-// content of a ghost ChatMessageBubble. In-flight status is handled by the
-// caller (ChatSystemMessage), not here, since it isn't sender content.
+// The execution beneath one instruction: its live status, approval gate, and
+// terminal result.
 function RunExecution({
   run,
-  onApprove,
-  onReject,
+  onStatusChange,
 }: {
   run: RunState;
-  onApprove: () => void;
-  onReject: () => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
 }) {
-  const { job, diff, logs, actionPending, actionError } = run;
-  if (job.status === "awaiting_approval") {
-    return (
-      <ApprovalBlock
-        diff={diff}
-        pending={actionPending}
-        error={actionError}
-        onApprove={onApprove}
-        onReject={onReject}
+  const { job, diff, logs } = run;
+  // Cancel and approve/reject/publish are mutually exclusive mutations on the
+  // same run: each disables the other while it's in flight, so a user can't
+  // fire both at once and race their responses (or hit an avoidable 409).
+  const [cancelPending, setCancelPending] = useState(false);
+  const [reviewPending, setReviewPending] = useState(false);
+  return (
+    <div className="mt-1">
+      <AttemptActivityStrip job={job} events={run.events} isTerminal={isTerminalStatus(job.status)} />
+
+      <CancelRunControl
+        job={job}
+        disabled={reviewPending}
+        onPendingChange={setCancelPending}
+        onStatusChange={onStatusChange}
       />
-    );
-  }
-  if (job.status === "completed") return <RunCompleteMessage job={job} diff={diff} logs={logs} />;
-  if (job.status === "failed") return <FailedMessage job={job} />;
-  if (job.status === "blocked") return <FailedMessage job={job} blocked />;
-  if (job.status === "rejected") return <RejectedMessage />;
-  return null;
+
+      {(job.status === "awaiting_approval" || job.status === "approved") && (
+        <BetaRunReview
+          job={job}
+          diff={diff}
+          onStatusChange={onStatusChange}
+          disabled={cancelPending}
+          onPendingChange={setReviewPending}
+        />
+      )}
+
+      {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
+      {(job.status === "failed" || job.status === "blocked") && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
+      {job.status === "rejected" && <TerminalMessage title="Run rejected" description="The proposed change was reviewed and rejected before publishing." />}
+      {job.status === "cancelled" && <TerminalMessage title="Run cancelled" description="This run was cancelled before it finished." />}
+    </div>
+  );
 }
 
 // Retry (failed) or Run-again (completed/rejected): a quiet action that queues a
@@ -1642,10 +1750,10 @@ function RunActions({
   pending: boolean;
   onRetry: () => void;
 }) {
-  if (!["failed", "completed", "rejected", "blocked"].includes(job.status)) return null;
-  const retry = job.status === "failed" || job.status === "blocked";
+  if (job.status !== "failed" && job.status !== "blocked" && job.status !== "completed" && job.status !== "rejected" && job.status !== "cancelled") return null;
+  const retry = job.status === "failed" || job.status === "blocked" || job.status === "cancelled";
   return (
-    <div className="mt-1 pl-11">
+    <div className="mt-3">
       <Button
         size="sm"
         variant="outline"
@@ -1660,104 +1768,108 @@ function RunActions({
   );
 }
 
-// Maps the run's phase log (plan/patch/tests/summary/publish) onto
-// ChatToolCalls' item shape. Only fields the backend actually reports are
-// set — no fabricated duration or diff counts, since LogRecord doesn't carry
-// them; this is a bounded, honest rendering of real log/event data, not a
-// standalone tool-call ledger.
-function logsToToolCalls(logs: LogRecord[]): ChatToolCallItem[] {
-  return logs.map((log, i) => ({
-    key: `${log.phase}-${i}`,
-    name: log.phase || "log",
-    target: log.message,
-    status: log.level === "error" ? "error" : "complete",
-  }));
+// One turn of the conversation: the submitted instruction and the execution it
+// produced. Immutable — a new turn is appended for every follow-up.
+// Shown above the instruction only when a task has more than one attempt —
+// a single-attempt thread has nothing to disambiguate.
+function AttemptSummaryLine({ job, attemptNumber }: { job: JobRecord; attemptNumber: number }) {
+  const summary = getAttemptSummary(job, attemptNumber);
+  return (
+    <p className="mb-1.5 text-xs text-muted-foreground">
+      Attempt {summary.attemptNumber} · <span className={cn("font-medium", lifecycleStageCls[summary.lifecycle.stage])}>{summary.lifecycle.label}</span>
+      {summary.model !== "—" && <> · {summary.model}</>}
+      {summary.elapsedLabel && <> · {summary.elapsedLabel}</>}
+    </p>
+  );
 }
 
-// One turn of the conversation: the submitted instruction (a user chat
-// message) and the execution it produced (an assistant chat message, or a
-// system status line while still in flight). Immutable — a new turn is
-// appended for every follow-up.
 function ConversationTurn({
   run,
   isTip,
+  attemptNumber,
+  totalAttempts,
   retryPending,
-  onApprove,
-  onReject,
+  onStatusChange,
   onRetry,
 }: {
   run: RunState;
   isTip: boolean;
+  attemptNumber: number;
+  totalAttempts: number;
   retryPending: boolean;
-  onApprove: () => void;
-  onReject: () => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: () => void;
 }) {
-  const { job } = run;
-  const inFlight = inFlightStatuses.includes(job.status);
-  const hasAssistantTurn = !inFlight && job.status !== "queued";
-
   return (
-    <>
-      <ChatMessage sender="user">
-        <ChatMessageBubble
-          metadata={
-            <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
-          }
-        >
-          <p className="whitespace-pre-wrap break-words">{job.instruction}</p>
-        </ChatMessageBubble>
-      </ChatMessage>
-
-      {inFlight && (
-        <ChatSystemMessage icon={<Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />}>
-          {phaseStatusLabel[job.status]}
-        </ChatSystemMessage>
+    <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
+      {totalAttempts > 1 && <AttemptSummaryLine job={run.job} attemptNumber={attemptNumber} />}
+      <InstructionMessage job={run.job} />
+      <RunExecution run={run} onStatusChange={onStatusChange} />
+      {isTip && isTerminalStatus(run.job.status) && (
+        <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
       )}
+    </div>
+  );
+}
 
-      {hasAssistantTurn && (
-        <ChatMessage sender="assistant" avatar={<Avatar name="Genesis" size="md" />}>
-          {run.logs.length > 0 && <ChatToolCalls calls={logsToToolCalls(run.logs)} />}
-          <ChatMessageBubble variant="ghost">
-            <RunExecution run={run} onApprove={onApprove} onReject={onReject} />
-          </ChatMessageBubble>
-        </ChatMessage>
-      )}
-
-      {isTip && isTerminalStatus(job.status) && (
-        <RunActions job={job} pending={retryPending} onRetry={onRetry} />
-      )}
-    </>
+// The trailing run of earlier attempts that stopped/were rejected/cancelled,
+// collapsed by default so a retried task doesn't read as several unrelated
+// conversations. Each attempt's own record stays fully intact and individually
+// reachable via "Show attempts" — nothing here merges or discards a run.
+function EarlierAttemptsSummary({ collapsedJobs, expanded, onToggle }: { collapsedJobs: JobRecord[]; expanded: boolean; onToggle: () => void }) {
+  if (collapsedJobs.length === 0) return null;
+  if (expanded) {
+    return (
+      <button type="button" onClick={onToggle} className="mb-3 text-xs text-muted-foreground underline underline-offset-2">
+        Hide earlier attempts
+      </button>
+    );
+  }
+  return (
+    <p className="mb-3 text-xs text-muted-foreground">
+      {summarizeCollapsedAttempts(collapsedJobs)}{" "}
+      <button type="button" onClick={onToggle} className="underline underline-offset-2">
+        Show attempts
+      </button>
+    </p>
   );
 }
 
 function RunThread({
   thread,
-  onApprove,
-  onReject,
+  onStatusChange,
   onRetry,
 }: {
   thread: ThreadState;
-  onApprove: (runId: string) => void;
-  onReject: (runId: string) => void;
+  onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
 }) {
+  const [attemptsExpanded, setAttemptsExpanded] = useState(false);
+  const jobs = thread.runs.map((run) => run.job);
+  const collapsibleIds = collapsibleAttemptIds(jobs);
+  const numbered = thread.runs.map((run, i) => ({ run, attemptNumber: i + 1 }));
+  const visible = attemptsExpanded ? numbered : numbered.filter(({ run }) => !collapsibleIds.has(run.job.id));
+
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
       <ThreadHeader thread={thread} />
-      <ChatMessageList density="balanced">
-        {thread.runs.map((run, i) => (
-          <ConversationTurn
-            key={run.job.id}
-            run={run}
-            isTip={i === thread.runs.length - 1}
-            retryPending={thread.retryPending}
-            onApprove={() => onApprove(run.job.id)}
-            onReject={() => onReject(run.job.id)}
-            onRetry={() => onRetry(run.job.id)}
-          />
-        ))}
-      </ChatMessageList>
+      <EarlierAttemptsSummary
+        collapsedJobs={jobs.filter((job) => collapsibleIds.has(job.id))}
+        expanded={attemptsExpanded}
+        onToggle={() => setAttemptsExpanded((v) => !v)}
+      />
+      {visible.map(({ run, attemptNumber }) => (
+        <ConversationTurn
+          key={run.job.id}
+          run={run}
+          isTip={run.job.id === thread.runs[thread.runs.length - 1].job.id}
+          attemptNumber={attemptNumber}
+          totalAttempts={thread.runs.length}
+          retryPending={thread.retryPending}
+          onStatusChange={onStatusChange}
+          onRetry={() => onRetry(run.job.id)}
+        />
+      ))}
     </div>
   );
 }
@@ -1804,7 +1916,7 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6">
       {error && <p className="mb-2 text-xs text-red-600" role="alert">{error}</p>}
-      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
+      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -1824,7 +1936,7 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
             title="Send follow-up"
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-              "bg-primary text-primary-foreground hover:bg-primary/90",
+              "bg-neutral-900 text-white hover:bg-neutral-800",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               "disabled:opacity-40 disabled:pointer-events-none"
             )}
@@ -1839,77 +1951,15 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
 
 
 // =============================================================================
-// ACTIVITY PANEL (real log stream from GET /jobs/{id}/logs)
+// ACTIVITY PANEL (structured lifecycle stream from GET /v1/runs/{id}/events)
 // =============================================================================
 
-function LogRow({ log }: { log: LogRecord }) {
-  const icon =
-    log.level === "error" ? (
-      <CircleX className="h-3.5 w-3.5 text-red-500" />
-    ) : log.level === "warning" ? (
-      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-    ) : (
-      <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
-    );
-
-  return (
-    <div className="flex items-start gap-2.5 px-4 py-2.5 border-b border-border last:border-b-0">
-      <span className="shrink-0 mt-0.5">{icon}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-2">
-          {log.phase && (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 truncate">
-              {log.phase}
-            </span>
-          )}
-          <span className="text-xs text-muted-foreground/60 font-mono shrink-0 ml-auto">
-            {timeAgo(log.created_at)}
-          </span>
-        </div>
-        <p className="text-sm text-foreground/90 leading-relaxed mt-0.5 break-words">{log.message}</p>
-      </div>
-    </div>
-  );
-}
-
-function ActivityPanel({ run }: { run: RunState }) {
-  if (run.logs.length === 0) {
-    return (
-      <EmptyState
-        icon={<ActivityGlyph className="h-8 w-8" />}
-        title="No activity yet"
-        description="Logs will appear here as Genesis works on this run."
-      />
-    );
-  }
-
-  const tokens = totalTokens(run.job.usage);
-
-  return (
-    <div className="flex-1 overflow-y-auto flex flex-col">
-      <div className="flex-1">
-        {run.logs.map((log, i) => (
-          <LogRow key={i} log={log} />
-        ))}
-      </div>
-      <div className="shrink-0 sticky bottom-0 bg-card border-t border-border px-4 py-3 flex items-center justify-between">
-        <span className="text-sm font-semibold text-foreground">Compute used</span>
-        <span className="text-xs text-muted-foreground font-mono">
-          {tokens !== null ? `${tokens.toLocaleString()} tokens` : "Not tracked yet"}
-        </span>
-      </div>
-    </div>
-  );
+function ActivityPanel({ run, receiptState, onRetryReceipt }: { run: RunState; receiptState?: ReceiptActivityState; onRetryReceipt?: () => void }) {
+  return <RunActivityTimeline run={run.job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(run.job.status)} reconnecting={run.eventsReconnecting} receiptState={receiptState} onRetryReceipt={onRetryReceipt} />;
 }
 
 // =============================================================================
-// RECEIPT PANEL
-//
-// The backend's GET /jobs/:id/receipt is the sole source of truth for every
-// value shown here. This panel formats those values; it never recomputes
-// them from job.usage, job.context, or client-side settings. A terminal
-// pre-execution run (blocked/failed before the executor started) reports
-// truthful zeros and "Not run" — never "Not tracked yet" for a known value.
+// RECEIPT PANEL (the backend receipt is the sole source of receipt semantics)
 // =============================================================================
 
 function SummaryItem({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
@@ -1923,128 +1973,161 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
   );
 }
 
-function receiptOutcome(job: JobRecord, receipt: Receipt): string {
-  if (job.status === "failed" || job.status === "blocked") {
-    return splitError(receipt.failure_message ?? job.error).summary;
-  }
-  if (job.status === "rejected") return "The proposed change was reviewed and rejected before publishing.";
-  if (receipt.files_changed.length > 0) {
-    return `Changed ${receipt.files_changed.length} file${receipt.files_changed.length === 1 ? "" : "s"} on branch ${job.branch ?? job.base_branch}.`;
-  }
-  return "The run finished successfully.";
+function formatCheckStatus(status: string): string {
+  if (status === "not_run") return "Not run";
+  if (status === "passed") return "Passed";
+  if (status === "failed") return "Failed";
+  if (status === "unknown") return "Unknown";
+  return status.replaceAll("_", " ");
 }
 
-// Only `receipt.tokens === null` (no execution run exists at all) is genuinely
-// unmeasured; once a run exists its token counters are real numbers, so 0 is
-// shown as 0, not as "unavailable".
-function tokensDisplay(receipt: Receipt): string {
-  if (receipt.tokens) return (receipt.tokens.input + receipt.tokens.output).toLocaleString();
-  return receipt.execution_started ? "Not tracked yet" : "0";
-}
-
-function spentDisplay(receipt: Receipt): string {
-  if (receipt.cost) {
-    const amount = Number(receipt.cost.total_billed);
-    return `$${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"}`;
-  }
-  return receipt.execution_started ? "Not tracked yet" : "$0.00";
-}
-
-function testsDisplay(receipt: Receipt): string {
-  if (receipt.tests === "not_run") return "Not run";
-  if (receipt.tests === null) return receipt.execution_started ? "Not tracked yet" : "Not run";
-  const { passed, failed, skipped } = receipt.tests;
-  return `${passed} passed, ${failed} failed${skipped ? `, ${skipped} skipped` : ""}`;
-}
-
-function ReceiptPanel({ run }: { run: RunState }) {
-  const { job } = run;
-  const failed = job.status === "failed" || job.status === "rejected" || job.status === "blocked";
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [receiptError, setReceiptError] = useState<string | null>(null);
-
-  // Keyed by job.id at the call site (see RunPanel), so a different run's
-  // receipt always starts this component fresh rather than needing a manual
-  // state reset here.
-  useEffect(() => {
-    let cancelled = false;
-    getJobReceipt(job.id)
-      .then((r) => {
-        if (!cancelled) setReceipt(r);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setReceiptError(err instanceof ApiError ? err.message : "Couldn't load the receipt.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [job.id]);
+function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord }) {
+  const sections = getReceiptSections(receipt, job);
+  const supplied = receipt.intelligence?.supplied ?? [];
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <Section padding={4} dividers={["bottom"]}>
-        <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Run receipt
-          </p>
-          <p className="text-sm font-semibold text-foreground line-clamp-2">{job.instruction}</p>
-          <p className="text-xs text-muted-foreground font-mono">{job.repo}</p>
-          <div className="flex items-center gap-1.5 pt-1">
-            {failed ? (
-              <CircleX className="h-3.5 w-3.5 text-red-500" />
-            ) : (
-              <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
-            )}
-            <span className={cn("text-sm font-semibold", failed ? "text-red-600" : "text-emerald-600")}>
-              {runLabelCls[jobStatusToRunStatus(job.status)].label}
-            </span>
-          </div>
-        </div>
-      </Section>
-
-      {receiptError ? (
-        <Section padding={4}>
-          <p className="text-sm text-red-600">{receiptError}</p>
-        </Section>
-      ) : !receipt ? (
-        <Section padding={4}>
-          <p className="text-sm text-muted-foreground">Loading receipt…</p>
-        </Section>
-      ) : (
-        <>
-          <Section padding={4} dividers={["bottom"]}>
-            <div className="space-y-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Outcome
-              </p>
-              <p className="text-sm text-foreground leading-relaxed">{receiptOutcome(job, receipt)}</p>
-            </div>
-          </Section>
-
-          <Section padding={4} dividers={receipt.files_changed.length > 0 ? ["bottom"] : undefined}>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-              <SummaryItem label="Execution started" value={receipt.execution_started ? "Yes" : "No"} />
-              <SummaryItem label="Tokens" value={tokensDisplay(receipt)} emphasize={!!receipt.tokens} />
-              <SummaryItem label="Spent" value={spentDisplay(receipt)} />
-              <SummaryItem label="Files changed" value={String(receipt.files_changed.length)} />
-              <SummaryItem label="Tests" value={testsDisplay(receipt)} />
-              <SummaryItem label="Model" value={displayModel(job)} />
-            </div>
-          </Section>
-
-          {receipt.files_changed.length > 0 && (
-            <Section padding={4}>
-              <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
-              <ul className="text-xs text-muted-foreground space-y-1 font-mono">
-                {receipt.files_changed.map((f) => (
-                  <li key={f}>{f}</li>
-                ))}
-              </ul>
-            </Section>
+      {/* HEADER */}
+      <div className="px-4 py-4 border-b border-border space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Run receipt</p>
+        <p className="text-sm font-semibold text-foreground line-clamp-2">{receipt.task}</p>
+        <p className="text-xs text-muted-foreground font-mono">{receipt.repository}</p>
+        <div className="flex items-center gap-1.5 pt-1">
+          {sections.header.failed ? (
+            <CircleX className="h-3.5 w-3.5 text-red-500" />
+          ) : (
+            <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
           )}
-        </>
-      )}
+          <span className={cn("text-sm font-semibold", sections.header.failed ? "text-red-600" : "text-emerald-600")}>
+            {sections.header.title}
+            {sections.header.qualifier && <span className="font-normal text-muted-foreground"> · {sections.header.qualifier}</span>}
+          </span>
+        </div>
+        {sections.header.description && <p className="text-sm text-foreground leading-relaxed">{sections.header.description}</p>}
+      </div>
+
+      {/* CHANGES */}
+      <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Changes</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <SummaryItem label="Files changed" value={String(sections.changes.filesChanged.length)} />
+          <SummaryItem label="Model" value={sections.agent.model} />
+        </div>
+        {sections.changes.filesChanged.length > 0 && (
+          <ul className="text-xs text-muted-foreground space-y-1 font-mono">
+            {sections.changes.filesChanged.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* VERIFICATION */}
+      <div className="px-4 py-4 border-b border-border space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Verification</p>
+        <p className="text-sm text-foreground">
+          Output validation{" "}
+          {sections.verification.outputValidation === "passed" ? "passed" : sections.verification.outputValidation === "failed" ? "failed" : "unavailable"}
+        </p>
+        {sections.verification.checks.map((check) => (
+          <p key={check.name} className={cn("text-sm", check.passed === false ? "text-amber-700 font-medium" : "text-foreground")}>
+            {check.name} · <span>{formatCheckStatus(check.status)}</span>
+          </p>
+        ))}
+      </div>
+
+      {/* AGENT */}
+      <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <SummaryItem label="Tokens" value={sections.agent.tokensSummary} emphasize />
+          <SummaryItem label="Provider cost" value={sections.agent.cost.label} />
+        </div>
+      </div>
+
+      {/* REPOSITORY INTELLIGENCE */}
+      <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Repository intelligence</p>
+        <div className="grid grid-cols-1 gap-y-3">
+          <SummaryItem label="Previous intelligence" value={sections.intelligence.selected.label} />
+          <SummaryItem label="Delivered intelligence" value={sections.intelligence.delivered.label} />
+          <SummaryItem label="New reusable intelligence" value={sections.intelligence.proposed.label} />
+        </div>
+        {supplied.length > 0 && (
+          <ul className="mt-1 space-y-4">
+            {supplied.map((item) => (
+              <li key={item.memory_id} className="text-xs">
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span>
+                  <span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-700" : "text-muted-foreground")}>
+                    {item.delivered ? "Delivered to model request" : "Delivery not attested"}
+                  </span>
+                </div>
+                {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
+                {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
+                <p className="mt-1 text-muted-foreground">
+                  {[
+                    item.source_model && `Source model: ${item.source_model}`,
+                    item.approved_by && `Approved by ${item.approved_by}`,
+                    item.approved_at && new Date(item.approved_at).toLocaleString(),
+                    item.destination_model && `Destination model: ${item.destination_model}`,
+                  ].filter(Boolean).join(" · ")}
+                </p>
+                {item.source_run_id && (
+                  <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>
+                    View source run
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* PUBLICATION */}
+      <div className="px-4 py-4 border-b border-border space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Publication</p>
+        {sections.publication.phase === "pre_approval" && (
+          <p className="text-sm text-foreground">Review and approve the proposed change</p>
+        )}
+        {sections.publication.phase === "approved_not_published" && <p className="text-sm text-foreground">Approved</p>}
+        {sections.publication.phase === "published" && (
+          <>
+            <p className="text-sm text-foreground">Pull request published</p>
+            {sections.publication.pullRequest && (
+              <a
+                href={sections.publication.pullRequest.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-sm underline"
+              >
+                View pull request on GitHub <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* TECHNICAL EVIDENCE */}
+      <details className="border-b px-4 py-4 text-xs">
+        <summary className="cursor-pointer text-sm font-semibold">Technical evidence</summary>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <SummaryItem label="Repository" value={sections.technical.repository} />
+          {sections.technical.startingCommit != null && <SummaryItem label="Starting commit" value={sections.technical.startingCommit} />}
+          {receipt.advisor_model != null && <SummaryItem label="Historical Advisor" value={receipt.advisor_model} />}
+          <SummaryItem
+            label="Service fee"
+            value={receipt.cost?.gnsis_service_fee != null ? receipt.cost.gnsis_service_fee : "No service fee recorded"}
+          />
+          <SummaryItem
+            label="Execution started"
+            value={sections.technical.executionStarted === undefined ? "Unavailable" : sections.technical.executionStarted ? "Yes" : "No"}
+          />
+          {publicBetaMode() && sections.technical.executionId != null && <SummaryItem label="Execution ID" value={sections.technical.executionId} />}
+          {sections.technical.patchHash != null && <SummaryItem label="Patch hash" value={sections.technical.patchHash} />}
+          {sections.technical.durationSeconds != null && <SummaryItem label="Duration" value={`${sections.technical.durationSeconds}s`} />}
+        </div>
+      </details>
     </div>
   );
 }
@@ -2068,89 +2151,75 @@ function RunPanelHeader({
   onToggle: () => void;
   hasActivity: boolean;
 }) {
-  const collapseToggle = (
-    <IconButton
-      icon={collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
-      label={collapsed ? "Expand run panel" : "Collapse run panel"}
-      onClick={onToggle}
-      className="shrink-0"
-    />
-  );
-
-  if (collapsed) {
-    return <div className="flex items-center h-14 px-0 shrink-0 justify-center">{collapseToggle}</div>;
-  }
-
   return (
-    <div className="h-14 flex items-center px-1.5">
-      <Toolbar
-        label="Run panel"
-        startContent={
-          <div className="flex items-center gap-0.5">
+    <div
+      className={cn(
+        "flex items-center h-14 pl-3 pr-2.5 shrink-0 justify-between gap-1",
+        collapsed && "px-0 justify-center"
+      )}
+    >
+      {!collapsed && (
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => onTabChange("activity")}
+            className={cn(
+              "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150 relative",
+              tab === "activity"
+                ? "bg-black/[0.04] text-foreground"
+                : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
+            )}
+          >
+            Activity
+            {hasActivity && tab !== "activity" && (
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
+            )}
+          </button>
+          {receiptEnabled ? (
             <button
               type="button"
-              onClick={() => onTabChange("activity")}
+              onClick={() => onTabChange("receipt")}
               className={cn(
-                "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150 relative",
-                tab === "activity"
+                "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150",
+                tab === "receipt"
                   ? "bg-black/[0.04] text-foreground"
                   : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
               )}
             >
-              Activity
-              {hasActivity && tab !== "activity" && (
-                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
-              )}
+              Receipt
             </button>
-            {receiptEnabled ? (
-              <button
-                type="button"
-                onClick={() => onTabChange("receipt")}
-                className={cn(
-                  "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150",
-                  tab === "receipt"
-                    ? "bg-black/[0.04] text-foreground"
-                    : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
-                )}
-              >
-                Receipt
-              </button>
-            ) : (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      disabled
-                      className="h-7 px-2.5 rounded-md text-xs font-semibold text-muted-foreground/40 cursor-not-allowed"
-                    >
-                      Receipt
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">
-                    Available when complete
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
-        }
-        endContent={collapseToggle}
+          ) : (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    disabled
+                    className="h-7 px-2.5 rounded-md text-xs font-semibold text-muted-foreground/40 cursor-not-allowed"
+                  >
+                    Receipt
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Available once a result is ready for review
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+      )}
+      <IconButton
+        icon={collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+        label={collapsed ? "Expand run panel" : "Collapse run panel"}
+        onClick={onToggle}
+        className="shrink-0"
       />
     </div>
   );
 }
 
-function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
-  const status: StatusKind = !jobStatus
-    ? "idle"
-    : jobStatus === "completed"
-    ? "completed"
-    : jobStatus === "failed" || jobStatus === "rejected"
-    ? "failed"
-    : jobStatus === "awaiting_approval"
-    ? "waiting"
-    : "active";
+function CollapsedRunPanel({ job }: { job?: JobRecord }) {
+  const status: StatusKind = job ? getRunLifecycleState(job).indicatorKind : "idle";
 
   return (
     <div className="flex flex-col items-center py-4 gap-3">
@@ -2170,6 +2239,7 @@ type WorkspaceView =
   | { kind: "thread-loading"; runId: string }
   | { kind: "thread-error"; runId: string; message: string }
   | { kind: "runs" }
+  | { kind: "intelligence" }
   | { kind: "dashboard" }
   | { kind: "settings" }
   | { kind: "billing" }
@@ -2180,21 +2250,48 @@ function RunPanelRegion({
   collapsed,
   onToggle,
   view,
-  width,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   view: WorkspaceView;
-  width: number;
 }) {
+  const location = useLocation();
   const hasThread = view.kind === "thread";
-  // The side panel reflects the conversation tip — the most recent execution.
-  const tipRun = hasThread ? activeRun(view.thread) : null;
-  const status = tipRun ? tipRun.job.status : undefined;
+  const selectedId = matchPath({ path: "/runs/:runId", end: true }, location.pathname)?.params.runId;
+  // A deep link selects that immutable run even though the page renders its
+  // complete conversation. Newly appended runs remain the active tip.
+  const selectedRun = hasThread
+    ? view.thread.runs.find((run) => run.job.id === selectedId) ?? activeRun(view.thread)
+    : null;
+  const receiptRunId = selectedId ?? selectedRun?.job.id;
+  const status = selectedRun?.job.status;
   const threadKey = hasThread ? view.threadKey : null;
 
   const [tab, setTab] = useState<"activity" | "receipt">("activity");
   const prevStatusRef = useRef<JobStatus | null>(null);
+  const [receiptState, setReceiptState] = useState<
+    { kind: "idle" } | { kind: "loaded"; runId: string; receipt: RunReceipt } | { kind: "unavailable" | "error"; runId: string; message: string }
+  >({ kind: "idle" });
+  const [receiptAttempt, setReceiptAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!selectedRun || !receiptRunId || !isReceiptEligibleStatus(selectedRun.job.status)) {
+      return;
+    }
+    let cancelled = false;
+    void getRunReceipt(receiptRunId).then(
+      (receipt) => { if (!cancelled) setReceiptState({ kind: "loaded", runId: receiptRunId, receipt }); },
+      (error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof ApiError && error.status === 404) {
+          setReceiptState({ kind: "unavailable", runId: receiptRunId, message: "The canonical receipt is not available for this run." });
+        } else {
+          setReceiptState({ kind: "error", runId: receiptRunId, message: "The receipt could not be loaded. Try refreshing the page." });
+        }
+      },
+    );
+    return () => { cancelled = true; };
+  }, [receiptRunId, selectedRun?.job.status, receiptAttempt]);
 
   // Scroll positions per tab
   const activityScrollRef = useRef<HTMLDivElement>(null);
@@ -2226,39 +2323,39 @@ function RunPanelRegion({
   useEffect(() => {
     if (!hasThread) {
       prevStatusRef.current = null;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets view state when the selected thread changes
       setTab("activity");
       activityScrollPos.current = 0;
       receiptScrollPos.current = 0;
       return;
     }
-    const initialStatus = activeRun(view.thread).job.status;
-    setTab(isTerminalStatus(initialStatus) ? "receipt" : "activity");
+    const initialStatus = selectedRun?.job.status ?? activeRun(view.thread).job.status;
+    setTab(isReceiptEligibleStatus(initialStatus) ? "receipt" : "activity");
     activityScrollPos.current = 0;
     receiptScrollPos.current = 0;
     prevStatusRef.current = initialStatus;
-  }, [threadKey]);
+  }, [threadKey, selectedRun?.job.id]);
 
-  // Auto-switch to receipt when the tip run completes
+  // Auto-switch to receipt once a result becomes ready for review, not only
+  // once fully published — a run reaching awaiting_approval already has a
+  // receipt worth showing.
   useEffect(() => {
     if (!hasThread) return;
     const statusNow = activeRun(view.thread).job.status;
-    if (prevStatusRef.current && prevStatusRef.current !== "completed" && statusNow === "completed") {
+    if (prevStatusRef.current && !isReceiptEligibleStatus(prevStatusRef.current) && isReceiptEligibleStatus(statusNow)) {
       handleTabChange("receipt");
     }
     prevStatusRef.current = statusNow;
   }, [hasThread, status]);
 
-  const receiptEnabled = !!status && isTerminalStatus(status);
+  const receiptEnabled = !!status && isReceiptEligibleStatus(status);
   const hasActivity = hasThread && !(status && isTerminalStatus(status));
 
   return (
     <aside
-      style={{ width: collapsed ? 48 : width }}
+      style={{ width: collapsed ? 48 : 400 }}
       className={cn(
-        "relative flex flex-col h-full shrink-0 bg-muted/60",
-        collapsed && "transition-[width] duration-200 ease-in-out",
-        "overflow-hidden"
+        "relative flex flex-col h-full shrink-0 bg-neutral-50/60",
+        "transition-[width] duration-200 ease-in-out overflow-hidden"
       )}
     >
       <RunPanelHeader
@@ -2274,7 +2371,7 @@ function RunPanelRegion({
 
       {collapsed ? (
         <div className="flex-1 cursor-pointer" onClick={onToggle}>
-          <CollapsedRunPanel jobStatus={status} />
+          <CollapsedRunPanel job={selectedRun?.job} />
         </div>
       ) : !hasThread ? (
         tab === "activity" ? (
@@ -2287,16 +2384,22 @@ function RunPanelRegion({
           <EmptyState
             icon={<CircleCheck className="h-8 w-8" />}
             title="No receipt yet"
-            description="Receipts appear after a run completes."
+            description="Receipts appear once a run's result is ready for review."
           />
         )
-      ) : tab === "activity" && tipRun ? (
+      ) : tab === "activity" && selectedRun ? (
         <div ref={activityScrollRef} className="flex-1 overflow-y-auto">
-          <ActivityPanel run={tipRun} />
+          <ActivityPanel run={selectedRun} receiptState={receiptState.kind === "idle" ? "idle" : receiptState.kind === "loaded" ? "loaded" : receiptState.kind} onRetryReceipt={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }} />
         </div>
-      ) : tipRun ? (
+      ) : selectedRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
-          <ReceiptPanel key={tipRun.job.id} run={tipRun} />
+          {receiptState.kind === "loaded" && receiptState.runId === receiptRunId ? (
+            <ReceiptPanel receipt={receiptState.receipt} job={selectedRun.job} />
+          ) : (receiptState.kind === "error" || receiptState.kind === "unavailable") && receiptState.runId === receiptRunId ? (
+            <div className="p-4"><EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description="The run outcome is known, but its detailed receipt could not be loaded." /><Button variant="outline" size="sm" className="mx-auto flex" onClick={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }}>Retry receipt</Button></div>
+          ) : (
+            <EmptyState icon={<Loader2 className="h-8 w-8 animate-spin" />} title="Loading receipt" description="Fetching the canonical receipt for this run…" />
+          )}
         </div>
       ) : null}
     </aside>
@@ -2312,25 +2415,27 @@ function RunsFilterSelect({
   value,
   onChange,
   options,
+  labelFor = (opt) => opt,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: readonly string[];
+  labelFor?: (opt: string) => string;
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger size="sm" className="h-8 text-xs w-auto gap-1.5">
         <SelectValue>
           <span className="text-muted-foreground">{label}:</span>{" "}
-          <span>{value === "all" ? "All" : value}</span>
+          <span>{value === "all" ? "All" : labelFor(value)}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectContent align="start">
         <SelectItem value="all">All</SelectItem>
         {options.map((opt) => (
           <SelectItem key={opt} value={opt}>
-            {opt}
+            {labelFor(opt)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -2339,25 +2444,97 @@ function RunsFilterSelect({
 }
 
 const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
-const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "failed"];
 
-function RunsTableRow({ run, onClick }: { run: RecentRun; onClick: () => void }) {
+// Shared by RunsView and DashboardView's "Recent runs" section: a
+// responsive (desktop grid / mobile stacked cards) list of runs, differing
+// only in column widths, header labels, and the empty-state message.
+function RunsTable({
+  runs,
+  onSelectRun,
+  columns,
+  headers,
+  emptyMessage,
+}: {
+  runs: RecentRun[];
+  onSelectRun: (id: string) => void;
+  columns: string;
+  headers: [string, string, string, string, string];
+  emptyMessage: string;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-border last:border-b-0",
-        "hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        runsColumns
-      )}
-    >
-      <span className="text-sm text-foreground truncate">{run.title}</span>
-      <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-      <span className="text-xs text-muted-foreground truncate">{run.model}</span>
-      <span className="text-xs"><StatusLabel status={run.status} /></span>
-      <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
-    </button>
+    <>
+      <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", columns)}>
+        {headers.map((label, i) => (
+          <span key={label} className={i === headers.length - 1 ? "text-right" : undefined}>{label}</span>
+        ))}
+      </div>
+
+      <div className="hidden md:block border-t border-border">
+        {runs.length === 0 ? (
+          <div className="px-3 py-8 text-center">
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          </div>
+        ) : (
+          runs.map((run) => (
+            <button
+              key={run.id}
+              type="button"
+              onClick={() => onSelectRun(run.id)}
+              className={cn(
+                "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-border last:border-b-0",
+                "hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                columns
+              )}
+            >
+              <span className="text-sm text-foreground truncate">
+                {run.title}
+                {run.attemptCount > 1 && <span className="ml-1.5 text-xs text-muted-foreground">· {run.attemptCount} attempts</span>}
+              </span>
+              <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
+              <span className="text-xs text-muted-foreground truncate">{run.model}</span>
+              <span className="text-xs"><StatusLabel stage={run.status} /></span>
+              <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="md:hidden space-y-2 mt-2">
+        {runs.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          </div>
+        ) : (
+          runs.map((run) => (
+            <button
+              key={run.id}
+              type="button"
+              onClick={() => onSelectRun(run.id)}
+              className="w-full rounded-lg border border-border bg-white p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
+                <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="font-mono">{run.repo}</span>
+                <span>·</span>
+                <span>{run.model}</span>
+                {run.attemptCount > 1 && (
+                  <>
+                    <span>·</span>
+                    <span>{run.attemptCount} attempts</span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <StatusLabel stage={run.status} />
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </>
   );
 }
 
@@ -2396,7 +2573,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
       </div>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={runStatusOptions} />
+        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={LIFECYCLE_FILTER_OPTIONS} labelFor={(s) => LIFECYCLE_STAGE_LABELS[s as LifecycleStageId] ?? s} />
         <RunsFilterSelect label="Repository" value={repoFilter} onChange={setRepoFilter} options={repoOptions} />
       </div>
 
@@ -2404,58 +2581,13 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
         {filtered.length} {filtered.length === 1 ? "run" : "runs"}
       </p>
 
-      {/* Desktop header */}
-      <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", runsColumns)}>
-        <span>Task</span>
-        <span>Repository</span>
-        <span>Engine</span>
-        <span>Status</span>
-        <span className="text-right">Updated</span>
-      </div>
-
-      {/* Desktop rows */}
-      <div className="hidden md:block border-t border-border">
-        {filtered.length === 0 ? (
-          <div className="px-3 py-8 text-center">
-            <p className="text-sm text-muted-foreground">No runs match your filters.</p>
-          </div>
-        ) : (
-          filtered.map((run) => (
-            <RunsTableRow key={run.id} run={run} onClick={() => onSelectRun(run.id)} />
-          ))
-        )}
-      </div>
-
-      {/* Mobile stacked rows */}
-      <div className="md:hidden space-y-2 mt-2">
-        {filtered.length === 0 ? (
-          <div className="py-8 text-center">
-            <p className="text-sm text-muted-foreground">No runs match your filters.</p>
-          </div>
-        ) : (
-          filtered.map((run) => (
-            <button
-              key={run.id}
-              type="button"
-              onClick={() => onSelectRun(run.id)}
-              className="w-full rounded-lg border border-border bg-card p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
-                <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-mono">{run.repo}</span>
-                <span>·</span>
-                <span>{run.model}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <StatusLabel status={run.status} />
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <RunsTable
+        runs={filtered}
+        onSelectRun={onSelectRun}
+        columns={runsColumns}
+        headers={["Task", "Repository", "Model", "Status", "Updated"]}
+        emptyMessage="No runs match your filters."
+      />
     </div>
   );
 }
@@ -2468,7 +2600,7 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
   if (hasRuns) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-5 mb-8">
+    <div className="rounded-xl border border-border bg-white p-5 mb-8">
       <div className="flex items-start gap-3">
         <div className="shrink-0 mt-0.5">
           <CirclePlus className="h-5 w-5 text-muted-foreground/60" />
@@ -2476,12 +2608,12 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-foreground">Start your first run</p>
           <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
-            Describe a task and point Genesis at a repository to get started.
+            Describe a task and point GNSIS at a repository to get started.
           </p>
           <Button
             size="sm"
             onClick={onNewRun}
-            className="h-8 mt-3 gap-1.5 rounded-lg text-xs"
+            className="h-8 mt-3 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs"
           >
             New run
           </Button>
@@ -2517,8 +2649,8 @@ function DashboardView({
   const counts = runs.reduce(
     (acc, r) => {
       acc.total += 1;
-      if (r.status === "complete") acc.complete += 1;
-      else if (r.status === "failed" || r.status === "rejected") acc.failed += 1;
+      if (r.status === "published") acc.complete += 1;
+      else if (r.status === "attempt_stopped" || r.status === "publication_failed" || r.status === "rejected" || r.status === "cancelled") acc.failed += 1;
       else acc.active += 1;
       return acc;
     },
@@ -2535,7 +2667,7 @@ function DashboardView({
         </div>
         <Button
           onClick={onNewRun}
-          className="h-8 shrink-0 gap-1.5 rounded-lg text-xs px-3"
+          className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs px-3"
         >
           <CirclePlus className="h-3.5 w-3.5" />
           <span className="hidden md:inline">New run</span>
@@ -2547,19 +2679,19 @@ function DashboardView({
 
       {/* Run counts (real) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Total runs
           </span>
           <p className="text-2xl font-bold text-foreground">{counts.total}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             In progress
           </span>
           <p className="text-2xl font-bold text-foreground">{counts.active}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Completed
           </span>
@@ -2570,7 +2702,7 @@ function DashboardView({
       {/* Prepaid balance (real — from GET /v1/balances) */}
       {balances ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Available
             </span>
@@ -2583,13 +2715,13 @@ function DashboardView({
               {usd(balances.available)}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               On hold
             </span>
             <p className="text-2xl font-bold text-foreground">{usd(balances.reserved)}</p>
           </div>
-          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Balance
             </span>
@@ -2608,67 +2740,13 @@ function DashboardView({
       {/* Recent runs (real) */}
       <div>
         <p className="text-sm font-semibold text-foreground mb-2">Recent runs</p>
-        <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", dashboardColumns)}>
-          <span>Run</span>
-          <span>Repository</span>
-          <span>Engine</span>
-          <span>Status</span>
-          <span className="text-right">Updated</span>
-        </div>
-        <div className="hidden md:block border-t border-border">
-          {runs.length === 0 ? (
-            <div className="px-3 py-8 text-center">
-              <p className="text-sm text-muted-foreground">No runs yet.</p>
-            </div>
-          ) : (
-            runs.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                onClick={() => onSelectRun(run.id)}
-                className={cn(
-                  "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-border last:border-b-0",
-                  "hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                  dashboardColumns
-                )}
-              >
-                <span className="text-sm text-foreground truncate">{run.title}</span>
-                <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-                <span className="text-xs text-muted-foreground truncate">{run.model}</span>
-                <span className="text-xs"><StatusLabel status={run.status} /></span>
-                <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
-              </button>
-            ))
-          )}
-        </div>
-        <div className="md:hidden space-y-2 mt-2">
-          {runs.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm text-muted-foreground">No runs yet.</p>
-            </div>
-          ) : (
-            runs.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                onClick={() => onSelectRun(run.id)}
-                className="w-full rounded-lg border border-border bg-card p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
-                  <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="font-mono">{run.repo}</span>
-                  <span>·</span>
-                  <span>{run.model}</span>
-                  <span>·</span>
-                  <StatusLabel status={run.status} />
-                </div>
-              </button>
-            ))
-          )}
-        </div>
+        <RunsTable
+          runs={runs}
+          onSelectRun={onSelectRun}
+          columns={dashboardColumns}
+          headers={["Run", "Repository", "Model", "Status", "Updated"]}
+          emptyMessage="No runs yet."
+        />
       </div>
     </div>
   );
@@ -2683,8 +2761,7 @@ function WorkspaceRegion({
   runs,
   balances,
   onSubmit,
-  onApprove,
-  onReject,
+  onRunStatusChange,
   onRetry,
   onFollowUp,
   onSelectRun,
@@ -2696,8 +2773,7 @@ function WorkspaceRegion({
   runs: RecentRun[];
   balances: Balances | null;
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
-  onApprove: (runId: string) => void;
-  onReject: (runId: string) => void;
+  onRunStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
   onFollowUp: (instruction: string) => Promise<void>;
   onSelectRun: (id: string) => void;
@@ -2719,8 +2795,7 @@ function WorkspaceRegion({
             <RunThread
               key={view.threadKey}
               thread={view.thread}
-              onApprove={onApprove}
-              onReject={onReject}
+              onStatusChange={onRunStatusChange}
               onRetry={onRetry}
             />
           </div>
@@ -2750,6 +2825,8 @@ function WorkspaceRegion({
           <RunsView runs={runs} onSelectRun={onSelectRun} />
         </div>
       )}
+
+      {view.kind === "intelligence" && <div className="flex-1 overflow-y-auto"><IntelligencePage /></div>}
 
       {view.kind === "dashboard" && (
         <div className="flex-1 overflow-y-auto">
@@ -2811,6 +2888,7 @@ function routeFromPathname(pathname: string): { route: RouteViewKind; runId: str
 
   if (pathname === "/new") return { route: "new-run", runId: null };
   if (pathname === "/runs") return { route: "runs", runId: null };
+  if (pathname === "/intelligence") return { route: "intelligence", runId: null };
   if (pathname === "/dashboard") return { route: "dashboard", runId: null };
   if (pathname === "/settings") return { route: "settings", runId: null };
   if (pathname === "/billing") return { route: "billing", runId: null };
@@ -2822,13 +2900,14 @@ function routeFromPathname(pathname: string): { route: RouteViewKind; runId: str
 
 function navIdFromRoute(route: RouteViewKind): NavId {
   if (route === "runs" || route === "run") return "runs";
+  if (route === "intelligence") return "intelligence";
   if (route === "dashboard") return "dashboard";
   if (route === "integration-test") return "integration-test";
   return "new-run";
 }
 
 function runStateFromJob(job: JobRecord, logs: LogRecord[] = [], diff: DiffRecord | null = null): RunState {
-  return { job, logs, diff, actionPending: null, actionError: null };
+  return { job, logs, diff, events: [], eventsLoading: true, eventsReconnecting: false };
 }
 
 // A run always belongs to a thread; when the backend omits thread_id (older
@@ -2865,10 +2944,6 @@ function GNSISWorkspacePreview() {
   const [runPanelCollapsed, setRunPanelCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
-  // Drag-to-resize width for the expanded run panel. Independent of
-  // runPanelCollapsed, which still drives the separate 48px icon-rail state
-  // (collapsing to size 0 isn't this panel's UX — it keeps an icon rail).
-  const runPanel = useResizable({ defaultSize: 400, minSizePx: 320, maxSizePx: 560 });
 
   const { route, runId: routeRunId } = routeFromPathname(location.pathname);
   const activeNav = navIdFromRoute(route);
@@ -2876,7 +2951,7 @@ function GNSISWorkspacePreview() {
   const [view, setView] = useState<WorkspaceView>({ kind: "composer" });
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
-  const runs = jobs.map(toRecentRun);
+  const runs = groupJobsIntoThreadRows(jobs);
 
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
   const toggleRunPanel = () => setRunPanelCollapsed((v) => !v);
@@ -2888,10 +2963,8 @@ function GNSISWorkspacePreview() {
     } catch {
       // transient network error — keep showing the last known list
     }
-    try {
-      setBalances(await getBalances());
-    } catch {
-      // transient error / not yet reachable — keep the last value
+    if (!publicBetaMode()) {
+      try { setBalances(await getBalances()); } catch { /* keep the last value */ }
     }
   }, []);
 
@@ -2908,13 +2981,18 @@ function GNSISWorkspacePreview() {
   useEffect(() => {
     if (route === "new-run") setView({ kind: "composer" });
     else if (route === "runs") setView({ kind: "runs" });
-    else if (route === "dashboard") setView({ kind: "dashboard" });
+    else if (route === "intelligence") setView({ kind: "intelligence" });
+    else if (route === "dashboard") {
+      if (publicBetaMode()) navigate("/new", { replace: true }); else setView({ kind: "dashboard" });
+    }
     else if (route === "settings") setView({ kind: "settings" });
-    else if (route === "billing") setView({ kind: "billing" });
+    else if (route === "billing") {
+      if (publicBetaMode()) navigate("/new", { replace: true }); else setView({ kind: "billing" });
+    }
     else if (route === "integration-test") {
       // The route itself is gated, not just the nav link — a direct URL visit
       // when the flag is off must not reach the Integration Lab.
-      if (integrationLabEnabled()) {
+      if (!publicBetaMode() && integrationLabEnabled()) {
         setView({ kind: "integration-test" });
       } else {
         navigate("/new", { replace: true });
@@ -2946,8 +3024,12 @@ function GNSISWorkspacePreview() {
         if (threadJobs.length === 0) throw new ApiError(404, "Run not found");
         const runs = await Promise.all(
           threadJobs.map(async (j) => {
-            const [logs, diff] = await Promise.all([getJobLogs(j.id), getJobDiff(j.id)]);
-            return runStateFromJob(j, logs, diff);
+            const [logs, diff, eventList] = await Promise.all([
+              getJobLogs(j.id),
+              getJobDiff(j.id),
+              getAllRunEvents(j.id).catch(() => null),
+            ]);
+            return { ...runStateFromJob(j, logs, diff), events: mergeRunEvents([], eventList ?? []), eventsLoading: false, eventsReconnecting: eventList === null };
           })
         );
         if (cancelled) return;
@@ -2973,6 +3055,7 @@ function GNSISWorkspacePreview() {
     const nextPath: Record<NavId, string> = {
       "new-run": "/new",
       runs: "/runs",
+      intelligence: "/intelligence",
       dashboard: "/dashboard",
       "integration-test": "/integration-test",
     };
@@ -3014,6 +3097,14 @@ function GNSISWorkspacePreview() {
     });
   }, []);
 
+  // Mutation responses are authoritative for their returned status. Apply them
+  // immediately while preserving the rest of the cached record; polling may
+  // subsequently reconcile the complete JobRecord.
+  const applyRunStatus = useCallback((runId: string, status: JobStatus) => {
+    updateRun(runId, (run) => ({ ...run, job: { ...run.job, status } }));
+    setJobs((current) => current.map((job) => job.id === runId ? { ...job, status } : job));
+  }, [updateRun]);
+
   // Append a new linked run (a follow-up / retry) to the active thread, in place,
   // so the conversation and the follow-up composer stay mounted.
   const appendRun = useCallback((job: JobRecord) => {
@@ -3028,6 +3119,7 @@ function GNSISWorkspacePreview() {
   // (including follow-ups appended after it was set up).
   const threadRef = useRef<ThreadState | null>(null);
   threadRef.current = view.kind === "thread" ? view.thread : null;
+  const finalEventsFetched = useRef(new Set<string>());
 
   // Poll every non-terminal run in the conversation for live status/logs/diff.
   // The interval runs while a thread is open; when all runs are terminal each
@@ -3043,60 +3135,56 @@ function GNSISWorkspacePreview() {
       if (pending.length === 0) return;
       await Promise.all(
         pending.map(async (r) => {
-          try {
-            const [job, logs, diff] = await Promise.all([
-              getJob(r.job.id),
-              getJobLogs(r.job.id),
-              getJobDiff(r.job.id),
-            ]);
-            if (cancelled) return;
-            updateRun(job.id, (cur) => ({ ...cur, job, logs, diff: diff ?? cur.diff }));
+          // Core run state and lifecycle evidence have independent failure
+          // boundaries: an events outage must never freeze terminal status,
+          // approval, diff, or receipt eligibility.
+          const [jobResult, logsResult, diffResult] = await Promise.allSettled([
+            getJob(r.job.id), getJobLogs(r.job.id), getJobDiff(r.job.id),
+          ]);
+          if (cancelled) return;
+
+          const job = jobResult.status === "fulfilled" ? jobResult.value : null;
+          if (job) {
+            updateRun(job.id, (cur) => ({
+              ...cur,
+              job,
+              logs: logsResult.status === "fulfilled" ? logsResult.value : cur.logs,
+              diff: diffResult.status === "fulfilled" ? diffResult.value ?? cur.diff : cur.diff,
+            }));
             setJobs((prev) => upsertJob(prev, job));
+          }
+
+          try {
+            const settledNow = !!job && isTerminalStatus(job.status);
+            let events: RunEvent[];
+            if (settledNow && !finalEventsFetched.current.has(r.job.id)) {
+              // Settlement always reconciles from zero so missed or replaced
+              // pages cannot leave an incomplete terminal history.
+              events = await getAllRunEvents(r.job.id);
+              finalEventsFetched.current.add(r.job.id);
+            } else {
+              // Offset uses raw backend evidence, never grouped UI row count.
+              events = await getRunEventsSince(r.job.id, r.events.length);
+            }
+            if (cancelled) return;
+            updateRun(r.job.id, (cur) => ({ ...cur, events: mergeRunEvents(cur.events, events), eventsLoading: false, eventsReconnecting: false }));
           } catch {
-            // transient network error — keep polling
+            if (cancelled) return;
+            // Preserve previously loaded evidence and retry on the next tick.
+            updateRun(r.job.id, (cur) => ({ ...cur, eventsLoading: false, eventsReconnecting: true }));
           }
         })
       );
     };
 
     poll();
-    const timer = setInterval(poll, 2500);
+    const timer = setInterval(poll, 1000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.kind === "thread" ? view.threadKey : null, updateRun]);
-
-  const handleApproveJob = async (runId: string) => {
-    updateRun(runId, (r) => ({ ...r, actionPending: "approve", actionError: null }));
-    try {
-      const job = await approveJob(runId);
-      updateRun(runId, (r) => ({ ...r, job, actionPending: null }));
-      setJobs((prev) => upsertJob(prev, job));
-    } catch (err) {
-      updateRun(runId, (r) => ({
-        ...r,
-        actionPending: null,
-        actionError: err instanceof ApiError ? err.message : "Failed to approve the run.",
-      }));
-    }
-  };
-
-  const handleRejectJob = async (runId: string) => {
-    updateRun(runId, (r) => ({ ...r, actionPending: "reject", actionError: null }));
-    try {
-      const job = await rejectJob(runId);
-      updateRun(runId, (r) => ({ ...r, job, actionPending: null }));
-      setJobs((prev) => upsertJob(prev, job));
-    } catch (err) {
-      updateRun(runId, (r) => ({
-        ...r,
-        actionPending: null,
-        actionError: err instanceof ApiError ? err.message : "Failed to reject the run.",
-      }));
-    }
-  };
 
   // Send a follow-up message: a new linked run, same conversation. Errors
   // propagate to the composer so it preserves the text and shows the reason.
@@ -3174,7 +3262,7 @@ function GNSISWorkspacePreview() {
 
         {/* Mobile sidebar drawer */}
         <div className={cn("md:hidden fixed inset-y-0 left-0 z-40 w-[260px] h-full transition-transform duration-200 ease-in-out", mobileSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
-          <div className="h-full bg-muted shadow-xl">
+          <div className="h-full bg-neutral-50 shadow-xl">
             <SidebarRegion
               collapsed={false}
               onToggle={() => setMobileSidebarOpen(false)}
@@ -3232,8 +3320,7 @@ function GNSISWorkspacePreview() {
             runs={runs}
             balances={balances}
             onSubmit={handleComposerSubmit}
-            onApprove={handleApproveJob}
-            onReject={handleRejectJob}
+            onRunStatusChange={applyRunStatus}
             onRetry={handleRetryRun}
             onFollowUp={handleFollowUpSubmit}
             onSelectRun={handleRunSelect}
@@ -3247,31 +3334,10 @@ function GNSISWorkspacePreview() {
         {showRightPanel && (
           <>
             <div className="hidden md:block">
-              {runPanelCollapsed ? (
-                <Divider orientation="vertical" />
-              ) : (
-                <ResizeHandle
-                  direction="horizontal"
-                  isReversed
-                  hasDivider
-                  label="Resize run panel"
-                  resizable={runPanel.props}
-                />
-              )}
+              <Divider orientation="vertical" />
             </div>
-            <div
-              className={cn(
-                "hidden md:block shrink-0 h-full z-20",
-                runPanelCollapsed && "transition-all duration-200 ease-in-out"
-              )}
-              style={{ width: runPanelCollapsed ? 48 : runPanel.size }}
-            >
-              <RunPanelRegion
-                collapsed={runPanelCollapsed}
-                onToggle={toggleRunPanel}
-                view={view}
-                width={runPanel.size}
-              />
+            <div className="hidden md:block shrink-0 h-full z-20 transition-all duration-200 ease-in-out" style={{ width: runPanelCollapsed ? 48 : 400 }}>
+              <RunPanelRegion collapsed={runPanelCollapsed} onToggle={toggleRunPanel} view={view} />
             </div>
           </>
         )}
@@ -3280,9 +3346,9 @@ function GNSISWorkspacePreview() {
         {mobilePanelOpen && view.kind === "thread" && (
           <>
             <div className="md:hidden fixed inset-0 bg-black/30 z-40" onClick={() => setMobilePanelOpen(false)} />
-            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-muted rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
+            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-neutral-50 rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
               <div className="flex items-center justify-center py-2">
-                <div className="h-1 w-8 rounded-full bg-muted-foreground/30" />
+                <div className="h-1 w-8 rounded-full bg-neutral-300" />
               </div>
               <div className="flex items-center justify-between px-4 pb-2">
                 <span className="text-xs font-semibold text-foreground">Activity</span>

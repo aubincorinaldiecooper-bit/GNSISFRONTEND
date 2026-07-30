@@ -7,3 +7,14 @@ import { cleanup } from "@testing-library/react";
 afterEach(() => {
   cleanup();
 });
+
+// jsdom has no ResizeObserver; Radix's Popper/Tooltip primitives construct one
+// on mount. Without a stub, any test that mounts one throws an uncaught
+// ReferenceError outside the test body.
+if (!("ResizeObserver" in globalThis)) {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}

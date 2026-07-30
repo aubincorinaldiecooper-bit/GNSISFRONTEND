@@ -31,6 +31,7 @@ CONFIG="$(
           "VITE_API_BASE_URL",
           "VITE_API_URL",
           "VITE_AUTH_URL",
+          "VITE_PUBLIC_BETA_MODE",
           "VITE_ENABLE_INTEGRATION_LAB",
           "VITE_GITHUB_APP_SLUG"
         ))
