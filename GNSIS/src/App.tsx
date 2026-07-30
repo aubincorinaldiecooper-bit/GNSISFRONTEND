@@ -90,6 +90,9 @@ import {
   relativeTime,
   fullDateTime,
   groupJobsIntoThreadRows,
+  getAttemptSummary,
+  collapsibleAttemptIds,
+  summarizeCollapsedAttempts,
   type RecentRun,
 } from "@/lib/threads";
 import {
@@ -1765,27 +1768,68 @@ function RunActions({
 
 // One turn of the conversation: the submitted instruction and the execution it
 // produced. Immutable — a new turn is appended for every follow-up.
+// Shown above the instruction only when a task has more than one attempt —
+// a single-attempt thread has nothing to disambiguate.
+function AttemptSummaryLine({ job, attemptNumber }: { job: JobRecord; attemptNumber: number }) {
+  const summary = getAttemptSummary(job, attemptNumber);
+  return (
+    <p className="mb-1.5 text-xs text-muted-foreground">
+      Attempt {summary.attemptNumber} · <span className={cn("font-medium", lifecycleStageCls[summary.lifecycle.stage])}>{summary.lifecycle.label}</span>
+      {summary.model !== "—" && <> · {summary.model}</>}
+      {summary.elapsedLabel && <> · {summary.elapsedLabel}</>}
+    </p>
+  );
+}
+
 function ConversationTurn({
   run,
   isTip,
+  attemptNumber,
+  totalAttempts,
   retryPending,
   onStatusChange,
   onRetry,
 }: {
   run: RunState;
   isTip: boolean;
+  attemptNumber: number;
+  totalAttempts: number;
   retryPending: boolean;
   onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: () => void;
 }) {
   return (
     <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
+      {totalAttempts > 1 && <AttemptSummaryLine job={run.job} attemptNumber={attemptNumber} />}
       <InstructionMessage job={run.job} />
       <RunExecution run={run} onStatusChange={onStatusChange} />
       {isTip && isTerminalStatus(run.job.status) && (
         <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
       )}
     </div>
+  );
+}
+
+// The trailing run of earlier attempts that stopped/were rejected/cancelled,
+// collapsed by default so a retried task doesn't read as several unrelated
+// conversations. Each attempt's own record stays fully intact and individually
+// reachable via "Show attempts" — nothing here merges or discards a run.
+function EarlierAttemptsSummary({ collapsedJobs, expanded, onToggle }: { collapsedJobs: JobRecord[]; expanded: boolean; onToggle: () => void }) {
+  if (collapsedJobs.length === 0) return null;
+  if (expanded) {
+    return (
+      <button type="button" onClick={onToggle} className="mb-3 text-xs text-muted-foreground underline underline-offset-2">
+        Hide earlier attempts
+      </button>
+    );
+  }
+  return (
+    <p className="mb-3 text-xs text-muted-foreground">
+      {summarizeCollapsedAttempts(collapsedJobs)}{" "}
+      <button type="button" onClick={onToggle} className="underline underline-offset-2">
+        Show attempts
+      </button>
+    </p>
   );
 }
 
@@ -1798,14 +1842,27 @@ function RunThread({
   onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
 }) {
+  const [attemptsExpanded, setAttemptsExpanded] = useState(false);
+  const jobs = thread.runs.map((run) => run.job);
+  const collapsibleIds = collapsibleAttemptIds(jobs);
+  const numbered = thread.runs.map((run, i) => ({ run, attemptNumber: i + 1 }));
+  const visible = attemptsExpanded ? numbered : numbered.filter(({ run }) => !collapsibleIds.has(run.job.id));
+
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
       <ThreadHeader thread={thread} />
-      {thread.runs.map((run, i) => (
+      <EarlierAttemptsSummary
+        collapsedJobs={jobs.filter((job) => collapsibleIds.has(job.id))}
+        expanded={attemptsExpanded}
+        onToggle={() => setAttemptsExpanded((v) => !v)}
+      />
+      {visible.map(({ run, attemptNumber }) => (
         <ConversationTurn
           key={run.job.id}
           run={run}
-          isTip={i === thread.runs.length - 1}
+          isTip={run.job.id === thread.runs[thread.runs.length - 1].job.id}
+          attemptNumber={attemptNumber}
+          totalAttempts={thread.runs.length}
           retryPending={thread.retryPending}
           onStatusChange={onStatusChange}
           onRetry={() => onRetry(run.job.id)}

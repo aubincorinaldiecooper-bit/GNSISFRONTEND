@@ -244,6 +244,50 @@ describe("conversational run thread", () => {
   });
 });
 
+// -- attempt grouping ----------------------------------------------------------
+
+describe("attempt grouping", () => {
+  it("labels each turn with its attempt number only when the thread has more than one attempt", async () => {
+    // Both non-collapsible statuses, so both turns render without needing to expand anything first.
+    mockThread([
+      job({ id: "run-root", instruction: "Ship the feature", status: "completed" }),
+      job({ id: "run-2", instruction: "Ship the feature", status: "awaiting_approval", parent_job_id: "run-root" }),
+    ]);
+    renderThread("/runs/run-root");
+    await screen.findAllByText("Ship the feature");
+    expect(document.body.textContent).toMatch(/Attempt 1 · Published/);
+    expect(document.body.textContent).toMatch(/Attempt 2 · Ready for review/);
+  });
+
+  it("shows no attempt label at all for a single-attempt thread", async () => {
+    mockThread([job({ id: "run-root", instruction: "Add a README", status: "completed" })]);
+    renderThread("/runs/run-root");
+    await screen.findAllByText("Add a README");
+    expect(document.body.textContent).not.toMatch(/Attempt \d/);
+  });
+
+  it("collapses a trailing run of stopped earlier attempts by default, without discarding their own records", async () => {
+    mockThread([
+      job({ id: "run-1", instruction: "Ship the feature", status: "failed", error: "first failure" }),
+      job({ id: "run-2", instruction: "Ship the feature", status: "failed", parent_job_id: "run-1", error: "second failure" }),
+      job({ id: "run-3", instruction: "Ship the feature", status: "awaiting_approval", parent_job_id: "run-2" }),
+    ]);
+    renderThread("/runs/run-1");
+
+    // Collapsed by default: a summary + toggle, not each attempt's own instruction.
+    expect(await screen.findByText("2 earlier attempts stopped")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Attempt 1/);
+    expect(document.body.textContent).toMatch(/Attempt 3/);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show attempts" }));
+
+    // Expanding reveals every attempt individually — none merged or overwritten.
+    await waitFor(() => expect(document.body.textContent).toMatch(/Attempt 1/));
+    expect(document.body.textContent).toMatch(/Attempt 2/);
+    expect(document.body.textContent).toMatch(/Attempt 3/);
+  });
+});
+
 // -- failed run ---------------------------------------------------------------
 
 describe("failed run presentation", () => {
