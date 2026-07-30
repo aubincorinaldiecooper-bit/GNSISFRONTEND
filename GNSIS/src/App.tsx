@@ -952,7 +952,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     <div className="w-full max-w-4xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
       <div className="text-center space-y-2 mb-6">
         <h1 className="text-lg font-semibold tracking-tight text-foreground">
-          What should Genesis work on?
+          What should GNSIS work on?
         </h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
           Choose your repository, describe the task, and start the run.
@@ -989,7 +989,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the change you want Genesis to make…"
+            placeholder="Describe the change you want GNSIS to make…"
             className="min-h-28 resize-none border-none shadow-none rounded-t-2xl rounded-b-none px-4 py-3.5 text-sm focus-visible:ring-0"
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -2608,7 +2608,7 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-foreground">Start your first run</p>
           <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
-            Describe a task and point Genesis at a repository to get started.
+            Describe a task and point GNSIS at a repository to get started.
           </p>
           <Button
             size="sm"

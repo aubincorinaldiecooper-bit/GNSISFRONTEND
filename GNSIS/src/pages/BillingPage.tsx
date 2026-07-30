@@ -204,7 +204,7 @@ export default function BillingPage({ onBack }: { onBack?: () => void }) {
               </div>
             )}
             <p className="mt-2 text-xs text-muted-foreground">
-              Provider cost is shown; retail cost + Genesis fee will appear with the per-run receipt
+              Provider cost is shown; retail cost + GNSIS fee will appear with the per-run receipt
               endpoint.
             </p>
           </div>
