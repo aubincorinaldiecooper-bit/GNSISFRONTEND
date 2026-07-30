@@ -246,7 +246,7 @@ describe("workspace routing", () => {
   it("shows only beta navigation and redirects hidden routes", async () => {
     publicBetaModeMock.mockReturnValue(true);
     const view = renderWorkspace("/dashboard");
-    expect(await screen.findByText("What should Genesis work on?")).toBeInTheDocument();
+    expect(await screen.findByText("What should GNSIS work on?")).toBeInTheDocument();
     expect(view.getByTestId("pathname")).toHaveTextContent("/new");
     expect(screen.getAllByText("New run")[0]).toBeInTheDocument();
     expect(screen.getAllByText("Runs")[0]).toBeInTheDocument();
@@ -411,7 +411,7 @@ describe("workspace routing", () => {
 
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/login"));
     expect(screen.getByRole("heading", { name: "GNSIS" })).toBeInTheDocument();
-    expect(screen.getByText(/Sign in to your Genesis workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sign in to your GNSIS workspace/i)).toBeInTheDocument();
   });
 
   // -- homepage-at-/ + New Run-at-/new routing (PR #24) ----------------------
@@ -422,7 +422,7 @@ describe("workspace routing", () => {
     // ProtectedRoute, so no redirect to /login.
     expect(screen.getByRole("heading", { name: /Own the intelligence your coding agents create/i })).toBeInTheDocument();
     expect(screen.getByTestId("pathname")).toHaveTextContent("/");
-    expect(screen.queryByText(/Sign in to your Genesis workspace/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to your GNSIS workspace/i)).not.toBeInTheDocument();
   });
 
   it("redirects the legacy /welcome path to / (homepage)", async () => {
@@ -433,7 +433,7 @@ describe("workspace routing", () => {
 
   it("renders the New Run composer at /new for an authenticated user", async () => {
     renderWorkspace("/new");
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
   it("the New run sidebar action navigates to /new", async () => {
@@ -444,7 +444,7 @@ describe("workspace routing", () => {
     await user.click(screen.getAllByRole("button", { name: "New run" })[0]);
 
     expect(screen.getByTestId("pathname")).toHaveTextContent("/new");
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
   it("keeps /billing intact", async () => {
@@ -475,7 +475,7 @@ describe("workspace routing", () => {
   it("defaults an authenticated user landing on /login to /new", async () => {
     renderFull("/login", "authenticated");
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
   it("respects an explicit ?next=/runs on /login instead of defaulting to /new", async () => {
@@ -508,6 +508,6 @@ describe("workspace routing", () => {
     // /login?next=/new → authenticated → /new → New Run composer. One settled
     // destination, no bouncing between /, /login and /new.
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
-    expect(await screen.findByRole("heading", { name: /What should Genesis work on\?/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 });

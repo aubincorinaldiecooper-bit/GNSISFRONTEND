@@ -34,6 +34,7 @@ import {
   Circle,
   ExternalLink,
   AlertTriangle,
+  Clock,
   Activity as ActivityGlyph,
   Menu,
   X,
@@ -84,9 +85,26 @@ import {
   type IntelligenceProposal,
   type IntelligenceApprovalSelection,
 } from "@/lib/api";
-import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
+import {
+  threadTitle,
+  relativeTime,
+  fullDateTime,
+  groupJobsIntoThreadRows,
+  getAttemptSummary,
+  collapsibleAttemptIds,
+  summarizeCollapsedAttempts,
+  type RecentRun,
+} from "@/lib/threads";
+import {
+  getRunLifecycleState,
+  isReceiptEligibleStatus,
+  LIFECYCLE_FILTER_OPTIONS,
+  LIFECYCLE_STAGE_LABELS,
+  type LifecycleStageId,
+} from "@/lib/runLifecycle";
+import { getReceiptSections } from "@/lib/receiptSections";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
-import { RunActivityTimeline, type ReceiptActivityState } from "@/components/RunActivityTimeline";
+import { RunActivityTimeline, AttemptActivityStrip, type ReceiptActivityState } from "@/components/RunActivityTimeline";
 import { isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
 import {
   Tooltip,
@@ -268,55 +286,31 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "blocked" | "failed" | "cancelled";
 type NavId = "new-run" | "runs" | "intelligence" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
-function jobStatusToRunStatus(status: JobStatus): RunStatus {
-  switch (status) {
-    case "queued":
-      return "queued";
-    case "awaiting_approval":
-      return "awaiting_approval";
-    case "completed":
-      return "complete";
-    case "rejected":
-      return "rejected";
-    case "blocked":
-      return "blocked";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    default:
-      return "running";
-  }
-}
-
-const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
-  queued: { label: "Queued", cls: "text-muted-foreground" },
-  running: { label: "Running", cls: "text-blue-600" },
-  awaiting_approval: { label: "Needs approval", cls: "text-amber-600" },
-  complete: { label: "Complete", cls: "text-emerald-600" },
-  rejected: { label: "Rejected", cls: "text-muted-foreground" },
-  blocked: { label: "Blocked", cls: "text-amber-700" },
-  failed: { label: "Failed", cls: "text-red-600" },
-  cancelled: { label: "Cancelled", cls: "text-muted-foreground" },
+// Text color per lifecycle stage — the label text is always the primary
+// signal (never color alone); "Ready for review" and "Approved" deliberately
+// share amber since they're distinguished by wording, not hue.
+const lifecycleStageCls: Record<LifecycleStageId, string> = {
+  queued: "text-muted-foreground",
+  working: "text-blue-600",
+  ready_for_review: "text-amber-600",
+  approved: "text-amber-600",
+  published: "text-emerald-600",
+  attempt_stopped: "text-red-600",
+  publication_failed: "text-red-600",
+  rejected: "text-muted-foreground",
+  cancelled: "text-muted-foreground",
 };
 
-function StatusLabel({ status }: { status: RunStatus }) {
-  const s = runLabelCls[status];
-  return <span className={cn("font-medium", s.cls)}>{s.label}</span>;
-}
-
-// Sidebar/table row shape, derived from a real JobRecord — no fabricated fields.
-interface RecentRun {
-  id: string;
-  title: string;
-  repo: string;
-  model: string;
-  status: RunStatus;
-  updatedAt: string;
+function StatusLabel({ stage, qualifier }: { stage: LifecycleStageId; qualifier?: string | null }) {
+  return (
+    <span className={cn("font-medium", lifecycleStageCls[stage])}>
+      {LIFECYCLE_STAGE_LABELS[stage]}
+      {qualifier && <span className="font-normal text-muted-foreground"> · {qualifier}</span>}
+    </span>
+  );
 }
 
 // Legacy jobs created before model selection carry no model — never invent one.
@@ -327,17 +321,6 @@ function displayModel(job: JobRecord): string {
 // Historical and primary-only jobs may have no Advisor pinned — never invent one.
 function displayAdvisorModel(job: JobRecord): string {
   return job.advisor_model ?? "—";
-}
-
-function toRecentRun(job: JobRecord): RecentRun {
-  return {
-    id: job.id,
-    title: job.instruction.split("\n")[0].slice(0, 140) || job.instruction,
-    repo: job.repo,
-    model: displayModel(job),
-    status: jobStatusToRunStatus(job.status),
-    updatedAt: job.updated_at,
-  };
 }
 
 function timeAgo(iso: string): string {
@@ -407,14 +390,15 @@ function SidebarNavItem({
 // SIDEBAR RUN ROW (full-width click target)
 // =============================================================================
 
-const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
+const sidebarStatusIcon: Record<LifecycleStageId, React.ReactNode> = {
   queued: <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 self-start mt-0.5" />,
-  running: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
-  awaiting_approval: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
-  complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
+  working: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
+  ready_for_review: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
+  approved: <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
+  published: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
   rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
-  blocked: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
-  failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
+  attempt_stopped: <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0 self-start mt-0.5" />,
+  publication_failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
   cancelled: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
 };
 
@@ -437,7 +421,7 @@ function SidebarRunRow({
             <button
               type="button"
               onClick={onClick}
-              aria-label={`${run.title} \u2014 ${runLabelCls[run.status].label}`}
+              aria-label={`${run.title} \u2014 ${LIFECYCLE_STAGE_LABELS[run.status]}`}
               className={cn(
                 "flex items-center justify-center h-8 w-8 mx-auto rounded-lg transition-colors duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -470,8 +454,10 @@ function SidebarRunRow({
         <span className="block text-sm text-foreground truncate leading-tight">
           {run.title}
         </span>
-        <span className="block text-xs text-muted-foreground truncate leading-tight mt-0.5">
-          {timeAgo(run.updatedAt)}
+        <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground truncate leading-tight">
+          <span className={cn("font-medium", lifecycleStageCls[run.status])}>{LIFECYCLE_STAGE_LABELS[run.status]}</span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="truncate">{timeAgo(run.updatedAt)}</span>
         </span>
       </span>
     </button>
@@ -966,7 +952,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
     <div className="w-full max-w-4xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
       <div className="text-center space-y-2 mb-6">
         <h1 className="text-lg font-semibold tracking-tight text-foreground">
-          What should Genesis work on?
+          What should GNSIS work on?
         </h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
           Choose your repository, describe the task, and start the run.
@@ -1003,7 +989,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the change you want Genesis to make…"
+            placeholder="Describe the change you want GNSIS to make…"
             className="min-h-28 resize-none border-none shadow-none rounded-t-2xl rounded-b-none px-4 py-3.5 text-sm focus-visible:ring-0"
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -1593,7 +1579,7 @@ function RunCompleteMessage({ job, diff, logs }: { job: JobRecord; diff: DiffRec
 // provider payload) is technical detail kept out of the way behind a toggle.
 function splitError(error: string | null): { summary: string; details: string | null } {
   const raw = (error || "").trim();
-  if (!raw) return { summary: "The run failed before it could finish.", details: null };
+  if (!raw) return { summary: "The attempt stopped before it could finish.", details: null };
   const nl = raw.indexOf("\n");
   if (nl === -1) return { summary: raw, details: null };
   return { summary: raw.slice(0, nl).trim(), details: raw.slice(nl + 1).trim() || null };
@@ -1606,7 +1592,7 @@ function FailedMessage({ job }: { job: JobRecord }) {
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
         <CircleX className="h-4 w-4 text-red-500 shrink-0" />
-        <p className="text-sm font-semibold text-red-600">Run failed</p>
+        <p className="text-sm font-semibold text-red-600">Attempt stopped</p>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed pl-6 break-words">{summary}</p>
       {details && (
@@ -1725,7 +1711,7 @@ function RunExecution({
   const [reviewPending, setReviewPending] = useState(false);
   return (
     <div className="mt-1">
-      <RunActivityTimeline run={job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(job.status)} reconnecting={run.eventsReconnecting} compact />
+      <AttemptActivityStrip job={job} events={run.events} isTerminal={isTerminalStatus(job.status)} />
 
       <CancelRunControl
         job={job}
@@ -1745,7 +1731,7 @@ function RunExecution({
       )}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
-      {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
+      {(job.status === "failed" || job.status === "blocked") && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
       {job.status === "rejected" && <TerminalMessage title="Run rejected" description="The proposed change was reviewed and rejected before publishing." />}
       {job.status === "cancelled" && <TerminalMessage title="Run cancelled" description="This run was cancelled before it finished." />}
     </div>
@@ -1784,27 +1770,68 @@ function RunActions({
 
 // One turn of the conversation: the submitted instruction and the execution it
 // produced. Immutable — a new turn is appended for every follow-up.
+// Shown above the instruction only when a task has more than one attempt —
+// a single-attempt thread has nothing to disambiguate.
+function AttemptSummaryLine({ job, attemptNumber }: { job: JobRecord; attemptNumber: number }) {
+  const summary = getAttemptSummary(job, attemptNumber);
+  return (
+    <p className="mb-1.5 text-xs text-muted-foreground">
+      Attempt {summary.attemptNumber} · <span className={cn("font-medium", lifecycleStageCls[summary.lifecycle.stage])}>{summary.lifecycle.label}</span>
+      {summary.model !== "—" && <> · {summary.model}</>}
+      {summary.elapsedLabel && <> · {summary.elapsedLabel}</>}
+    </p>
+  );
+}
+
 function ConversationTurn({
   run,
   isTip,
+  attemptNumber,
+  totalAttempts,
   retryPending,
   onStatusChange,
   onRetry,
 }: {
   run: RunState;
   isTip: boolean;
+  attemptNumber: number;
+  totalAttempts: number;
   retryPending: boolean;
   onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: () => void;
 }) {
   return (
     <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
+      {totalAttempts > 1 && <AttemptSummaryLine job={run.job} attemptNumber={attemptNumber} />}
       <InstructionMessage job={run.job} />
       <RunExecution run={run} onStatusChange={onStatusChange} />
       {isTip && isTerminalStatus(run.job.status) && (
         <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
       )}
     </div>
+  );
+}
+
+// The trailing run of earlier attempts that stopped/were rejected/cancelled,
+// collapsed by default so a retried task doesn't read as several unrelated
+// conversations. Each attempt's own record stays fully intact and individually
+// reachable via "Show attempts" — nothing here merges or discards a run.
+function EarlierAttemptsSummary({ collapsedJobs, expanded, onToggle }: { collapsedJobs: JobRecord[]; expanded: boolean; onToggle: () => void }) {
+  if (collapsedJobs.length === 0) return null;
+  if (expanded) {
+    return (
+      <button type="button" onClick={onToggle} className="mb-3 text-xs text-muted-foreground underline underline-offset-2">
+        Hide earlier attempts
+      </button>
+    );
+  }
+  return (
+    <p className="mb-3 text-xs text-muted-foreground">
+      {summarizeCollapsedAttempts(collapsedJobs)}{" "}
+      <button type="button" onClick={onToggle} className="underline underline-offset-2">
+        Show attempts
+      </button>
+    </p>
   );
 }
 
@@ -1817,14 +1844,27 @@ function RunThread({
   onStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
 }) {
+  const [attemptsExpanded, setAttemptsExpanded] = useState(false);
+  const jobs = thread.runs.map((run) => run.job);
+  const collapsibleIds = collapsibleAttemptIds(jobs);
+  const numbered = thread.runs.map((run, i) => ({ run, attemptNumber: i + 1 }));
+  const visible = attemptsExpanded ? numbered : numbered.filter(({ run }) => !collapsibleIds.has(run.job.id));
+
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
       <ThreadHeader thread={thread} />
-      {thread.runs.map((run, i) => (
+      <EarlierAttemptsSummary
+        collapsedJobs={jobs.filter((job) => collapsibleIds.has(job.id))}
+        expanded={attemptsExpanded}
+        onToggle={() => setAttemptsExpanded((v) => !v)}
+      />
+      {visible.map(({ run, attemptNumber }) => (
         <ConversationTurn
           key={run.job.id}
           run={run}
-          isTip={i === thread.runs.length - 1}
+          isTip={run.job.id === thread.runs[thread.runs.length - 1].job.id}
+          attemptNumber={attemptNumber}
+          totalAttempts={thread.runs.length}
           retryPending={thread.retryPending}
           onStatusChange={onStatusChange}
           onRetry={() => onRetry(run.job.id)}
@@ -1933,104 +1973,161 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
   );
 }
 
-function receiptTokens(tokens: RunReceipt["tokens"]): string {
-  if (tokens === null) return "Unavailable";
-  if (tokens.input === 0 && tokens.output === 0 && tokens.cached === 0 && tokens.reasoning === 0) return "0";
-  return `Input ${tokens.input.toLocaleString()} · Output ${tokens.output.toLocaleString()} · Cached ${tokens.cached.toLocaleString()} · Reasoning ${tokens.reasoning.toLocaleString()}`;
+function formatCheckStatus(status: string): string {
+  if (status === "not_run") return "Not run";
+  if (status === "passed") return "Passed";
+  if (status === "failed") return "Failed";
+  if (status === "unknown") return "Unknown";
+  return status.replaceAll("_", " ");
 }
 
-function receiptTests(tests: RunReceipt["tests"]): string {
-  if (tests === null) return "Unavailable";
-  if (tests === "not_run") return "Not run";
-  if (typeof tests === "string") return tests.replaceAll("_", " ");
-  return Object.entries(tests).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ");
-}
-
-function ReceiptPanel({ receipt }: { receipt: RunReceipt }) {
-  const failed = ["failed", "blocked", "rejected"].includes(receipt.status);
-  const currency = receipt.cost?.currency || "USD";
-  const providerCost = receipt.cost === null
-    ? "Unavailable"
-    : Number(receipt.cost.provider_cost).toLocaleString("en-US", { style: "currency", currency });
-  const executionStarted = receipt.execution_started === undefined
-    ? "Unavailable"
-    : receipt.execution_started ? "Yes" : "No";
+function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord }) {
+  const sections = getReceiptSections(receipt, job);
   const supplied = receipt.intelligence?.supplied ?? [];
-  const approved = receipt.intelligence?.approved ?? [];
-  const delivered = supplied.filter((item) => item.delivered).length;
 
   return (
     <div className="flex-1 overflow-y-auto">
+      {/* HEADER */}
       <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Run receipt
-        </p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Run receipt</p>
         <p className="text-sm font-semibold text-foreground line-clamp-2">{receipt.task}</p>
         <p className="text-xs text-muted-foreground font-mono">{receipt.repository}</p>
         <div className="flex items-center gap-1.5 pt-1">
-          {failed ? (
+          {sections.header.failed ? (
             <CircleX className="h-3.5 w-3.5 text-red-500" />
           ) : (
             <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
           )}
-          <span className={cn("text-sm font-semibold", failed ? "text-red-600" : "text-emerald-600")}>
-            {receipt.status.replaceAll("_", " ")}
+          <span className={cn("text-sm font-semibold", sections.header.failed ? "text-red-600" : "text-emerald-600")}>
+            {sections.header.title}
+            {sections.header.qualifier && <span className="font-normal text-muted-foreground"> · {sections.header.qualifier}</span>}
           </span>
         </div>
+        {sections.header.description && <p className="text-sm text-foreground leading-relaxed">{sections.header.description}</p>}
       </div>
 
-      <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Outcome
-        </p>
-        <p className="text-sm text-foreground leading-relaxed">
-          {receipt.failure_message ?? receipt.status.replaceAll("_", " ")}
-        </p>
-      </div>
-
+      {/* CHANGES */}
       <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Changes</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem label="Repository" value={receipt.repository} />
-          {receipt.base_sha != null && <SummaryItem label="Starting commit" value={receipt.base_sha} />}
-          <SummaryItem label="Files changed" value={String(receipt.files_changed.length)} />
-          <SummaryItem label="Tests" value={receiptTests(receipt.tests)} />
-          {receipt.model != null && <SummaryItem label="Model" value={receipt.model} />}
-          <SummaryItem label="Intelligence selected" value={String(supplied.length)} />
-          <SummaryItem label="Intelligence delivered" value={String(delivered)} />
-          <SummaryItem label="Intelligence approved" value={String(approved.length)} />
+          <SummaryItem label="Files changed" value={String(sections.changes.filesChanged.length)} />
+          <SummaryItem label="Model" value={sections.agent.model} />
         </div>
-      </div>
-
-      {supplied.length > 0 && <div className="border-b px-4 py-4"><h3 className="text-sm font-semibold">Supplied intelligence</h3><ul className="mt-3 space-y-4">{supplied.map((item) => <li key={item.memory_id} className="text-xs">
-        <div className="flex flex-wrap gap-2"><span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span><span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-700" : "text-muted-foreground")}>{item.delivered ? "Delivered to model request" : "Delivery not attested"}</span></div>
-        {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
-        {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
-        <p className="mt-1 text-muted-foreground">{[item.source_model && `Source model: ${item.source_model}`, item.approved_by && `Approved by ${item.approved_by}`, item.approved_at && new Date(item.approved_at).toLocaleString(), item.destination_model && `Destination model: ${item.destination_model}`].filter(Boolean).join(" · ")}</p>
-        {item.source_run_id && <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>View source run</a>}
-      </li>)}</ul></div>}
-
-      <details className="border-b px-4 py-4 text-xs"><summary className="cursor-pointer text-sm font-semibold">Technical details</summary><div className="mt-3 grid grid-cols-2 gap-3">
-        {receipt.advisor_model != null && <SummaryItem label="Historical Advisor" value={receipt.advisor_model} />}
-        {receipt.tokens != null && <SummaryItem label="Tokens" value={receiptTokens(receipt.tokens)} emphasize />}
-        {receipt.cost != null && <SummaryItem label="Provider cost" value={providerCost} />}
-        {receipt.cost?.gnsis_service_fee != null && <SummaryItem label="Service fee" value={receipt.cost.gnsis_service_fee} />}
-        {receipt.execution_started !== undefined && <SummaryItem label="Execution started" value={executionStarted} />}
-        {publicBetaMode() && receipt.execution_run_id != null && <SummaryItem label="Execution ID" value={receipt.execution_run_id} />}
-        {receipt.patch_hash != null && <SummaryItem label="Patch hash" value={receipt.patch_hash} />}
-        {receipt.timing?.duration_seconds != null && <SummaryItem label="Duration" value={`${receipt.timing.duration_seconds}s`} />}
-      </div></details>
-
-      {receipt.files_changed.length > 0 && (
-        <div className="px-4 py-4">
-          <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
+        {sections.changes.filesChanged.length > 0 && (
           <ul className="text-xs text-muted-foreground space-y-1 font-mono">
-            {receipt.files_changed.map((f) => (
+            {sections.changes.filesChanged.map((f) => (
               <li key={f}>{f}</li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
 
+      {/* VERIFICATION */}
+      <div className="px-4 py-4 border-b border-border space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Verification</p>
+        <p className="text-sm text-foreground">
+          Output validation{" "}
+          {sections.verification.outputValidation === "passed" ? "passed" : sections.verification.outputValidation === "failed" ? "failed" : "unavailable"}
+        </p>
+        {sections.verification.checks.map((check) => (
+          <p key={check.name} className={cn("text-sm", check.passed === false ? "text-amber-700 font-medium" : "text-foreground")}>
+            {check.name} · <span>{formatCheckStatus(check.status)}</span>
+          </p>
+        ))}
+      </div>
+
+      {/* AGENT */}
+      <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <SummaryItem label="Tokens" value={sections.agent.tokensSummary} emphasize />
+          <SummaryItem label="Provider cost" value={sections.agent.cost.label} />
+        </div>
+      </div>
+
+      {/* REPOSITORY INTELLIGENCE */}
+      <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Repository intelligence</p>
+        <div className="grid grid-cols-1 gap-y-3">
+          <SummaryItem label="Previous intelligence" value={sections.intelligence.selected.label} />
+          <SummaryItem label="Delivered intelligence" value={sections.intelligence.delivered.label} />
+          <SummaryItem label="New reusable intelligence" value={sections.intelligence.proposed.label} />
+        </div>
+        {supplied.length > 0 && (
+          <ul className="mt-1 space-y-4">
+            {supplied.map((item) => (
+              <li key={item.memory_id} className="text-xs">
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span>
+                  <span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-700" : "text-muted-foreground")}>
+                    {item.delivered ? "Delivered to model request" : "Delivery not attested"}
+                  </span>
+                </div>
+                {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
+                {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
+                <p className="mt-1 text-muted-foreground">
+                  {[
+                    item.source_model && `Source model: ${item.source_model}`,
+                    item.approved_by && `Approved by ${item.approved_by}`,
+                    item.approved_at && new Date(item.approved_at).toLocaleString(),
+                    item.destination_model && `Destination model: ${item.destination_model}`,
+                  ].filter(Boolean).join(" · ")}
+                </p>
+                {item.source_run_id && (
+                  <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>
+                    View source run
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* PUBLICATION */}
+      <div className="px-4 py-4 border-b border-border space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Publication</p>
+        {sections.publication.phase === "pre_approval" && (
+          <p className="text-sm text-foreground">Review and approve the proposed change</p>
+        )}
+        {sections.publication.phase === "approved_not_published" && <p className="text-sm text-foreground">Approved</p>}
+        {sections.publication.phase === "published" && (
+          <>
+            <p className="text-sm text-foreground">Pull request published</p>
+            {sections.publication.pullRequest && (
+              <a
+                href={sections.publication.pullRequest.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-sm underline"
+              >
+                View pull request on GitHub <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* TECHNICAL EVIDENCE */}
+      <details className="border-b px-4 py-4 text-xs">
+        <summary className="cursor-pointer text-sm font-semibold">Technical evidence</summary>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <SummaryItem label="Repository" value={sections.technical.repository} />
+          {sections.technical.startingCommit != null && <SummaryItem label="Starting commit" value={sections.technical.startingCommit} />}
+          {receipt.advisor_model != null && <SummaryItem label="Historical Advisor" value={receipt.advisor_model} />}
+          <SummaryItem
+            label="Service fee"
+            value={receipt.cost?.gnsis_service_fee != null ? receipt.cost.gnsis_service_fee : "No service fee recorded"}
+          />
+          <SummaryItem
+            label="Execution started"
+            value={sections.technical.executionStarted === undefined ? "Unavailable" : sections.technical.executionStarted ? "Yes" : "No"}
+          />
+          {publicBetaMode() && sections.technical.executionId != null && <SummaryItem label="Execution ID" value={sections.technical.executionId} />}
+          {sections.technical.patchHash != null && <SummaryItem label="Patch hash" value={sections.technical.patchHash} />}
+          {sections.technical.durationSeconds != null && <SummaryItem label="Duration" value={`${sections.technical.durationSeconds}s`} />}
+        </div>
+      </details>
     </div>
   );
 }
@@ -2104,7 +2201,7 @@ function RunPanelHeader({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
-                  Available when complete
+                  Available once a result is ready for review
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -2121,18 +2218,8 @@ function RunPanelHeader({
   );
 }
 
-function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
-  const status: StatusKind = !jobStatus
-    ? "idle"
-    : jobStatus === "completed"
-    ? "completed"
-    : jobStatus === "blocked"
-    ? "waiting"
-    : jobStatus === "failed" || jobStatus === "rejected" || jobStatus === "cancelled"
-    ? "failed"
-    : jobStatus === "awaiting_approval"
-    ? "waiting"
-    : "active";
+function CollapsedRunPanel({ job }: { job?: JobRecord }) {
+  const status: StatusKind = job ? getRunLifecycleState(job).indicatorKind : "idle";
 
   return (
     <div className="flex flex-col items-center py-4 gap-3">
@@ -2188,7 +2275,7 @@ function RunPanelRegion({
   const [receiptAttempt, setReceiptAttempt] = useState(0);
 
   useEffect(() => {
-    if (!selectedRun || !receiptRunId || !isTerminalStatus(selectedRun.job.status)) {
+    if (!selectedRun || !receiptRunId || !isReceiptEligibleStatus(selectedRun.job.status)) {
       return;
     }
     let cancelled = false;
@@ -2242,23 +2329,25 @@ function RunPanelRegion({
       return;
     }
     const initialStatus = selectedRun?.job.status ?? activeRun(view.thread).job.status;
-    setTab(isTerminalStatus(initialStatus) ? "receipt" : "activity");
+    setTab(isReceiptEligibleStatus(initialStatus) ? "receipt" : "activity");
     activityScrollPos.current = 0;
     receiptScrollPos.current = 0;
     prevStatusRef.current = initialStatus;
   }, [threadKey, selectedRun?.job.id]);
 
-  // Auto-switch to receipt when the tip run completes
+  // Auto-switch to receipt once a result becomes ready for review, not only
+  // once fully published — a run reaching awaiting_approval already has a
+  // receipt worth showing.
   useEffect(() => {
     if (!hasThread) return;
     const statusNow = activeRun(view.thread).job.status;
-    if (prevStatusRef.current && prevStatusRef.current !== "completed" && statusNow === "completed") {
+    if (prevStatusRef.current && !isReceiptEligibleStatus(prevStatusRef.current) && isReceiptEligibleStatus(statusNow)) {
       handleTabChange("receipt");
     }
     prevStatusRef.current = statusNow;
   }, [hasThread, status]);
 
-  const receiptEnabled = !!status && isTerminalStatus(status);
+  const receiptEnabled = !!status && isReceiptEligibleStatus(status);
   const hasActivity = hasThread && !(status && isTerminalStatus(status));
 
   return (
@@ -2282,7 +2371,7 @@ function RunPanelRegion({
 
       {collapsed ? (
         <div className="flex-1 cursor-pointer" onClick={onToggle}>
-          <CollapsedRunPanel jobStatus={status} />
+          <CollapsedRunPanel job={selectedRun?.job} />
         </div>
       ) : !hasThread ? (
         tab === "activity" ? (
@@ -2295,7 +2384,7 @@ function RunPanelRegion({
           <EmptyState
             icon={<CircleCheck className="h-8 w-8" />}
             title="No receipt yet"
-            description="Receipts appear after a run completes."
+            description="Receipts appear once a run's result is ready for review."
           />
         )
       ) : tab === "activity" && selectedRun ? (
@@ -2305,7 +2394,7 @@ function RunPanelRegion({
       ) : selectedRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
           {receiptState.kind === "loaded" && receiptState.runId === receiptRunId ? (
-            <ReceiptPanel receipt={receiptState.receipt} />
+            <ReceiptPanel receipt={receiptState.receipt} job={selectedRun.job} />
           ) : (receiptState.kind === "error" || receiptState.kind === "unavailable") && receiptState.runId === receiptRunId ? (
             <div className="p-4"><EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description="The run outcome is known, but its detailed receipt could not be loaded." /><Button variant="outline" size="sm" className="mx-auto flex" onClick={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }}>Retry receipt</Button></div>
           ) : (
@@ -2326,25 +2415,27 @@ function RunsFilterSelect({
   value,
   onChange,
   options,
+  labelFor = (opt) => opt,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: readonly string[];
+  labelFor?: (opt: string) => string;
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger size="sm" className="h-8 text-xs w-auto gap-1.5">
         <SelectValue>
           <span className="text-muted-foreground">{label}:</span>{" "}
-          <span>{value === "all" ? "All" : value}</span>
+          <span>{value === "all" ? "All" : labelFor(value)}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectContent align="start">
         <SelectItem value="all">All</SelectItem>
         {options.map((opt) => (
           <SelectItem key={opt} value={opt}>
-            {opt}
+            {labelFor(opt)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -2353,7 +2444,6 @@ function RunsFilterSelect({
 }
 
 const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
-const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "blocked", "failed", "cancelled"];
 
 // Shared by RunsView and DashboardView's "Recent runs" section: a
 // responsive (desktop grid / mobile stacked cards) list of runs, differing
@@ -2396,10 +2486,13 @@ function RunsTable({
                 columns
               )}
             >
-              <span className="text-sm text-foreground truncate">{run.title}</span>
+              <span className="text-sm text-foreground truncate">
+                {run.title}
+                {run.attemptCount > 1 && <span className="ml-1.5 text-xs text-muted-foreground">· {run.attemptCount} attempts</span>}
+              </span>
               <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
               <span className="text-xs text-muted-foreground truncate">{run.model}</span>
-              <span className="text-xs"><StatusLabel status={run.status} /></span>
+              <span className="text-xs"><StatusLabel stage={run.status} /></span>
               <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
             </button>
           ))
@@ -2427,9 +2520,15 @@ function RunsTable({
                 <span className="font-mono">{run.repo}</span>
                 <span>·</span>
                 <span>{run.model}</span>
+                {run.attemptCount > 1 && (
+                  <>
+                    <span>·</span>
+                    <span>{run.attemptCount} attempts</span>
+                  </>
+                )}
               </div>
               <div className="flex items-center justify-between text-xs">
-                <StatusLabel status={run.status} />
+                <StatusLabel stage={run.status} />
               </div>
             </button>
           ))
@@ -2474,7 +2573,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
       </div>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={runStatusOptions} />
+        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={LIFECYCLE_FILTER_OPTIONS} labelFor={(s) => LIFECYCLE_STAGE_LABELS[s as LifecycleStageId] ?? s} />
         <RunsFilterSelect label="Repository" value={repoFilter} onChange={setRepoFilter} options={repoOptions} />
       </div>
 
@@ -2486,7 +2585,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
         runs={filtered}
         onSelectRun={onSelectRun}
         columns={runsColumns}
-        headers={["Task", "Repository", "Engine", "Status", "Updated"]}
+        headers={["Task", "Repository", "Model", "Status", "Updated"]}
         emptyMessage="No runs match your filters."
       />
     </div>
@@ -2509,7 +2608,7 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-foreground">Start your first run</p>
           <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
-            Describe a task and point Genesis at a repository to get started.
+            Describe a task and point GNSIS at a repository to get started.
           </p>
           <Button
             size="sm"
@@ -2550,8 +2649,8 @@ function DashboardView({
   const counts = runs.reduce(
     (acc, r) => {
       acc.total += 1;
-      if (r.status === "complete") acc.complete += 1;
-      else if (r.status === "failed" || r.status === "blocked" || r.status === "rejected") acc.failed += 1;
+      if (r.status === "published") acc.complete += 1;
+      else if (r.status === "attempt_stopped" || r.status === "publication_failed" || r.status === "rejected" || r.status === "cancelled") acc.failed += 1;
       else acc.active += 1;
       return acc;
     },
@@ -2645,7 +2744,7 @@ function DashboardView({
           runs={runs}
           onSelectRun={onSelectRun}
           columns={dashboardColumns}
-          headers={["Run", "Repository", "Engine", "Status", "Updated"]}
+          headers={["Run", "Repository", "Model", "Status", "Updated"]}
           emptyMessage="No runs yet."
         />
       </div>
@@ -2852,7 +2951,7 @@ function GNSISWorkspacePreview() {
   const [view, setView] = useState<WorkspaceView>({ kind: "composer" });
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
-  const runs = jobs.map(toRecentRun);
+  const runs = groupJobsIntoThreadRows(jobs);
 
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
   const toggleRunPanel = () => setRunPanelCollapsed((v) => !v);
