@@ -100,6 +100,12 @@ describe("normalizeActivityEvents", () => {
   it("produces an evidence-grounded blocked explanation without a persisted message", () => {
     const result = normalizeActivityEvents([ev("run.blocked", {})], job("blocked"));
     expect(result.failure?.summary).toBe("This run could not begin because a required prerequisite was unavailable.");
+    expect(result.failure?.blocked).toBe(true);
+  });
+
+  it("marks a non-blocked failure distinctly so callers can choose 'Attempt stopped' vs 'Run could not start'", () => {
+    const result = normalizeActivityEvents([ev("run.failed", { execution_started: true })], job("failed"));
+    expect(result.failure?.blocked).toBe(false);
   });
 
   it("routes infra-shaped events into the technical bucket for the collapsed section", () => {

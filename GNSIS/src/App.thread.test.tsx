@@ -247,7 +247,7 @@ describe("conversational run thread", () => {
 // -- failed run ---------------------------------------------------------------
 
 describe("failed run presentation", () => {
-  it("keeps 'Run failed', separates summary from technical details, and offers Retry", async () => {
+  it("keeps 'Attempt stopped', separates summary from technical details, and offers Retry", async () => {
     const user = userEvent.setup();
     mockThread([
       job({
@@ -259,7 +259,9 @@ describe("failed run presentation", () => {
     ]);
     renderThread("/runs/run-root");
 
-    expect(await screen.findByText("Run failed")).toBeInTheDocument();
+    // "Attempt stopped" now appears consistently in more than one place (the
+    // sidebar/collapsed-panel status label as well as the terminal message).
+    expect((await screen.findAllByText("Attempt stopped")).length).toBeGreaterThan(0);
     // Concise summary is the first line; the rest is behind a details toggle.
     // (The summary also appears in the side receipt panel, hence getAllByText.)
     expect(screen.getAllByText("Executor exited with code 1").length).toBeGreaterThan(0);
@@ -291,7 +293,9 @@ describe("failed run presentation", () => {
   it("treats a blocked tip as terminal and offers Retry run", async () => {
     mockThread([job({ id: "run-root", instruction: "Start it", status: "blocked" })]);
     renderThread("/runs/run-root");
-    expect(await screen.findByText("Run could not start")).toBeInTheDocument();
+    // "Attempt stopped" now appears consistently in more than one place (the
+    // sidebar/collapsed-panel status label as well as the terminal message).
+    expect((await screen.findAllByText("Attempt stopped")).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
     expect(apiMocks.getJobMock).not.toHaveBeenCalled();
   });

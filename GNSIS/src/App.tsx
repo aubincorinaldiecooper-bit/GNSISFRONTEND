@@ -99,7 +99,7 @@ import {
   type LifecycleStageId,
 } from "@/lib/runLifecycle";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
-import { RunActivityTimeline, type ReceiptActivityState } from "@/components/RunActivityTimeline";
+import { RunActivityTimeline, AttemptActivityStrip, type ReceiptActivityState } from "@/components/RunActivityTimeline";
 import { isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
 import {
   Tooltip,
@@ -1574,7 +1574,7 @@ function RunCompleteMessage({ job, diff, logs }: { job: JobRecord; diff: DiffRec
 // provider payload) is technical detail kept out of the way behind a toggle.
 function splitError(error: string | null): { summary: string; details: string | null } {
   const raw = (error || "").trim();
-  if (!raw) return { summary: "The run failed before it could finish.", details: null };
+  if (!raw) return { summary: "The attempt stopped before it could finish.", details: null };
   const nl = raw.indexOf("\n");
   if (nl === -1) return { summary: raw, details: null };
   return { summary: raw.slice(0, nl).trim(), details: raw.slice(nl + 1).trim() || null };
@@ -1587,7 +1587,7 @@ function FailedMessage({ job }: { job: JobRecord }) {
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
         <CircleX className="h-4 w-4 text-red-500 shrink-0" />
-        <p className="text-sm font-semibold text-red-600">Run failed</p>
+        <p className="text-sm font-semibold text-red-600">Attempt stopped</p>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed pl-6 break-words">{summary}</p>
       {details && (
@@ -1706,7 +1706,7 @@ function RunExecution({
   const [reviewPending, setReviewPending] = useState(false);
   return (
     <div className="mt-1">
-      <RunActivityTimeline run={job} events={run.events} loading={run.eventsLoading} polling={!isTerminalStatus(job.status)} reconnecting={run.eventsReconnecting} compact />
+      <AttemptActivityStrip job={job} events={run.events} isTerminal={isTerminalStatus(job.status)} />
 
       <CancelRunControl
         job={job}
@@ -1726,7 +1726,7 @@ function RunExecution({
       )}
 
       {job.status === "completed" && <RunCompleteMessage job={job} diff={diff} logs={logs} />}
-      {job.status === "failed" && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
+      {(job.status === "failed" || job.status === "blocked") && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
       {job.status === "rejected" && <TerminalMessage title="Run rejected" description="The proposed change was reviewed and rejected before publishing." />}
       {job.status === "cancelled" && <TerminalMessage title="Run cancelled" description="This run was cancelled before it finished." />}
     </div>

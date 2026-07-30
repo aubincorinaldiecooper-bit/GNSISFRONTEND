@@ -99,6 +99,8 @@ export interface NormalizedActivityStage {
 
 export interface NormalizedActivityFailure {
   summary: string;
+  /** A prerequisite was never satisfied (run.blocked), as opposed to a started attempt that stopped. */
+  blocked: boolean;
   executionStarted: boolean;
   modelCalled: boolean;
   nextAction: string | null;
@@ -207,6 +209,7 @@ export function normalizeActivityEvents(events: RunEvent[], job: JobRecord): Nor
           : `The trusted executor ${executionStarted ? "started but stopped" : "could not be started"}${
               safeText(payload.stage) ? ` during ${payload.stage}` : ""
             }.`),
+      blocked,
       executionStarted,
       modelCalled: payload.model_called === true,
       nextAction: safeText(payload.next_action),
