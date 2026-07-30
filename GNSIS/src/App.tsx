@@ -97,10 +97,12 @@ import {
 } from "@/lib/threads";
 import {
   getRunLifecycleState,
+  isReceiptEligibleStatus,
   LIFECYCLE_FILTER_OPTIONS,
   LIFECYCLE_STAGE_LABELS,
   type LifecycleStageId,
 } from "@/lib/runLifecycle";
+import { getReceiptSections } from "@/lib/receiptSections";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
 import { RunActivityTimeline, AttemptActivityStrip, type ReceiptActivityState } from "@/components/RunActivityTimeline";
 import { isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
@@ -1971,104 +1973,161 @@ function SummaryItem({ label, value, emphasize }: { label: string; value: string
   );
 }
 
-function receiptTokens(tokens: RunReceipt["tokens"]): string {
-  if (tokens === null) return "Unavailable";
-  if (tokens.input === 0 && tokens.output === 0 && tokens.cached === 0 && tokens.reasoning === 0) return "0";
-  return `Input ${tokens.input.toLocaleString()} · Output ${tokens.output.toLocaleString()} · Cached ${tokens.cached.toLocaleString()} · Reasoning ${tokens.reasoning.toLocaleString()}`;
+function formatCheckStatus(status: string): string {
+  if (status === "not_run") return "Not run";
+  if (status === "passed") return "Passed";
+  if (status === "failed") return "Failed";
+  if (status === "unknown") return "Unknown";
+  return status.replaceAll("_", " ");
 }
 
-function receiptTests(tests: RunReceipt["tests"]): string {
-  if (tests === null) return "Unavailable";
-  if (tests === "not_run") return "Not run";
-  if (typeof tests === "string") return tests.replaceAll("_", " ");
-  return Object.entries(tests).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ");
-}
-
-function ReceiptPanel({ receipt }: { receipt: RunReceipt }) {
-  const failed = ["failed", "blocked", "rejected"].includes(receipt.status);
-  const currency = receipt.cost?.currency || "USD";
-  const providerCost = receipt.cost === null
-    ? "Unavailable"
-    : Number(receipt.cost.provider_cost).toLocaleString("en-US", { style: "currency", currency });
-  const executionStarted = receipt.execution_started === undefined
-    ? "Unavailable"
-    : receipt.execution_started ? "Yes" : "No";
+function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord }) {
+  const sections = getReceiptSections(receipt, job);
   const supplied = receipt.intelligence?.supplied ?? [];
-  const approved = receipt.intelligence?.approved ?? [];
-  const delivered = supplied.filter((item) => item.delivered).length;
 
   return (
     <div className="flex-1 overflow-y-auto">
+      {/* HEADER */}
       <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Run receipt
-        </p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Run receipt</p>
         <p className="text-sm font-semibold text-foreground line-clamp-2">{receipt.task}</p>
         <p className="text-xs text-muted-foreground font-mono">{receipt.repository}</p>
         <div className="flex items-center gap-1.5 pt-1">
-          {failed ? (
+          {sections.header.failed ? (
             <CircleX className="h-3.5 w-3.5 text-red-500" />
           ) : (
             <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
           )}
-          <span className={cn("text-sm font-semibold", failed ? "text-red-600" : "text-emerald-600")}>
-            {receipt.status.replaceAll("_", " ")}
+          <span className={cn("text-sm font-semibold", sections.header.failed ? "text-red-600" : "text-emerald-600")}>
+            {sections.header.title}
+            {sections.header.qualifier && <span className="font-normal text-muted-foreground"> · {sections.header.qualifier}</span>}
           </span>
         </div>
+        {sections.header.description && <p className="text-sm text-foreground leading-relaxed">{sections.header.description}</p>}
       </div>
 
-      <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Outcome
-        </p>
-        <p className="text-sm text-foreground leading-relaxed">
-          {receipt.failure_message ?? receipt.status.replaceAll("_", " ")}
-        </p>
-      </div>
-
+      {/* CHANGES */}
       <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Changes</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem label="Repository" value={receipt.repository} />
-          {receipt.base_sha != null && <SummaryItem label="Starting commit" value={receipt.base_sha} />}
-          <SummaryItem label="Files changed" value={String(receipt.files_changed.length)} />
-          <SummaryItem label="Tests" value={receiptTests(receipt.tests)} />
-          {receipt.model != null && <SummaryItem label="Model" value={receipt.model} />}
-          <SummaryItem label="Intelligence selected" value={String(supplied.length)} />
-          <SummaryItem label="Intelligence delivered" value={String(delivered)} />
-          <SummaryItem label="Intelligence approved" value={String(approved.length)} />
+          <SummaryItem label="Files changed" value={String(sections.changes.filesChanged.length)} />
+          <SummaryItem label="Model" value={sections.agent.model} />
         </div>
-      </div>
-
-      {supplied.length > 0 && <div className="border-b px-4 py-4"><h3 className="text-sm font-semibold">Supplied intelligence</h3><ul className="mt-3 space-y-4">{supplied.map((item) => <li key={item.memory_id} className="text-xs">
-        <div className="flex flex-wrap gap-2"><span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span><span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-700" : "text-muted-foreground")}>{item.delivered ? "Delivered to model request" : "Delivery not attested"}</span></div>
-        {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
-        {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
-        <p className="mt-1 text-muted-foreground">{[item.source_model && `Source model: ${item.source_model}`, item.approved_by && `Approved by ${item.approved_by}`, item.approved_at && new Date(item.approved_at).toLocaleString(), item.destination_model && `Destination model: ${item.destination_model}`].filter(Boolean).join(" · ")}</p>
-        {item.source_run_id && <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>View source run</a>}
-      </li>)}</ul></div>}
-
-      <details className="border-b px-4 py-4 text-xs"><summary className="cursor-pointer text-sm font-semibold">Technical details</summary><div className="mt-3 grid grid-cols-2 gap-3">
-        {receipt.advisor_model != null && <SummaryItem label="Historical Advisor" value={receipt.advisor_model} />}
-        {receipt.tokens != null && <SummaryItem label="Tokens" value={receiptTokens(receipt.tokens)} emphasize />}
-        {receipt.cost != null && <SummaryItem label="Provider cost" value={providerCost} />}
-        {receipt.cost?.gnsis_service_fee != null && <SummaryItem label="Service fee" value={receipt.cost.gnsis_service_fee} />}
-        {receipt.execution_started !== undefined && <SummaryItem label="Execution started" value={executionStarted} />}
-        {publicBetaMode() && receipt.execution_run_id != null && <SummaryItem label="Execution ID" value={receipt.execution_run_id} />}
-        {receipt.patch_hash != null && <SummaryItem label="Patch hash" value={receipt.patch_hash} />}
-        {receipt.timing?.duration_seconds != null && <SummaryItem label="Duration" value={`${receipt.timing.duration_seconds}s`} />}
-      </div></details>
-
-      {receipt.files_changed.length > 0 && (
-        <div className="px-4 py-4">
-          <p className="text-sm font-semibold text-foreground mb-2">Files changed</p>
+        {sections.changes.filesChanged.length > 0 && (
           <ul className="text-xs text-muted-foreground space-y-1 font-mono">
-            {receipt.files_changed.map((f) => (
+            {sections.changes.filesChanged.map((f) => (
               <li key={f}>{f}</li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
 
+      {/* VERIFICATION */}
+      <div className="px-4 py-4 border-b border-border space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Verification</p>
+        <p className="text-sm text-foreground">
+          Output validation{" "}
+          {sections.verification.outputValidation === "passed" ? "passed" : sections.verification.outputValidation === "failed" ? "failed" : "unavailable"}
+        </p>
+        {sections.verification.checks.map((check) => (
+          <p key={check.name} className={cn("text-sm", check.passed === false ? "text-amber-700 font-medium" : "text-foreground")}>
+            {check.name} · <span>{formatCheckStatus(check.status)}</span>
+          </p>
+        ))}
+      </div>
+
+      {/* AGENT */}
+      <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <SummaryItem label="Tokens" value={sections.agent.tokensSummary} emphasize />
+          <SummaryItem label="Provider cost" value={sections.agent.cost.label} />
+        </div>
+      </div>
+
+      {/* REPOSITORY INTELLIGENCE */}
+      <div className="px-4 py-4 border-b border-border space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Repository intelligence</p>
+        <div className="grid grid-cols-1 gap-y-3">
+          <SummaryItem label="Previous intelligence" value={sections.intelligence.selected.label} />
+          <SummaryItem label="Delivered intelligence" value={sections.intelligence.delivered.label} />
+          <SummaryItem label="New reusable intelligence" value={sections.intelligence.proposed.label} />
+        </div>
+        {supplied.length > 0 && (
+          <ul className="mt-1 space-y-4">
+            {supplied.map((item) => (
+              <li key={item.memory_id} className="text-xs">
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span>
+                  <span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-700" : "text-muted-foreground")}>
+                    {item.delivered ? "Delivered to model request" : "Delivery not attested"}
+                  </span>
+                </div>
+                {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
+                {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
+                <p className="mt-1 text-muted-foreground">
+                  {[
+                    item.source_model && `Source model: ${item.source_model}`,
+                    item.approved_by && `Approved by ${item.approved_by}`,
+                    item.approved_at && new Date(item.approved_at).toLocaleString(),
+                    item.destination_model && `Destination model: ${item.destination_model}`,
+                  ].filter(Boolean).join(" · ")}
+                </p>
+                {item.source_run_id && (
+                  <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>
+                    View source run
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* PUBLICATION */}
+      <div className="px-4 py-4 border-b border-border space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Publication</p>
+        {sections.publication.phase === "pre_approval" && (
+          <p className="text-sm text-foreground">Review and approve the proposed change</p>
+        )}
+        {sections.publication.phase === "approved_not_published" && <p className="text-sm text-foreground">Approved</p>}
+        {sections.publication.phase === "published" && (
+          <>
+            <p className="text-sm text-foreground">Pull request published</p>
+            {sections.publication.pullRequest && (
+              <a
+                href={sections.publication.pullRequest.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-sm underline"
+              >
+                View pull request on GitHub <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* TECHNICAL EVIDENCE */}
+      <details className="border-b px-4 py-4 text-xs">
+        <summary className="cursor-pointer text-sm font-semibold">Technical evidence</summary>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <SummaryItem label="Repository" value={sections.technical.repository} />
+          {sections.technical.startingCommit != null && <SummaryItem label="Starting commit" value={sections.technical.startingCommit} />}
+          {receipt.advisor_model != null && <SummaryItem label="Historical Advisor" value={receipt.advisor_model} />}
+          <SummaryItem
+            label="Service fee"
+            value={receipt.cost?.gnsis_service_fee != null ? receipt.cost.gnsis_service_fee : "No service fee recorded"}
+          />
+          <SummaryItem
+            label="Execution started"
+            value={sections.technical.executionStarted === undefined ? "Unavailable" : sections.technical.executionStarted ? "Yes" : "No"}
+          />
+          {publicBetaMode() && sections.technical.executionId != null && <SummaryItem label="Execution ID" value={sections.technical.executionId} />}
+          {sections.technical.patchHash != null && <SummaryItem label="Patch hash" value={sections.technical.patchHash} />}
+          {sections.technical.durationSeconds != null && <SummaryItem label="Duration" value={`${sections.technical.durationSeconds}s`} />}
+        </div>
+      </details>
     </div>
   );
 }
@@ -2142,7 +2201,7 @@ function RunPanelHeader({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
-                  Available when complete
+                  Available once a result is ready for review
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -2216,7 +2275,7 @@ function RunPanelRegion({
   const [receiptAttempt, setReceiptAttempt] = useState(0);
 
   useEffect(() => {
-    if (!selectedRun || !receiptRunId || !isTerminalStatus(selectedRun.job.status)) {
+    if (!selectedRun || !receiptRunId || !isReceiptEligibleStatus(selectedRun.job.status)) {
       return;
     }
     let cancelled = false;
@@ -2270,23 +2329,25 @@ function RunPanelRegion({
       return;
     }
     const initialStatus = selectedRun?.job.status ?? activeRun(view.thread).job.status;
-    setTab(isTerminalStatus(initialStatus) ? "receipt" : "activity");
+    setTab(isReceiptEligibleStatus(initialStatus) ? "receipt" : "activity");
     activityScrollPos.current = 0;
     receiptScrollPos.current = 0;
     prevStatusRef.current = initialStatus;
   }, [threadKey, selectedRun?.job.id]);
 
-  // Auto-switch to receipt when the tip run completes
+  // Auto-switch to receipt once a result becomes ready for review, not only
+  // once fully published — a run reaching awaiting_approval already has a
+  // receipt worth showing.
   useEffect(() => {
     if (!hasThread) return;
     const statusNow = activeRun(view.thread).job.status;
-    if (prevStatusRef.current && prevStatusRef.current !== "completed" && statusNow === "completed") {
+    if (prevStatusRef.current && !isReceiptEligibleStatus(prevStatusRef.current) && isReceiptEligibleStatus(statusNow)) {
       handleTabChange("receipt");
     }
     prevStatusRef.current = statusNow;
   }, [hasThread, status]);
 
-  const receiptEnabled = !!status && isTerminalStatus(status);
+  const receiptEnabled = !!status && isReceiptEligibleStatus(status);
   const hasActivity = hasThread && !(status && isTerminalStatus(status));
 
   return (
@@ -2323,7 +2384,7 @@ function RunPanelRegion({
           <EmptyState
             icon={<CircleCheck className="h-8 w-8" />}
             title="No receipt yet"
-            description="Receipts appear after a run completes."
+            description="Receipts appear once a run's result is ready for review."
           />
         )
       ) : tab === "activity" && selectedRun ? (
@@ -2333,7 +2394,7 @@ function RunPanelRegion({
       ) : selectedRun ? (
         <div ref={receiptScrollRef} className="flex-1 overflow-y-auto">
           {receiptState.kind === "loaded" && receiptState.runId === receiptRunId ? (
-            <ReceiptPanel receipt={receiptState.receipt} />
+            <ReceiptPanel receipt={receiptState.receipt} job={selectedRun.job} />
           ) : (receiptState.kind === "error" || receiptState.kind === "unavailable") && receiptState.runId === receiptRunId ? (
             <div className="p-4"><EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description="The run outcome is known, but its detailed receipt could not be loaded." /><Button variant="outline" size="sm" className="mx-auto flex" onClick={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }}>Retry receipt</Button></div>
           ) : (

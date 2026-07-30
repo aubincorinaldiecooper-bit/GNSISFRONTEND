@@ -133,7 +133,10 @@ function publicationPhase(job: JobRecord): "pre_approval" | "approved_not_publis
 }
 
 export interface ReceiptSections {
-  header: { title: string; qualifier: string | null; description: string; failed: boolean };
+  // description is null (not repeated) when the outcome is a success, since
+  // the task text is already shown once above the header — only a failure
+  // gets a second, distinct explanatory line.
+  header: { title: string; qualifier: string | null; description: string | null; failed: boolean };
   changes: { filesChanged: string[] };
   verification: { outputValidation: "passed" | "failed" | "unknown"; checks: CheckRow[] };
   agent: { model: string; advisorModel: string | null; tokensSummary: string; cost: CostState };
@@ -164,7 +167,7 @@ export function getReceiptSections(receipt: RunReceipt, job: JobRecord): Receipt
     header: {
       title: lifecycle.label,
       qualifier: lifecycle.qualifier,
-      description: (failed ? receipt.failure_message : null) ?? receipt.task,
+      description: failed ? (receipt.failure_message ?? null) : null,
       failed,
     },
     changes: { filesChanged: receipt.files_changed },
