@@ -318,35 +318,6 @@ export interface RunEventList {
   offset: number;
 }
 
-/** One durable, backend-authored lifecycle fact for a run. */
-export interface RunEvent {
-  id: string;
-  run_id: string;
-  sequence: number;
-  type: string;
-  at: string;
-  payload: {
-    message?: string;
-    stage?: string;
-    execution_started?: boolean;
-    model_called?: boolean;
-    retryable?: boolean;
-    next_action?: string | null;
-    duration_seconds?: number | null;
-    technical?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-}
-
-export interface RunEventList {
-  object: "list";
-  data: RunEvent[];
-  has_more: boolean;
-  total: number;
-  limit: number;
-  offset: number;
-}
-
 export interface CreateJobInput {
   repository_id: string;
   instruction: string;
