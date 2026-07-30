@@ -36,7 +36,7 @@ export interface RunLifecycleState {
   isTerminal: boolean;
 }
 
-const LABELS: Record<LifecycleStageId, string> = {
+export const LIFECYCLE_STAGE_LABELS: Record<LifecycleStageId, string> = {
   queued: "Queued",
   working: "Working",
   ready_for_review: "Ready for review",
@@ -156,7 +156,7 @@ export function getRunLifecycleState(job: JobRecord, tests?: RunReceipt["tests"]
 
   return {
     stage,
-    label: LABELS[stage],
+    label: LIFECYCLE_STAGE_LABELS[stage],
     qualifier,
     indicatorKind: INDICATOR_KINDS[stage],
     isTerminal: isTerminalStatus(job.status),

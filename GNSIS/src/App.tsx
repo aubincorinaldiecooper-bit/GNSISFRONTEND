@@ -34,6 +34,7 @@ import {
   Circle,
   ExternalLink,
   AlertTriangle,
+  Clock,
   Activity as ActivityGlyph,
   Menu,
   X,
@@ -84,7 +85,19 @@ import {
   type IntelligenceProposal,
   type IntelligenceApprovalSelection,
 } from "@/lib/api";
-import { threadTitle, relativeTime, fullDateTime } from "@/lib/threads";
+import {
+  threadTitle,
+  relativeTime,
+  fullDateTime,
+  groupJobsIntoThreadRows,
+  type RecentRun,
+} from "@/lib/threads";
+import {
+  getRunLifecycleState,
+  LIFECYCLE_FILTER_OPTIONS,
+  LIFECYCLE_STAGE_LABELS,
+  type LifecycleStageId,
+} from "@/lib/runLifecycle";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
 import { RunActivityTimeline, type ReceiptActivityState } from "@/components/RunActivityTimeline";
 import { isFailureEvent, mergeRunEvents } from "@/lib/timelineEvents";
@@ -268,55 +281,31 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
 // SIDEBAR — DATA & TYPES
 // =============================================================================
 
-type RunStatus = "queued" | "running" | "awaiting_approval" | "complete" | "rejected" | "blocked" | "failed" | "cancelled";
 type NavId = "new-run" | "runs" | "intelligence" | "dashboard" | "integration-test";
 type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding";
 
-function jobStatusToRunStatus(status: JobStatus): RunStatus {
-  switch (status) {
-    case "queued":
-      return "queued";
-    case "awaiting_approval":
-      return "awaiting_approval";
-    case "completed":
-      return "complete";
-    case "rejected":
-      return "rejected";
-    case "blocked":
-      return "blocked";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    default:
-      return "running";
-  }
-}
-
-const runLabelCls: Record<RunStatus, { label: string; cls: string }> = {
-  queued: { label: "Queued", cls: "text-muted-foreground" },
-  running: { label: "Running", cls: "text-blue-600" },
-  awaiting_approval: { label: "Needs approval", cls: "text-amber-600" },
-  complete: { label: "Complete", cls: "text-emerald-600" },
-  rejected: { label: "Rejected", cls: "text-muted-foreground" },
-  blocked: { label: "Blocked", cls: "text-amber-700" },
-  failed: { label: "Failed", cls: "text-red-600" },
-  cancelled: { label: "Cancelled", cls: "text-muted-foreground" },
+// Text color per lifecycle stage — the label text is always the primary
+// signal (never color alone); "Ready for review" and "Approved" deliberately
+// share amber since they're distinguished by wording, not hue.
+const lifecycleStageCls: Record<LifecycleStageId, string> = {
+  queued: "text-muted-foreground",
+  working: "text-blue-600",
+  ready_for_review: "text-amber-600",
+  approved: "text-amber-600",
+  published: "text-emerald-600",
+  attempt_stopped: "text-red-600",
+  publication_failed: "text-red-600",
+  rejected: "text-muted-foreground",
+  cancelled: "text-muted-foreground",
 };
 
-function StatusLabel({ status }: { status: RunStatus }) {
-  const s = runLabelCls[status];
-  return <span className={cn("font-medium", s.cls)}>{s.label}</span>;
-}
-
-// Sidebar/table row shape, derived from a real JobRecord — no fabricated fields.
-interface RecentRun {
-  id: string;
-  title: string;
-  repo: string;
-  model: string;
-  status: RunStatus;
-  updatedAt: string;
+function StatusLabel({ stage, qualifier }: { stage: LifecycleStageId; qualifier?: string | null }) {
+  return (
+    <span className={cn("font-medium", lifecycleStageCls[stage])}>
+      {LIFECYCLE_STAGE_LABELS[stage]}
+      {qualifier && <span className="font-normal text-muted-foreground"> · {qualifier}</span>}
+    </span>
+  );
 }
 
 // Legacy jobs created before model selection carry no model — never invent one.
@@ -327,17 +316,6 @@ function displayModel(job: JobRecord): string {
 // Historical and primary-only jobs may have no Advisor pinned — never invent one.
 function displayAdvisorModel(job: JobRecord): string {
   return job.advisor_model ?? "—";
-}
-
-function toRecentRun(job: JobRecord): RecentRun {
-  return {
-    id: job.id,
-    title: job.instruction.split("\n")[0].slice(0, 140) || job.instruction,
-    repo: job.repo,
-    model: displayModel(job),
-    status: jobStatusToRunStatus(job.status),
-    updatedAt: job.updated_at,
-  };
 }
 
 function timeAgo(iso: string): string {
@@ -407,14 +385,15 @@ function SidebarNavItem({
 // SIDEBAR RUN ROW (full-width click target)
 // =============================================================================
 
-const sidebarStatusIcon: Record<RunStatus, React.ReactNode> = {
+const sidebarStatusIcon: Record<LifecycleStageId, React.ReactNode> = {
   queued: <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 self-start mt-0.5" />,
-  running: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
-  awaiting_approval: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
-  complete: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
+  working: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
+  ready_for_review: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
+  approved: <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
+  published: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
   rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
-  blocked: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
-  failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
+  attempt_stopped: <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0 self-start mt-0.5" />,
+  publication_failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
   cancelled: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
 };
 
@@ -437,7 +416,7 @@ function SidebarRunRow({
             <button
               type="button"
               onClick={onClick}
-              aria-label={`${run.title} \u2014 ${runLabelCls[run.status].label}`}
+              aria-label={`${run.title} \u2014 ${LIFECYCLE_STAGE_LABELS[run.status]}`}
               className={cn(
                 "flex items-center justify-center h-8 w-8 mx-auto rounded-lg transition-colors duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -470,8 +449,10 @@ function SidebarRunRow({
         <span className="block text-sm text-foreground truncate leading-tight">
           {run.title}
         </span>
-        <span className="block text-xs text-muted-foreground truncate leading-tight mt-0.5">
-          {timeAgo(run.updatedAt)}
+        <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground truncate leading-tight">
+          <span className={cn("font-medium", lifecycleStageCls[run.status])}>{LIFECYCLE_STAGE_LABELS[run.status]}</span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="truncate">{timeAgo(run.updatedAt)}</span>
         </span>
       </span>
     </button>
@@ -2121,18 +2102,8 @@ function RunPanelHeader({
   );
 }
 
-function CollapsedRunPanel({ jobStatus }: { jobStatus?: JobStatus }) {
-  const status: StatusKind = !jobStatus
-    ? "idle"
-    : jobStatus === "completed"
-    ? "completed"
-    : jobStatus === "blocked"
-    ? "waiting"
-    : jobStatus === "failed" || jobStatus === "rejected" || jobStatus === "cancelled"
-    ? "failed"
-    : jobStatus === "awaiting_approval"
-    ? "waiting"
-    : "active";
+function CollapsedRunPanel({ job }: { job?: JobRecord }) {
+  const status: StatusKind = job ? getRunLifecycleState(job).indicatorKind : "idle";
 
   return (
     <div className="flex flex-col items-center py-4 gap-3">
@@ -2282,7 +2253,7 @@ function RunPanelRegion({
 
       {collapsed ? (
         <div className="flex-1 cursor-pointer" onClick={onToggle}>
-          <CollapsedRunPanel jobStatus={status} />
+          <CollapsedRunPanel job={selectedRun?.job} />
         </div>
       ) : !hasThread ? (
         tab === "activity" ? (
@@ -2326,25 +2297,27 @@ function RunsFilterSelect({
   value,
   onChange,
   options,
+  labelFor = (opt) => opt,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: readonly string[];
+  labelFor?: (opt: string) => string;
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger size="sm" className="h-8 text-xs w-auto gap-1.5">
         <SelectValue>
           <span className="text-muted-foreground">{label}:</span>{" "}
-          <span>{value === "all" ? "All" : value}</span>
+          <span>{value === "all" ? "All" : labelFor(value)}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectContent align="start">
         <SelectItem value="all">All</SelectItem>
         {options.map((opt) => (
           <SelectItem key={opt} value={opt}>
-            {opt}
+            {labelFor(opt)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -2353,7 +2326,6 @@ function RunsFilterSelect({
 }
 
 const runsColumns = "grid-cols-[2fr_1.3fr_0.9fr_0.9fr_0.9fr]";
-const runStatusOptions: RunStatus[] = ["queued", "running", "awaiting_approval", "complete", "rejected", "blocked", "failed", "cancelled"];
 
 // Shared by RunsView and DashboardView's "Recent runs" section: a
 // responsive (desktop grid / mobile stacked cards) list of runs, differing
@@ -2396,10 +2368,13 @@ function RunsTable({
                 columns
               )}
             >
-              <span className="text-sm text-foreground truncate">{run.title}</span>
+              <span className="text-sm text-foreground truncate">
+                {run.title}
+                {run.attemptCount > 1 && <span className="ml-1.5 text-xs text-muted-foreground">· {run.attemptCount} attempts</span>}
+              </span>
               <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
               <span className="text-xs text-muted-foreground truncate">{run.model}</span>
-              <span className="text-xs"><StatusLabel status={run.status} /></span>
+              <span className="text-xs"><StatusLabel stage={run.status} /></span>
               <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
             </button>
           ))
@@ -2427,9 +2402,15 @@ function RunsTable({
                 <span className="font-mono">{run.repo}</span>
                 <span>·</span>
                 <span>{run.model}</span>
+                {run.attemptCount > 1 && (
+                  <>
+                    <span>·</span>
+                    <span>{run.attemptCount} attempts</span>
+                  </>
+                )}
               </div>
               <div className="flex items-center justify-between text-xs">
-                <StatusLabel status={run.status} />
+                <StatusLabel stage={run.status} />
               </div>
             </button>
           ))
@@ -2474,7 +2455,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
       </div>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={runStatusOptions} />
+        <RunsFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={LIFECYCLE_FILTER_OPTIONS} labelFor={(s) => LIFECYCLE_STAGE_LABELS[s as LifecycleStageId] ?? s} />
         <RunsFilterSelect label="Repository" value={repoFilter} onChange={setRepoFilter} options={repoOptions} />
       </div>
 
@@ -2486,7 +2467,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
         runs={filtered}
         onSelectRun={onSelectRun}
         columns={runsColumns}
-        headers={["Task", "Repository", "Engine", "Status", "Updated"]}
+        headers={["Task", "Repository", "Model", "Status", "Updated"]}
         emptyMessage="No runs match your filters."
       />
     </div>
@@ -2550,8 +2531,8 @@ function DashboardView({
   const counts = runs.reduce(
     (acc, r) => {
       acc.total += 1;
-      if (r.status === "complete") acc.complete += 1;
-      else if (r.status === "failed" || r.status === "blocked" || r.status === "rejected") acc.failed += 1;
+      if (r.status === "published") acc.complete += 1;
+      else if (r.status === "attempt_stopped" || r.status === "publication_failed" || r.status === "rejected" || r.status === "cancelled") acc.failed += 1;
       else acc.active += 1;
       return acc;
     },
@@ -2645,7 +2626,7 @@ function DashboardView({
           runs={runs}
           onSelectRun={onSelectRun}
           columns={dashboardColumns}
-          headers={["Run", "Repository", "Engine", "Status", "Updated"]}
+          headers={["Run", "Repository", "Model", "Status", "Updated"]}
           emptyMessage="No runs yet."
         />
       </div>
@@ -2852,7 +2833,7 @@ function GNSISWorkspacePreview() {
   const [view, setView] = useState<WorkspaceView>({ kind: "composer" });
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
-  const runs = jobs.map(toRecentRun);
+  const runs = groupJobsIntoThreadRows(jobs);
 
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
   const toggleRunPanel = () => setRunPanelCollapsed((v) => !v);
