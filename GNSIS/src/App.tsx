@@ -129,6 +129,17 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  ChatMessage,
+  ChatMessageBubble,
+  ChatMessageList,
+  ChatSystemMessage,
+} from "@astryxdesign/core/Chat";
+import { Avatar } from "@astryxdesign/core/Avatar";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { Toolbar } from "@astryxdesign/core/Toolbar";
+import { Section } from "@astryxdesign/core/Section";
+import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
 
 // =============================================================================
 // UTILITY
@@ -487,7 +498,7 @@ function CollapsedUsageIndicator() {
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="px-4 pb-2.5 pt-3 flex justify-center cursor-pointer">
-            <div className="h-1.5 w-9 rounded-full bg-neutral-200/80 overflow-hidden" />
+            <div className="h-1.5 w-9 rounded-full bg-muted overflow-hidden" />
           </div>
         </TooltipTrigger>
         <TooltipContent side="right" className="text-xs">
@@ -525,7 +536,7 @@ function AccountRow({
       referrerPolicy="no-referrer"
     />
   ) : (
-    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-semibold text-neutral-600 shrink-0">
+    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground shrink-0">
       {initial}
     </div>
   );
@@ -643,7 +654,7 @@ function SidebarRegion({
     <aside
       style={{ width: collapsed ? 68 : 250 }}
       className={cn(
-        "relative flex flex-col h-full shrink-0 bg-neutral-50",
+        "relative flex flex-col h-full shrink-0 bg-muted",
         "transition-[width] duration-200 ease-in-out overflow-hidden"
       )}
     >
@@ -960,7 +971,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
       </div>
 
       {noReposAvailable ? (
-        <div className="rounded-2xl border border-dashed border-border bg-neutral-50/50 px-6 py-10 text-center">
+        <div className="rounded-2xl border border-dashed border-border bg-muted/50 px-6 py-10 text-center">
           <p className="text-sm font-medium text-foreground">No repositories are available.</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Grant GNSIS access to a repository through GitHub to start your first run.
@@ -979,7 +990,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           )}
         </div>
       ) : (
-        <div className="rounded-2xl border border-border bg-white shadow-sm">
+        <div className="rounded-2xl border border-border bg-card shadow-sm">
           {/*
             The card is deliberately overflow-VISIBLE so the non-portal Combobox
             dropdowns can extend past the card's bottom edge. Rounded corners are
@@ -1031,7 +1042,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   placeholder="Select repository"
                   searchPlaceholder="Search repositories…"
                   emptyText="No matching repositories."
-                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1046,7 +1057,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   emptyText={branchesError ? "Could not load branches." : "No branches found."}
                   loading={branchesLoading}
                   disabled={!repositoryId}
-                  className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1060,7 +1071,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   searchPlaceholder="Search models…"
                   emptyText="No matching models."
                   disabled={(models ?? []).length === 0}
-                  className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                  className="h-9 rounded-lg bg-card px-2.5 text-xs"
                 />
               </div>
               <div className="col-span-2 lg:col-span-1 flex justify-end">
@@ -1068,7 +1079,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   size="sm"
                   disabled={!canSubmit}
                   onClick={handleSubmit}
-                  className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
+                  className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
                 >
                   {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Start run
@@ -1092,7 +1103,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1137,7 +1148,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
               size="sm"
               disabled={!canSubmit}
               onClick={handleSubmit}
-              className="h-9 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white px-4"
+              className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
             >
               {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               <span className="text-sm">Start</span>
@@ -1146,7 +1157,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 
           {/* Mobile config sheet — rounded-b so the card's bottom corners stay clean */}
           {showMobileConfig && (
-            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-neutral-50/50">
+            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-muted/50">
               <Combobox
                 ariaLabel="Repository"
                 icon={<FolderGit className="h-3.5 w-3.5" />}
@@ -1156,7 +1167,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 placeholder="Select repository"
                 searchPlaceholder="Search repositories…"
                 emptyText="No matching repositories."
-                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Branch"
@@ -1169,7 +1180,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 emptyText={branchesError ? "Could not load branches." : "No branches found."}
                 loading={branchesLoading}
                 disabled={!repositoryId}
-                className="h-9 rounded-lg bg-white px-2.5 text-xs font-mono"
+                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Model"
@@ -1181,7 +1192,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 searchPlaceholder="Search models…"
                 emptyText="No matching models."
                 disabled={(models ?? []).length === 0}
-                className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                className="h-9 rounded-lg bg-card px-2.5 text-xs"
               />
               {!publicBetaMode() && (showAdvisor ? (
                 <div className="flex items-center gap-2">
@@ -1196,7 +1207,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-white px-2.5 text-xs"
+                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1413,12 +1424,13 @@ function ThreadHeader({ thread }: { thread: ThreadState }) {
 // (copy + relative timestamp). Readable width, preserved line breaks.
 function InstructionMessage({ job }: { job: JobRecord }) {
   return (
-    <div className="pt-1">
-      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
-        {job.instruction}
-      </p>
-      <MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />
-    </div>
+    <ChatMessage sender="user">
+      <ChatMessageBubble
+        metadata={<MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />}
+      >
+        <p className="whitespace-pre-wrap break-words">{job.instruction}</p>
+      </ChatMessageBubble>
+    </ChatMessage>
   );
 }
 
@@ -1448,9 +1460,14 @@ function DiffSummary({ diff }: { diff: DiffRecord }) {
         </div>
       )}
       {showPatch && diff.patch && (
-        <pre className="max-h-64 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre">
-          {diff.patch}
-        </pre>
+        <CodeBlock
+          language="diff"
+          code={diff.patch}
+          width="100%"
+          maxHeight={256}
+          isCollapsible
+          collapsibleThreshold={1}
+        />
       )}
     </div>
   );
@@ -1521,14 +1538,14 @@ function BetaRunReview({
   if (job.status !== "awaiting_approval") return null;
   return <>
     {diffBlock}
-    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+    <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
       <h3 className="text-sm font-semibold">Proposed intelligence</h3>
       <p className="mt-1 text-xs text-muted-foreground">Nothing becomes approved intelligence until you select it and approve the run.</p>
       {proposalState === "loading" ? <p className="mt-3 text-xs">Loading proposals…</p> : proposalState === "loaded" && proposals.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">No intelligence was proposed. You can still approve the run.</p> : proposalState === "loaded" ? <ul className="mt-3 space-y-3">{proposals.map((item) => <li key={item.id} className="flex items-start gap-2">
         <input aria-label={`Select proposal ${item.id}`} type="checkbox" checked={choices[item.id]?.selected ?? false} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: event.target.checked, content: current[item.id]?.content ?? item.content } }))} />
         <div className="flex-1"><Textarea aria-label={`Edit proposal ${item.id}`} value={choices[item.id]?.content ?? item.content} disabled={!choices[item.id]?.selected} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: current[item.id]?.selected ?? true, content: event.target.value } }))} className="min-h-16 text-xs" /><p className="mt-1 text-xs text-muted-foreground">{item.kind}</p></div>
       </li>)}</ul> : null}
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
       {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
       <div className="mt-3 flex items-center gap-2 flex-wrap">
         <Button size="sm" onClick={approve} disabled={pending !== null || proposalState !== "loaded" || disabled}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
@@ -1605,9 +1622,9 @@ function FailedMessage({ job }: { job: JobRecord }) {
             {showDetails ? "Hide technical details" : "Show technical details"}
           </button>
           {showDetails && (
-            <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-neutral-950 text-neutral-100 text-[11px] leading-relaxed p-3 font-mono whitespace-pre-wrap break-words">
-              {details}
-            </pre>
+            <div className="mt-2">
+              <CodeBlock language="plaintext" code={details} width="100%" maxHeight={224} isWrapped />
+            </div>
           )}
         </div>
       )}
@@ -1710,7 +1727,7 @@ function RunExecution({
   const [cancelPending, setCancelPending] = useState(false);
   const [reviewPending, setReviewPending] = useState(false);
   return (
-    <div className="mt-1">
+    <>
       <AttemptActivityStrip job={job} events={run.events} isTerminal={isTerminalStatus(job.status)} />
 
       <CancelRunControl
@@ -1734,7 +1751,7 @@ function RunExecution({
       {(job.status === "failed" || job.status === "blocked") && !run.events.some(isFailureEvent) && <FailedMessage job={job} />}
       {job.status === "rejected" && <TerminalMessage title="Run rejected" description="The proposed change was reviewed and rejected before publishing." />}
       {job.status === "cancelled" && <TerminalMessage title="Run cancelled" description="This run was cancelled before it finished." />}
-    </div>
+    </>
   );
 }
 
@@ -1775,11 +1792,11 @@ function RunActions({
 function AttemptSummaryLine({ job, attemptNumber }: { job: JobRecord; attemptNumber: number }) {
   const summary = getAttemptSummary(job, attemptNumber);
   return (
-    <p className="mb-1.5 text-xs text-muted-foreground">
+    <>
       Attempt {summary.attemptNumber} · <span className={cn("font-medium", lifecycleStageCls[summary.lifecycle.stage])}>{summary.lifecycle.label}</span>
       {summary.model !== "—" && <> · {summary.model}</>}
       {summary.elapsedLabel && <> · {summary.elapsedLabel}</>}
-    </p>
+    </>
   );
 }
 
@@ -1802,9 +1819,17 @@ function ConversationTurn({
 }) {
   return (
     <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
-      {totalAttempts > 1 && <AttemptSummaryLine job={run.job} attemptNumber={attemptNumber} />}
+      {totalAttempts > 1 && (
+        <ChatSystemMessage>
+          <AttemptSummaryLine job={run.job} attemptNumber={attemptNumber} />
+        </ChatSystemMessage>
+      )}
       <InstructionMessage job={run.job} />
-      <RunExecution run={run} onStatusChange={onStatusChange} />
+      <ChatMessage sender="assistant" avatar={<Avatar name="Genesis" size="md" />}>
+        <ChatMessageBubble variant="ghost">
+          <RunExecution run={run} onStatusChange={onStatusChange} />
+        </ChatMessageBubble>
+      </ChatMessage>
       {isTip && isTerminalStatus(run.job.status) && (
         <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
       )}
@@ -1858,18 +1883,20 @@ function RunThread({
         expanded={attemptsExpanded}
         onToggle={() => setAttemptsExpanded((v) => !v)}
       />
-      {visible.map(({ run, attemptNumber }) => (
-        <ConversationTurn
-          key={run.job.id}
-          run={run}
-          isTip={run.job.id === thread.runs[thread.runs.length - 1].job.id}
-          attemptNumber={attemptNumber}
-          totalAttempts={thread.runs.length}
-          retryPending={thread.retryPending}
-          onStatusChange={onStatusChange}
-          onRetry={() => onRetry(run.job.id)}
-        />
-      ))}
+      <ChatMessageList density="balanced">
+        {visible.map(({ run, attemptNumber }) => (
+          <ConversationTurn
+            key={run.job.id}
+            run={run}
+            isTip={run.job.id === thread.runs[thread.runs.length - 1].job.id}
+            attemptNumber={attemptNumber}
+            totalAttempts={thread.runs.length}
+            retryPending={thread.retryPending}
+            onStatusChange={onStatusChange}
+            onRetry={() => onRetry(run.job.id)}
+          />
+        ))}
+      </ChatMessageList>
     </div>
   );
 }
@@ -1916,7 +1943,7 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6">
       {error && <p className="mb-2 text-xs text-red-600" role="alert">{error}</p>}
-      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
+      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -1936,7 +1963,7 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
             title="Send follow-up"
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-              "bg-neutral-900 text-white hover:bg-neutral-800",
+              "bg-primary text-primary-foreground hover:bg-primary/90",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               "disabled:opacity-40 disabled:pointer-events-none"
             )}
@@ -1988,125 +2015,137 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
   return (
     <div className="flex-1 overflow-y-auto">
       {/* HEADER */}
-      <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Run receipt</p>
-        <p className="text-sm font-semibold text-foreground line-clamp-2">{receipt.task}</p>
-        <p className="text-xs text-muted-foreground font-mono">{receipt.repository}</p>
-        <div className="flex items-center gap-1.5 pt-1">
-          {sections.header.failed ? (
-            <CircleX className="h-3.5 w-3.5 text-red-500" />
-          ) : (
-            <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
-          )}
-          <span className={cn("text-sm font-semibold", sections.header.failed ? "text-red-600" : "text-emerald-600")}>
-            {sections.header.title}
-            {sections.header.qualifier && <span className="font-normal text-muted-foreground"> · {sections.header.qualifier}</span>}
-          </span>
+      <Section padding={4} dividers={["bottom"]}>
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Run receipt</p>
+          <p className="text-sm font-semibold text-foreground line-clamp-2">{receipt.task}</p>
+          <p className="text-xs text-muted-foreground font-mono">{receipt.repository}</p>
+          <div className="flex items-center gap-1.5 pt-1">
+            {sections.header.failed ? (
+              <CircleX className="h-3.5 w-3.5 text-red-400" />
+            ) : (
+              <CircleCheck className="h-3.5 w-3.5 text-emerald-400" />
+            )}
+            <span className={cn("text-sm font-semibold", sections.header.failed ? "text-red-400" : "text-emerald-400")}>
+              {sections.header.title}
+              {sections.header.qualifier && <span className="font-normal text-muted-foreground"> · {sections.header.qualifier}</span>}
+            </span>
+          </div>
+          {sections.header.description && <p className="text-sm text-foreground leading-relaxed">{sections.header.description}</p>}
         </div>
-        {sections.header.description && <p className="text-sm text-foreground leading-relaxed">{sections.header.description}</p>}
-      </div>
+      </Section>
 
       {/* CHANGES */}
-      <div className="px-4 py-4 border-b border-border space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Changes</p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem label="Files changed" value={String(sections.changes.filesChanged.length)} />
-          <SummaryItem label="Model" value={sections.agent.model} />
+      <Section padding={4} dividers={["bottom"]}>
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Changes</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <SummaryItem label="Files changed" value={String(sections.changes.filesChanged.length)} />
+            <SummaryItem label="Model" value={sections.agent.model} />
+          </div>
+          {sections.changes.filesChanged.length > 0 && (
+            <ul className="text-xs text-muted-foreground space-y-1 font-mono">
+              {sections.changes.filesChanged.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+          )}
         </div>
-        {sections.changes.filesChanged.length > 0 && (
-          <ul className="text-xs text-muted-foreground space-y-1 font-mono">
-            {sections.changes.filesChanged.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-        )}
-      </div>
+      </Section>
 
       {/* VERIFICATION */}
-      <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Verification</p>
-        <p className="text-sm text-foreground">
-          Output validation{" "}
-          {sections.verification.outputValidation === "passed" ? "passed" : sections.verification.outputValidation === "failed" ? "failed" : "unavailable"}
-        </p>
-        {sections.verification.checks.map((check) => (
-          <p key={check.name} className={cn("text-sm", check.passed === false ? "text-amber-700 font-medium" : "text-foreground")}>
-            {check.name} · <span>{formatCheckStatus(check.status)}</span>
+      <Section padding={4} dividers={["bottom"]}>
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Verification</p>
+          <p className="text-sm text-foreground">
+            Output validation{" "}
+            {sections.verification.outputValidation === "passed" ? "passed" : sections.verification.outputValidation === "failed" ? "failed" : "unavailable"}
           </p>
-        ))}
-      </div>
+          {sections.verification.checks.map((check) => (
+            <p key={check.name} className={cn("text-sm", check.passed === false ? "text-amber-400 font-medium" : "text-foreground")}>
+              {check.name} · <span>{formatCheckStatus(check.status)}</span>
+            </p>
+          ))}
+        </div>
+      </Section>
 
       {/* AGENT */}
-      <div className="px-4 py-4 border-b border-border space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <SummaryItem label="Tokens" value={sections.agent.tokensSummary} emphasize />
-          <SummaryItem label="Provider cost" value={sections.agent.cost.label} />
+      <Section padding={4} dividers={["bottom"]}>
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <SummaryItem label="Tokens" value={sections.agent.tokensSummary} emphasize />
+            <SummaryItem label="Provider cost" value={sections.agent.cost.label} />
+          </div>
         </div>
-      </div>
+      </Section>
 
       {/* REPOSITORY INTELLIGENCE */}
-      <div className="px-4 py-4 border-b border-border space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Repository intelligence</p>
-        <div className="grid grid-cols-1 gap-y-3">
-          <SummaryItem label="Previous intelligence" value={sections.intelligence.selected.label} />
-          <SummaryItem label="Delivered intelligence" value={sections.intelligence.delivered.label} />
-          <SummaryItem label="New reusable intelligence" value={sections.intelligence.proposed.label} />
+      <Section padding={4} dividers={["bottom"]}>
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Repository intelligence</p>
+          <div className="grid grid-cols-1 gap-y-3">
+            <SummaryItem label="Previous intelligence" value={sections.intelligence.selected.label} />
+            <SummaryItem label="Delivered intelligence" value={sections.intelligence.delivered.label} />
+            <SummaryItem label="New reusable intelligence" value={sections.intelligence.proposed.label} />
+          </div>
+          {supplied.length > 0 && (
+            <ul className="mt-1 space-y-4">
+              {supplied.map((item) => (
+                <li key={item.memory_id} className="text-xs">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span>
+                    <span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-400" : "text-muted-foreground")}>
+                      {item.delivered ? "Delivered to model request" : "Delivery not attested"}
+                    </span>
+                  </div>
+                  {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
+                  {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
+                  <p className="mt-1 text-muted-foreground">
+                    {[
+                      item.source_model && `Source model: ${item.source_model}`,
+                      item.approved_by && `Approved by ${item.approved_by}`,
+                      item.approved_at && new Date(item.approved_at).toLocaleString(),
+                      item.destination_model && `Destination model: ${item.destination_model}`,
+                    ].filter(Boolean).join(" · ")}
+                  </p>
+                  {item.source_run_id && (
+                    <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>
+                      View source run
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-        {supplied.length > 0 && (
-          <ul className="mt-1 space-y-4">
-            {supplied.map((item) => (
-              <li key={item.memory_id} className="text-xs">
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span>
-                  <span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-700" : "text-muted-foreground")}>
-                    {item.delivered ? "Delivered to model request" : "Delivery not attested"}
-                  </span>
-                </div>
-                {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
-                {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
-                <p className="mt-1 text-muted-foreground">
-                  {[
-                    item.source_model && `Source model: ${item.source_model}`,
-                    item.approved_by && `Approved by ${item.approved_by}`,
-                    item.approved_at && new Date(item.approved_at).toLocaleString(),
-                    item.destination_model && `Destination model: ${item.destination_model}`,
-                  ].filter(Boolean).join(" · ")}
-                </p>
-                {item.source_run_id && (
-                  <a className="mt-1 inline-block underline" href={`/runs/${encodeURIComponent(item.source_run_id)}`}>
-                    View source run
-                  </a>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      </Section>
 
       {/* PUBLICATION */}
-      <div className="px-4 py-4 border-b border-border space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Publication</p>
-        {sections.publication.phase === "pre_approval" && (
-          <p className="text-sm text-foreground">Review and approve the proposed change</p>
-        )}
-        {sections.publication.phase === "approved_not_published" && <p className="text-sm text-foreground">Approved</p>}
-        {sections.publication.phase === "published" && (
-          <>
-            <p className="text-sm text-foreground">Pull request published</p>
-            {sections.publication.pullRequest && (
-              <a
-                href={sections.publication.pullRequest.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-sm underline"
-              >
-                View pull request on GitHub <ExternalLink className="h-3 w-3" />
-              </a>
-            )}
-          </>
-        )}
-      </div>
+      <Section padding={4} dividers={["bottom"]}>
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Publication</p>
+          {sections.publication.phase === "pre_approval" && (
+            <p className="text-sm text-foreground">Review and approve the proposed change</p>
+          )}
+          {sections.publication.phase === "approved_not_published" && <p className="text-sm text-foreground">Approved</p>}
+          {sections.publication.phase === "published" && (
+            <>
+              <p className="text-sm text-foreground">Pull request published</p>
+              {sections.publication.pullRequest && (
+                <a
+                  href={sections.publication.pullRequest.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-sm underline"
+                >
+                  View pull request on GitHub <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </>
+          )}
+        </div>
+      </Section>
 
       {/* TECHNICAL EVIDENCE */}
       <details className="border-b px-4 py-4 text-xs">
@@ -2151,68 +2190,74 @@ function RunPanelHeader({
   onToggle: () => void;
   hasActivity: boolean;
 }) {
+  const collapseToggle = (
+    <IconButton
+      icon={collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+      label={collapsed ? "Expand run panel" : "Collapse run panel"}
+      onClick={onToggle}
+      className="shrink-0"
+    />
+  );
+
+  if (collapsed) {
+    return <div className="flex items-center h-14 px-0 shrink-0 justify-center">{collapseToggle}</div>;
+  }
+
   return (
-    <div
-      className={cn(
-        "flex items-center h-14 pl-3 pr-2.5 shrink-0 justify-between gap-1",
-        collapsed && "px-0 justify-center"
-      )}
-    >
-      {!collapsed && (
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => onTabChange("activity")}
-            className={cn(
-              "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150 relative",
-              tab === "activity"
-                ? "bg-black/[0.04] text-foreground"
-                : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
-            )}
-          >
-            Activity
-            {hasActivity && tab !== "activity" && (
-              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
-            )}
-          </button>
-          {receiptEnabled ? (
+    <div className="h-14 flex items-center px-1.5">
+      <Toolbar
+        label="Run panel"
+        startContent={
+          <div className="flex items-center gap-0.5">
             <button
               type="button"
-              onClick={() => onTabChange("receipt")}
+              onClick={() => onTabChange("activity")}
               className={cn(
-                "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150",
-                tab === "receipt"
+                "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150 relative",
+                tab === "activity"
                   ? "bg-black/[0.04] text-foreground"
                   : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
               )}
             >
-              Receipt
+              Activity
+              {hasActivity && tab !== "activity" && (
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
+              )}
             </button>
-          ) : (
-            <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled
-                    className="h-7 px-2.5 rounded-md text-xs font-semibold text-muted-foreground/40 cursor-not-allowed"
-                  >
-                    Receipt
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">
-                  Available once a result is ready for review
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
-      )}
-      <IconButton
-        icon={collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
-        label={collapsed ? "Expand run panel" : "Collapse run panel"}
-        onClick={onToggle}
-        className="shrink-0"
+            {receiptEnabled ? (
+              <button
+                type="button"
+                onClick={() => onTabChange("receipt")}
+                className={cn(
+                  "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150",
+                  tab === "receipt"
+                    ? "bg-black/[0.04] text-foreground"
+                    : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
+                )}
+              >
+                Receipt
+              </button>
+            ) : (
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      disabled
+                      className="h-7 px-2.5 rounded-md text-xs font-semibold text-muted-foreground/40 cursor-not-allowed"
+                    >
+                      Receipt
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    Available once a result is ready for review
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+        }
+        endContent={collapseToggle}
       />
     </div>
   );
@@ -2250,10 +2295,12 @@ function RunPanelRegion({
   collapsed,
   onToggle,
   view,
+  width,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   view: WorkspaceView;
+  width: number;
 }) {
   const location = useLocation();
   const hasThread = view.kind === "thread";
@@ -2352,10 +2399,11 @@ function RunPanelRegion({
 
   return (
     <aside
-      style={{ width: collapsed ? 48 : 400 }}
+      style={{ width: collapsed ? 48 : width }}
       className={cn(
-        "relative flex flex-col h-full shrink-0 bg-neutral-50/60",
-        "transition-[width] duration-200 ease-in-out overflow-hidden"
+        "relative flex flex-col h-full shrink-0 bg-muted/60",
+        collapsed && "transition-[width] duration-200 ease-in-out",
+        "overflow-hidden"
       )}
     >
       <RunPanelHeader
@@ -2510,7 +2558,7 @@ function RunsTable({
               key={run.id}
               type="button"
               onClick={() => onSelectRun(run.id)}
-              className="w-full rounded-lg border border-border bg-white p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="w-full rounded-lg border border-border bg-card p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <div className="flex items-center justify-between">
                 <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
@@ -2600,7 +2648,7 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
   if (hasRuns) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-white p-5 mb-8">
+    <div className="rounded-xl border border-border bg-card p-5 mb-8">
       <div className="flex items-start gap-3">
         <div className="shrink-0 mt-0.5">
           <CirclePlus className="h-5 w-5 text-muted-foreground/60" />
@@ -2613,7 +2661,7 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
           <Button
             size="sm"
             onClick={onNewRun}
-            className="h-8 mt-3 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs"
+            className="h-8 mt-3 gap-1.5 rounded-lg text-xs"
           >
             New run
           </Button>
@@ -2667,7 +2715,7 @@ function DashboardView({
         </div>
         <Button
           onClick={onNewRun}
-          className="h-8 shrink-0 gap-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs px-3"
+          className="h-8 shrink-0 gap-1.5 rounded-lg text-xs px-3"
         >
           <CirclePlus className="h-3.5 w-3.5" />
           <span className="hidden md:inline">New run</span>
@@ -2679,19 +2727,19 @@ function DashboardView({
 
       {/* Run counts (real) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Total runs
           </span>
           <p className="text-2xl font-bold text-foreground">{counts.total}</p>
         </div>
-        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             In progress
           </span>
           <p className="text-2xl font-bold text-foreground">{counts.active}</p>
         </div>
-        <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Completed
           </span>
@@ -2702,7 +2750,7 @@ function DashboardView({
       {/* Prepaid balance (real — from GET /v1/balances) */}
       {balances ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Available
             </span>
@@ -2715,13 +2763,13 @@ function DashboardView({
               {usd(balances.available)}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               On hold
             </span>
             <p className="text-2xl font-bold text-foreground">{usd(balances.reserved)}</p>
           </div>
-          <div className="rounded-xl border border-border bg-white p-5 space-y-2">
+          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Balance
             </span>
@@ -2944,6 +2992,10 @@ function GNSISWorkspacePreview() {
   const [runPanelCollapsed, setRunPanelCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  // Drag-to-resize width for the expanded run panel. Independent of
+  // runPanelCollapsed, which still drives the separate 48px icon-rail state
+  // (collapsing to size 0 isn't this panel's UX — it keeps an icon rail).
+  const runPanel = useResizable({ defaultSize: 400, minSizePx: 320, maxSizePx: 560 });
 
   const { route, runId: routeRunId } = routeFromPathname(location.pathname);
   const activeNav = navIdFromRoute(route);
@@ -3262,7 +3314,7 @@ function GNSISWorkspacePreview() {
 
         {/* Mobile sidebar drawer */}
         <div className={cn("md:hidden fixed inset-y-0 left-0 z-40 w-[260px] h-full transition-transform duration-200 ease-in-out", mobileSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
-          <div className="h-full bg-neutral-50 shadow-xl">
+          <div className="h-full bg-muted shadow-xl">
             <SidebarRegion
               collapsed={false}
               onToggle={() => setMobileSidebarOpen(false)}
@@ -3334,10 +3386,31 @@ function GNSISWorkspacePreview() {
         {showRightPanel && (
           <>
             <div className="hidden md:block">
-              <Divider orientation="vertical" />
+              {runPanelCollapsed ? (
+                <Divider orientation="vertical" />
+              ) : (
+                <ResizeHandle
+                  direction="horizontal"
+                  isReversed
+                  hasDivider
+                  label="Resize run panel"
+                  resizable={runPanel.props}
+                />
+              )}
             </div>
-            <div className="hidden md:block shrink-0 h-full z-20 transition-all duration-200 ease-in-out" style={{ width: runPanelCollapsed ? 48 : 400 }}>
-              <RunPanelRegion collapsed={runPanelCollapsed} onToggle={toggleRunPanel} view={view} />
+            <div
+              className={cn(
+                "hidden md:block shrink-0 h-full z-20",
+                runPanelCollapsed && "transition-all duration-200 ease-in-out"
+              )}
+              style={{ width: runPanelCollapsed ? 48 : runPanel.size }}
+            >
+              <RunPanelRegion
+                collapsed={runPanelCollapsed}
+                onToggle={toggleRunPanel}
+                view={view}
+                width={runPanel.size}
+              />
             </div>
           </>
         )}
@@ -3346,9 +3419,9 @@ function GNSISWorkspacePreview() {
         {mobilePanelOpen && view.kind === "thread" && (
           <>
             <div className="md:hidden fixed inset-0 bg-black/30 z-40" onClick={() => setMobilePanelOpen(false)} />
-            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-neutral-50 rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
+            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-muted rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
               <div className="flex items-center justify-center py-2">
-                <div className="h-1 w-8 rounded-full bg-neutral-300" />
+                <div className="h-1 w-8 rounded-full bg-muted-foreground/30" />
               </div>
               <div className="flex items-center justify-between px-4 pb-2">
                 <span className="text-xs font-semibold text-foreground">Activity</span>

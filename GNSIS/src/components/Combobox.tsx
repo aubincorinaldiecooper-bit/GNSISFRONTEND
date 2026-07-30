@@ -141,7 +141,7 @@ export function Combobox({
       {open && !loading && (
         <div
           className={cn(
-            "absolute z-50 mt-1 min-w-full w-max rounded-md border border-border bg-white shadow-md",
+            "absolute z-50 mt-1 min-w-full w-max rounded-md border border-border bg-popover shadow-md",
             alignRight ? "right-0" : "left-0",
           )}
           style={{
@@ -175,7 +175,7 @@ export function Combobox({
                     setOpen(false);
                     setQuery("");
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent"
                 >
                   <Check className={cn("h-4 w-4 shrink-0", value === o.value ? "opacity-100" : "opacity-0")} />
                   <span className="min-w-0 flex-1 truncate">{o.label}</span>

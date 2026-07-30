@@ -60,8 +60,8 @@ export default function GitHubOnboardingPage() {
   if (state.kind === "invalid") {
     return (
       <div className="flex min-h-full items-center justify-center px-4 py-10">
-        <div className="max-w-md rounded-2xl border border-border bg-white p-6 text-center shadow-sm">
-          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-500" />
+        <div className="max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-400" />
           <h1 className="text-lg font-semibold text-foreground">Invalid GitHub callback</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             GitHub did not include a valid installation ID. Return to Settings and try installing the app again.
@@ -75,10 +75,10 @@ export default function GitHubOnboardingPage() {
   if (state.kind === "error") {
     return (
       <div className="flex min-h-full items-center justify-center px-4 py-10">
-        <div className="max-w-md rounded-2xl border border-border bg-white p-6 text-center shadow-sm">
-          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-500" />
+        <div className="max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-400" />
           <h1 className="text-lg font-semibold text-foreground">Could not connect GitHub</h1>
-          <p className="mt-2 text-sm text-red-600">{state.message}</p>
+          <p className="mt-2 text-sm text-red-400">{state.message}</p>
           <div className="mt-5 flex justify-center gap-2">
             <Button onClick={() => void claim()}>Retry</Button>
             <Button variant="outline" onClick={() => navigate("/settings")}>Return to Settings</Button>
@@ -90,7 +90,7 @@ export default function GitHubOnboardingPage() {
 
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-10">
-      <div className="max-w-md rounded-2xl border border-border bg-white p-6 text-center shadow-sm">
+      <div className="max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
         <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-muted-foreground" />
         <h1 className="text-lg font-semibold text-foreground">Connecting your GitHub repositories…</h1>
         <p className="mt-2 text-sm text-muted-foreground">

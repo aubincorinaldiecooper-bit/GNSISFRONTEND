@@ -41,7 +41,7 @@ type LoadState =
 
 function BalanceCard({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-white p-5">
+    <div className="space-y-2 rounded-xl border border-border bg-card p-5">
       <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
@@ -131,7 +131,7 @@ export default function BillingPage({ onBack }: { onBack?: () => void }) {
           </div>
 
           {/* Truthful billing-dormant state — no fake controls. */}
-          <div className="mb-8 flex items-start gap-2.5 rounded-xl border border-border bg-neutral-50 p-4">
+          <div className="mb-8 flex items-start gap-2.5 rounded-xl border border-border bg-muted p-4">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="text-sm">
               <p className="font-medium text-foreground">
