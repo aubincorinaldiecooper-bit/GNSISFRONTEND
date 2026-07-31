@@ -218,7 +218,7 @@ beforeEach(() => {
   });
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
-  apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "job", execution_run_id: null, task: "Task", repository: "owner/repo", status: "completed", model: null, approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null, failure_category: null, failure_message: null });
+  apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "job", execution_run_id: null, task: "Task", repository: "owner/repo", status: "completed", model: null, approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null, failure_category: null, failure_message: null, failure_details: null });
   apiMocks.claimGitHubInstallationMock.mockResolvedValue(undefined);
   apiMocks.listRepositoriesMock.mockResolvedValue([
     {

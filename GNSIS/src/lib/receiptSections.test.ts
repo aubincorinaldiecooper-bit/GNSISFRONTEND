@@ -23,7 +23,7 @@ function receipt(overrides: Partial<RunReceipt> = {}): RunReceipt {
     object: "receipt", run_id: "run-root", execution_run_id: "exec-1", task: "Add a README",
     repository: "acme/widgets", status: "completed", model: "anthropic/claude-sonnet-5",
     approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null,
-    failure_category: null, failure_message: null,
+    failure_category: null, failure_message: null, failure_details: null,
     ...overrides,
   };
 }
@@ -184,5 +184,44 @@ describe("getReceiptSections", () => {
     const r = receipt({ approval: { decision: "approved", approver: "reviewer@example.com", at: "2026-01-01T00:00:00Z" } });
     const sections = getReceiptSections(r, job("approved"));
     expect(sections.publication.approval).toEqual({ decision: "approved", approver: "reviewer@example.com", at: "2026-01-01T00:00:00Z" });
+  });
+
+  it("falls back to a category-derived description for a dispatch-time failure that has no failure_message", () => {
+    // build_receipt's job-scoped shell (no ExecutionRun yet) always leaves
+    // failure_message null — failure_category + failure_details are the only
+    // evidence for a dispatch-time failure like the trusted-executor SHA check.
+    const r = receipt({
+      status: "failed",
+      failure_category: "security_validation_failed",
+      failure_message: null,
+      failure_details: { expected_sha: "a".repeat(40), observed_sha: "f".repeat(40) },
+    });
+    const sections = getReceiptSections(r, job("failed"));
+    expect(sections.header.failed).toBe(true);
+    expect(sections.header.description).toBe(
+      "GNSIS blocked this run because a security check on the executor did not pass. No model was called and no balance was used.",
+    );
+    expect(sections.technical.failureDetails).toEqual({
+      expected_sha: "a".repeat(40),
+      observed_sha: "f".repeat(40),
+    });
+  });
+
+  it("prefers a real backend failure_message over the category fallback when both are present", () => {
+    const r = receipt({ status: "failed", failure_category: "dispatch_failed", failure_message: "explicit backend message wins" });
+    const sections = getReceiptSections(r, job("failed"));
+    expect(sections.header.description).toBe("explicit backend message wins");
+  });
+
+  it("falls back to a generic sentence for a failure_category it doesn't recognize", () => {
+    const r = receipt({ status: "failed", failure_category: "some_future_category", failure_message: null });
+    const sections = getReceiptSections(r, job("failed"));
+    expect(sections.header.description).toBe("This run failed.");
+  });
+
+  it("shows no description when a failure has neither a message nor a category", () => {
+    const r = receipt({ status: "failed" });
+    const sections = getReceiptSections(r, job("failed"));
+    expect(sections.header.description).toBeNull();
   });
 });
