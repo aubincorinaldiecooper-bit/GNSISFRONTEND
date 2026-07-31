@@ -673,9 +673,12 @@ describe("follow-up composer", () => {
     expect(send).toBeEnabled();
     await user.click(send);
 
-    // Parent is the tip (run-2), and the new instruction + its current model are sent.
+    // Parent is the tip (run-2), and the new instruction is sent. The model
+    // picker was never touched, so no explicit model override is sent —
+    // the backend inherits the tip's model exactly as it would for a
+    // parent-config field the client never mentioned.
     await waitFor(() =>
-      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-2", "Now add password reset", "anthropic/claude-opus-4.8"),
+      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-2", "Now add password reset"),
     );
     // Cleared only on success.
     await waitFor(() => expect((screen.getByLabelText("Follow-up message") as HTMLTextAreaElement).value).toBe(""));
@@ -703,6 +706,31 @@ describe("follow-up composer", () => {
     );
   });
 
+  it("never resends a tip model that's since been retired from the catalog", async () => {
+    const user = userEvent.setup();
+    // The tip's own model is absent from the currently-loaded catalog (e.g.
+    // retired since this run was created). Left untouched, the composer
+    // must still show it (never invent a blank picker) but must NOT send it
+    // as an explicit override — an unchanged follow-up should inherit
+    // exactly like Retry / Run-again, not get rejected by the allowlist a
+    // fresh explicit choice would have to pass.
+    mockThread([job({ id: "run-root", instruction: "Root", model: "anthropic/claude-legacy-retired", status: "completed" })]);
+    apiMocks.followUpJobMock.mockResolvedValue(
+      job({ id: "run-2", instruction: "Keep going", model: "anthropic/claude-legacy-retired", status: "queued", parent_job_id: "run-root" }),
+    );
+    renderThread("/runs/run-root");
+
+    expect(await screen.findByRole("combobox", { name: "Follow-up model" })).toHaveTextContent("anthropic/claude-legacy-retired");
+
+    const box = screen.getByLabelText("Follow-up message");
+    await user.type(box, "Keep going");
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }));
+
+    await waitFor(() =>
+      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root", "Keep going"),
+    );
+  });
+
   it("submits on Enter and inserts a newline on Shift+Enter", async () => {
     const user = userEvent.setup();
     mockThread([job({ id: "run-root", instruction: "Root", status: "completed" })]);
@@ -718,8 +746,9 @@ describe("follow-up composer", () => {
 
     await user.clear(box);
     await user.type(box, "send me{Enter}");
+    // Model picker untouched — no explicit override sent.
     await waitFor(() =>
-      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root", "send me", "anthropic/claude-opus-4.8"),
+      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root", "send me"),
     );
   });
 

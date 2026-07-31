@@ -1931,7 +1931,11 @@ function FollowUpComposer({
 }: {
   // Legacy jobs created before model selection carry no model — never invent one.
   currentModel: string | null;
-  onSubmit: (instruction: string, model: string) => Promise<void>;
+  // `model` is omitted whenever the picker still shows the inherited value —
+  // never resent as an explicit override, so an unchanged follow-up for a
+  // model since retired from the catalog can't get rejected by the same
+  // allowlist check that only an *explicit* choice must pass.
+  onSubmit: (instruction: string, model?: string) => Promise<void>;
 }) {
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1975,8 +1979,14 @@ function FollowUpComposer({
     if (!canSubmit || !model) return;
     setSubmitting(true);
     setError(null);
+    // Only an actively-chosen, different model is ever sent as an explicit
+    // override; an untouched picker (still showing the inherited value)
+    // omits it so the backend inherits the parent's model exactly as it
+    // would for Retry / Run-again — never resending a value that may no
+    // longer pass the current allowlist just because it happens to match.
+    const modelOverride = model !== currentModel ? model : undefined;
     try {
-      await onSubmit(trimmed, model);
+      await onSubmit(trimmed, modelOverride);
       setText(""); // clear only on success
     } catch (err) {
       // Preserve the typed text so the user doesn't lose it; surface the reason.
@@ -1996,7 +2006,14 @@ function FollowUpComposer({
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6">
       {error && <p className="mb-2 text-xs text-red-600" role="alert">{error}</p>}
-      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-ring/30">
+      {/*
+        Deliberately overflow-VISIBLE (not overflow-hidden) so the non-portal
+        model Combobox's dropdown can extend past the card's bottom edge —
+        same reasoning as NewRunComposer. Rounded corners are preserved
+        explicitly on the top (textarea) and bottom (footer row) children
+        instead of being clipped by the card.
+      */}
+      <div className="rounded-2xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring/30">
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -2004,10 +2021,10 @@ function FollowUpComposer({
           disabled={submitting}
           placeholder="Send a follow-up… (Enter to send, Shift+Enter for a new line)"
           aria-label="Follow-up message"
-          className="min-h-16 resize-none border-none shadow-none rounded-none px-4 py-3 text-sm focus-visible:ring-0 disabled:opacity-60"
+          className="min-h-16 resize-none border-none shadow-none rounded-t-2xl rounded-b-none px-4 py-3 text-sm focus-visible:ring-0 disabled:opacity-60"
         />
         <Divider orientation="horizontal" />
-        <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <div className="flex items-center justify-between gap-2 rounded-b-2xl px-3 py-2">
           <div className="min-w-0 w-40">
             <Combobox
               ariaLabel="Follow-up model"
@@ -2891,7 +2908,7 @@ function WorkspaceRegion({
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
   onRunStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
-  onFollowUp: (instruction: string, model: string) => Promise<void>;
+  onFollowUp: (instruction: string, model?: string) => Promise<void>;
   onSelectRun: (id: string) => void;
   onNewRun: () => void;
   onSettingsBack: () => void;
@@ -3312,10 +3329,12 @@ function GNSISWorkspacePreview() {
 
   // Send a follow-up message: a new linked run, same conversation. Errors
   // propagate to the composer so it preserves the text and shows the reason.
-  const handleFollowUpSubmit = async (instruction: string, model: string) => {
+  const handleFollowUpSubmit = async (instruction: string, model?: string) => {
     if (view.kind !== "thread") return;
     const tip = activeRun(view.thread);
-    const job = await followUpJob(tip.job.id, instruction, model);
+    const job = model != null
+      ? await followUpJob(tip.job.id, instruction, model)
+      : await followUpJob(tip.job.id, instruction);
     appendRun(job);
     setJobs((prev) => upsertJob(prev, job));
   };
