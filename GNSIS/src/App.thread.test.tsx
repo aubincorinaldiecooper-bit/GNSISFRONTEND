@@ -61,6 +61,7 @@ const apiMocks = vi.hoisted(() => {
     followUpJobMock: vi.fn(),
     cancelJobMock: vi.fn(),
     listJobsMock: vi.fn(),
+    listModelsMock: vi.fn(),
     proposalsMock: vi.fn(),
     approveRunMock: vi.fn(),
     publishRunMock: vi.fn(),
@@ -89,7 +90,7 @@ vi.mock("@/lib/api", () => ({
   listJobs: (...a: unknown[]) => apiMocks.listJobsMock(...a),
   listRepositories: vi.fn(async () => []),
   listBranches: vi.fn(async () => ({ default_branch: "main", branches: [] })),
-  listModels: vi.fn(async () => ({ items: [] })),
+  listModels: (...a: unknown[]) => apiMocks.listModelsMock(...a),
   getRunIntelligenceProposals: (...a: unknown[]) => apiMocks.proposalsMock(...a),
   approveRun: (...a: unknown[]) => apiMocks.approveRunMock(...a),
   publishRun: (...a: unknown[]) => apiMocks.publishRunMock(...a),
@@ -151,6 +152,12 @@ beforeEach(() => {
   publicBetaModeMock.mockReturnValue(false);
   apiMocks.proposalsMock.mockResolvedValue({ object: "list", data: [] });
   apiMocks.listJobsMock.mockResolvedValue([]);
+  apiMocks.listModelsMock.mockResolvedValue({
+    items: [
+      { id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8", provider: "anthropic", default: true },
+      { id: "openai/gpt-5.4", label: "GPT-5.4", provider: "openai", default: false },
+    ],
+  });
   apiMocks.getJobLogsMock.mockResolvedValue([]);
   apiMocks.getJobDiffMock.mockResolvedValue({ patch: "", files_changed: [] });
   apiMocks.getRunReceiptMock.mockImplementation(async (id: string) => ({
@@ -666,10 +673,34 @@ describe("follow-up composer", () => {
     expect(send).toBeEnabled();
     await user.click(send);
 
-    // Parent is the tip (run-2), and the new instruction is sent.
-    await waitFor(() => expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-2", "Now add password reset"));
+    // Parent is the tip (run-2), and the new instruction + its current model are sent.
+    await waitFor(() =>
+      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-2", "Now add password reset", "anthropic/claude-opus-4.8"),
+    );
     // Cleared only on success.
     await waitFor(() => expect((screen.getByLabelText("Follow-up message") as HTMLTextAreaElement).value).toBe(""));
+  });
+
+  it("defaults the model picker to the tip's current model and lets it be overridden", async () => {
+    const user = userEvent.setup();
+    mockThread([job({ id: "run-root", instruction: "Root", model: "anthropic/claude-opus-4.8", status: "completed" })]);
+    apiMocks.followUpJobMock.mockResolvedValue(
+      job({ id: "run-2", instruction: "Switch models", model: "openai/gpt-5.4", status: "queued", parent_job_id: "run-root" }),
+    );
+    renderThread("/runs/run-root");
+
+    expect(await screen.findByRole("combobox", { name: "Follow-up model" })).toHaveTextContent("Claude Opus 4.8");
+
+    await user.click(screen.getByRole("combobox", { name: "Follow-up model" }));
+    await user.click(await screen.findByRole("option", { name: "GPT-5.4" }));
+
+    const box = screen.getByLabelText("Follow-up message");
+    await user.type(box, "Switch models");
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }));
+
+    await waitFor(() =>
+      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root", "Switch models", "openai/gpt-5.4"),
+    );
   });
 
   it("submits on Enter and inserts a newline on Shift+Enter", async () => {
@@ -687,7 +718,9 @@ describe("follow-up composer", () => {
 
     await user.clear(box);
     await user.type(box, "send me{Enter}");
-    await waitFor(() => expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root", "send me"));
+    await waitFor(() =>
+      expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root", "send me", "anthropic/claude-opus-4.8"),
+    );
   });
 
   it("preserves the text and shows an inline error when the follow-up fails", async () => {

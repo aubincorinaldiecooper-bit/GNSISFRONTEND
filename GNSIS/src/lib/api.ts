@@ -459,14 +459,18 @@ export function getJobThread(jobId: string): Promise<JobRecord[]> {
 
 /**
  * Queue a new run linked into `parentJobId`'s conversation thread. The client
- * sends only the new instruction; the backend resolves repository, models, base
- * branch, and the thread/parent linkage authoritatively from the parent run.
- * Omit `instruction` for Retry (failed) / Run-again (completed) — the backend
- * reuses the parent's instruction verbatim.
+ * sends only the new instruction and, optionally, a primary-model override;
+ * the backend resolves repository, Advisor, base branch, and the thread/parent
+ * linkage authoritatively from the parent run. Omit both `instruction` and
+ * `model` for Retry (failed) / Run-again (completed) — the backend reuses the
+ * parent's instruction and model verbatim. An explicit `model` is validated
+ * server-side against the same allowlist as a new run.
  */
-export function followUpJob(parentJobId: string, instruction?: string): Promise<JobRecord> {
-  const body = instruction != null ? JSON.stringify({ instruction }) : JSON.stringify({});
-  return request(`/jobs/${parentJobId}/follow-up`, { method: "POST", body });
+export function followUpJob(parentJobId: string, instruction?: string, model?: string): Promise<JobRecord> {
+  const payload: { instruction?: string; model?: string } = {};
+  if (instruction != null) payload.instruction = instruction;
+  if (model != null) payload.model = model;
+  return request(`/jobs/${parentJobId}/follow-up`, { method: "POST", body: JSON.stringify(payload) });
 }
 
 /** Stop a run before it reaches a terminal state. Revokes its run token backend-side. */

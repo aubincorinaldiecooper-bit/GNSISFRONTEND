@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useRef,
   useCallback,
+  useMemo,
 } from "react";
 import {
   PanelLeftClose,
@@ -1400,6 +1401,13 @@ function MessageMeta({
 // repository, primary model, and the optional Advisor.
 function ThreadHeader({ thread }: { thread: ThreadState }) {
   const first = thread.runs[0].job;
+  // A single-run thread has exactly one model, worth stating up front. Once a
+  // thread has more than one attempt, each may have its own model (the
+  // follow-up composer lets a later attempt pick a different one) — showing
+  // just the first run's model here would misleadingly imply one model covers
+  // the whole thread, so per-attempt model instead shows on each attempt via
+  // AttemptSummaryLine below.
+  const singleAttempt = thread.runs.length === 1;
   return (
     <div className="border-b border-border pb-4 mb-4">
       <h1 className="text-lg font-semibold text-foreground leading-snug">
@@ -1407,8 +1415,12 @@ function ThreadHeader({ thread }: { thread: ThreadState }) {
       </h1>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground/80">
         <span className="font-mono">{first.repo}</span>
-        <span className="text-muted-foreground/40">·</span>
-        <span>Model: {displayModel(first)}</span>
+        {singleAttempt && (
+          <>
+            <span className="text-muted-foreground/40">·</span>
+            <span>Model: {displayModel(first)}</span>
+          </>
+        )}
         {displayAdvisorModel(first) !== "—" && (
           <>
             <span className="text-muted-foreground/40">·</span>
@@ -1909,21 +1921,62 @@ function RunThread({
 // same conversation. Multiline; Enter submits, Shift+Enter inserts a newline;
 // the submit is disabled when empty or already in flight (so a message can't be
 // double-sent); the text is preserved on failure with an inline error and
-// cleared only on success.
-function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Promise<void> }) {
+// cleared only on success. The model picker defaults to the conversation
+// tip's current model (`currentModel`) — a normal follow-up always submits
+// whichever model is selected; Retry / Run-again bypass this composer
+// entirely (`handleRetryRun` omits model, inheriting the parent's verbatim).
+function FollowUpComposer({
+  currentModel,
+  onSubmit,
+}: {
+  // Legacy jobs created before model selection carry no model — never invent one.
+  currentModel: string | null;
+  onSubmit: (instruction: string, model: string) => Promise<void>;
+}) {
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelInfo[] | null>(null);
+  const [model, setModel] = useState(currentModel);
+
+  // A new tip (after a prior follow-up lands) re-anchors the default selection.
+  useEffect(() => {
+    setModel(currentModel);
+  }, [currentModel]);
+
+  useEffect(() => {
+    if (!isApiConfigured()) return;
+    let cancelled = false;
+    listModels()
+      .then(({ items }) => {
+        if (!cancelled) setModels(items);
+      })
+      .catch(() => {
+        if (!cancelled) setModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The current model is always a valid, already-approved choice even if it's
+  // missing from (or not yet loaded from) the server catalog — never let that
+  // make the picker show a blank placeholder for it.
+  const modelOptions: ComboboxOption[] = useMemo(() => {
+    const fromCatalog = (models ?? []).map((m) => ({ value: m.id, label: m.label, keywords: [m.provider] }));
+    if (currentModel == null || fromCatalog.some((o) => o.value === currentModel)) return fromCatalog;
+    return [{ value: currentModel, label: currentModel }, ...fromCatalog];
+  }, [models, currentModel]);
 
   const trimmed = text.trim();
-  const canSubmit = trimmed.length > 0 && !submitting;
+  const canSubmit = trimmed.length > 0 && !submitting && !!model;
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || !model) return;
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(trimmed);
+      await onSubmit(trimmed, model);
       setText(""); // clear only on success
     } catch (err) {
       // Preserve the typed text so the user doesn't lose it; surface the reason.
@@ -1954,7 +2007,21 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
           className="min-h-16 resize-none border-none shadow-none rounded-none px-4 py-3 text-sm focus-visible:ring-0 disabled:opacity-60"
         />
         <Divider orientation="horizontal" />
-        <div className="flex items-center justify-end px-3 py-2">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <div className="min-w-0 w-40">
+            <Combobox
+              ariaLabel="Follow-up model"
+              icon={<Cpu className="h-3.5 w-3.5" />}
+              options={modelOptions}
+              value={model}
+              onChange={setModel}
+              placeholder="Select model"
+              searchPlaceholder="Search models…"
+              emptyText="No matching models."
+              disabled={submitting}
+              className="h-8 rounded-lg bg-card px-2.5 text-xs"
+            />
+          </div>
           <button
             type="button"
             onClick={() => void submit()}
@@ -1962,7 +2029,7 @@ function FollowUpComposer({ onSubmit }: { onSubmit: (instruction: string) => Pro
             aria-label="Send follow-up"
             title="Send follow-up"
             className={cn(
-              "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
               "bg-primary text-primary-foreground hover:bg-primary/90",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               "disabled:opacity-40 disabled:pointer-events-none"
@@ -2088,6 +2155,7 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
             <SummaryItem label="Previous intelligence" value={sections.intelligence.selected.label} />
             <SummaryItem label="Delivered intelligence" value={sections.intelligence.delivered.label} />
             <SummaryItem label="New reusable intelligence" value={sections.intelligence.proposed.label} />
+            <SummaryItem label="Approved from this run" value={sections.intelligence.approved.label} />
           </div>
           {supplied.length > 0 && (
             <ul className="mt-1 space-y-4">
@@ -2823,7 +2891,7 @@ function WorkspaceRegion({
   onSubmit: (prompt: string, selection: ComposerSelection) => Promise<void>;
   onRunStatusChange: (runId: string, status: JobStatus) => void;
   onRetry: (parentRunId: string) => void;
-  onFollowUp: (instruction: string) => Promise<void>;
+  onFollowUp: (instruction: string, model: string) => Promise<void>;
   onSelectRun: (id: string) => void;
   onNewRun: () => void;
   onSettingsBack: () => void;
@@ -2847,7 +2915,11 @@ function WorkspaceRegion({
               onRetry={onRetry}
             />
           </div>
-          <FollowUpComposer key={`composer-${view.threadKey}`} onSubmit={onFollowUp} />
+          <FollowUpComposer
+            key={`composer-${view.threadKey}`}
+            currentModel={activeRun(view.thread).job.model}
+            onSubmit={onFollowUp}
+          />
         </>
       )}
 
@@ -3240,10 +3312,10 @@ function GNSISWorkspacePreview() {
 
   // Send a follow-up message: a new linked run, same conversation. Errors
   // propagate to the composer so it preserves the text and shows the reason.
-  const handleFollowUpSubmit = async (instruction: string) => {
+  const handleFollowUpSubmit = async (instruction: string, model: string) => {
     if (view.kind !== "thread") return;
     const tip = activeRun(view.thread);
-    const job = await followUpJob(tip.job.id, instruction);
+    const job = await followUpJob(tip.job.id, instruction, model);
     appendRun(job);
     setJobs((prev) => upsertJob(prev, job));
   };
