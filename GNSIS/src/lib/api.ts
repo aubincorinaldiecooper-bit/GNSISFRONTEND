@@ -200,6 +200,7 @@ export interface RunReceipt {
   } | null;
   failure_category: string | null;
   failure_message: string | null;
+  failure_details: Record<string, unknown> | null;
   timing?: {
     dispatched_at: string | null;
     started_at: string | null;

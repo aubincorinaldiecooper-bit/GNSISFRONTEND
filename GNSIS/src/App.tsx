@@ -2251,6 +2251,18 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
           {sections.technical.patchHash != null && <SummaryItem label="Patch hash" value={sections.technical.patchHash} />}
           {sections.technical.durationSeconds != null && <SummaryItem label="Duration" value={`${sections.technical.durationSeconds}s`} />}
         </div>
+        {sections.technical.failureDetails != null && (
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">Failure details</p>
+            <CodeBlock
+              language="json"
+              code={JSON.stringify(sections.technical.failureDetails, null, 2)}
+              width="100%"
+              maxHeight={224}
+              isWrapped
+            />
+          </div>
+        )}
       </details>
     </div>
   );

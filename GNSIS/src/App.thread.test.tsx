@@ -165,7 +165,7 @@ beforeEach(() => {
     status: "completed", execution_started: true, model: "canonical/model", approval: null,
     pull_request: null, files_changed: [], tokens: { input: 1, output: 2, cached: 0, reasoning: 0 },
     tests: "passed", cost: { provider_cost: "0.25", currency: "USD" },
-    failure_category: null, failure_message: null,
+    failure_category: null, failure_message: null, failure_details: null,
   }));
   // Deterministic clipboard for the copy-action tests.
   Object.defineProperty(navigator, "clipboard", {
@@ -575,7 +575,7 @@ describe("public beta intelligence review", () => {
 describe("canonical run receipt", () => {
   it("keeps selected and executor-attested delivery distinct without semantic-use claims", async () => {
     mockThread([job({ id: "run-root", instruction: "Cross-model task", status: "completed" })]);
-    apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "run-root", execution_run_id: "exec", task: "Task", repository: "owner/repo", status: "completed", execution_started: true, model: "model-b", approval: null, pull_request: null, files_changed: [], tokens: { input: 0, output: 0, cached: 0, reasoning: 0 }, tests: "not_run", cost: null, failure_category: null, failure_message: null, intelligence: { supplied: [{ memory_id: "memory-1", kind: "testing_constraint", content: "Keep contract tests", selected: true, delivered: false, source_run_id: "run-a", source_model: "model-a", source_advisor_model: null, approval_id: 2, approved_by: "reviewer", approved_at: "2026-01-01T00:00:00Z", destination_run_id: "run-root", destination_model: "model-b" }], proposed: [], approved: [] } });
+    apiMocks.getRunReceiptMock.mockResolvedValue({ object: "receipt", run_id: "run-root", execution_run_id: "exec", task: "Task", repository: "owner/repo", status: "completed", execution_started: true, model: "model-b", approval: null, pull_request: null, files_changed: [], tokens: { input: 0, output: 0, cached: 0, reasoning: 0 }, tests: "not_run", cost: null, failure_category: null, failure_message: null, failure_details: null, intelligence: { supplied: [{ memory_id: "memory-1", kind: "testing_constraint", content: "Keep contract tests", selected: true, delivered: false, source_run_id: "run-a", source_model: "model-a", source_advisor_model: null, approval_id: 2, approved_by: "reviewer", approved_at: "2026-01-01T00:00:00Z", destination_run_id: "run-root", destination_model: "model-b" }], proposed: [], approved: [] } });
     renderThread("/runs/run-root");
     expect(await screen.findByText("Selected by GNSIS")).toBeInTheDocument();
     expect(screen.getByText("Delivery not attested")).toBeInTheDocument();
@@ -602,7 +602,7 @@ describe("canonical run receipt", () => {
       status: "blocked", execution_started: false, model: "canonical/model", approval: null,
       pull_request: null, files_changed: [], tokens: { input: 0, output: 0, cached: 0, reasoning: 0 },
       tests: "not_run", cost: { provider_cost: "0", currency: "USD" },
-      failure_category: "blocked_preflight", failure_message: "Canonical failure message",
+      failure_category: "blocked_preflight", failure_message: "Canonical failure message", failure_details: null,
     });
 
     renderThread("/runs/run-root");
@@ -638,7 +638,7 @@ describe("canonical run receipt", () => {
       object: "receipt", run_id: id, execution_run_id: `exec-${id}`, task: id === "run-root" ? "First receipt" : "Second receipt",
       repository: "owner/repo", status: "completed", execution_started: true, model: "model",
       approval: null, pull_request: null, files_changed: [], tokens: null, tests: null, cost: null,
-      failure_category: null, failure_message: null,
+      failure_category: null, failure_message: null, failure_details: null,
     }));
 
     const first = renderThread("/runs/run-root");

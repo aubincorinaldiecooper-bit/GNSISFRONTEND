@@ -132,6 +132,34 @@ function publicationPhase(job: JobRecord): "pre_approval" | "approved_not_publis
   return "pre_approval";
 }
 
+/**
+ * A dispatch-time failure (one with no ExecutionRun ever created) never gets
+ * a `failure_message` from the backend — see build_receipt's job-scoped shell,
+ * which deliberately never invents one from raw exception text. `failure_category`
+ * is the only evidence in that case, so this is a fallback label, not a
+ * replacement for the backend's own sanitized message when one exists. Blocked
+ * reasons (BLOCKED_REPOSITORY_EMPTY etc.) always carry a real failure_message
+ * already and are intentionally not covered here.
+ */
+const FAILURE_CATEGORY_LABELS: Record<string, string> = {
+  dispatch_failed: "GNSIS could not dispatch this run to the executor. No model was called and no balance was used.",
+  oidc_failed: "GNSIS could not authenticate the executor for this run.",
+  timeout: "This run timed out before it could finish.",
+  executor_error: "The executor reported an error while running this task.",
+  validation_failed: "GNSIS could not validate this run's output.",
+  security_validation_failed: "GNSIS blocked this run because a security check on the executor did not pass. No model was called and no balance was used.",
+  budget_exceeded: "This run stopped because it reached its budget limit.",
+  cancelled: "This run was cancelled.",
+  orphaned: "GNSIS lost track of this run's executor and could not recover it.",
+  lost_callback: "GNSIS did not receive a completion callback for this run in time.",
+  stale_attempt: "This run attempt was superseded before it could finish.",
+};
+
+function describeFailureCategory(category: string | null): string | null {
+  if (category == null) return null;
+  return FAILURE_CATEGORY_LABELS[category] ?? "This run failed.";
+}
+
 export interface ReceiptSections {
   // description is null (not repeated) when the outcome is a success, since
   // the task text is already shown once above the header — only a failure
@@ -155,6 +183,7 @@ export interface ReceiptSections {
     executionStarted: boolean | undefined;
     rawTokens: RunReceipt["tokens"];
     timestamps: RunReceipt["timing"];
+    failureDetails: RunReceipt["failure_details"];
   };
   lifecycleStage: LifecycleStageId;
 }
@@ -167,7 +196,7 @@ export function getReceiptSections(receipt: RunReceipt, job: JobRecord): Receipt
     header: {
       title: lifecycle.label,
       qualifier: lifecycle.qualifier,
-      description: failed ? (receipt.failure_message ?? null) : null,
+      description: failed ? (receipt.failure_message ?? describeFailureCategory(receipt.failure_category)) : null,
       failed,
     },
     changes: { filesChanged: receipt.files_changed },
@@ -196,6 +225,7 @@ export function getReceiptSections(receipt: RunReceipt, job: JobRecord): Receipt
       executionStarted: receipt.execution_started,
       rawTokens: receipt.tokens,
       timestamps: receipt.timing ?? null,
+      failureDetails: receipt.failure_details,
     },
     lifecycleStage: lifecycle.stage,
   };
