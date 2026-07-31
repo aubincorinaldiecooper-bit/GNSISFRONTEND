@@ -200,6 +200,10 @@ export interface RunReceipt {
   } | null;
   failure_category: string | null;
   failure_message: string | null;
+  /** Sanitized structured facts beyond a plain message (e.g. the trusted
+   * executor's expected/observed commit sha). Only populated for a
+   * dispatch-time failure (no ExecutionRun ever existed); null otherwise. */
+  failure_details?: Record<string, unknown> | null;
   timing?: {
     dispatched_at: string | null;
     started_at: string | null;
@@ -299,6 +303,10 @@ export interface RunEvent {
   payload: {
     message?: string;
     stage?: string;
+    /** The backend's stable FailureCategory string (e.g.
+     * "security_validation_failed") for a dispatch-time failure — only
+     * present when one was actually recorded, never invented. */
+    category?: string;
     execution_started?: boolean;
     model_called?: boolean;
     retryable?: boolean;
