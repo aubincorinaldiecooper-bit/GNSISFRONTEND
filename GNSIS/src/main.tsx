@@ -1,34 +1,29 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
+import { BrowserRouter, Route, Routes } from 'react-router'
 import { Theme } from '@astryxdesign/core/theme'
 import { neutralTheme } from '@astryxdesign/theme-neutral/built'
 import './index.css'
 import App from './App.tsx'
 import LoginPage from './pages/LoginPage.tsx'
-import LandingPage from './pages/LandingPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import LegacyDashboardRedirect from './components/LegacyDashboardRedirect.tsx'
+import FrontDoor from './components/FrontDoor.tsx'
 import { SessionProvider } from './lib/session'
 import { ADMIN_BASE, LEGACY_DASHBOARD_PATHS } from './lib/adminRoutes'
+
+// "/" is not here on purpose. The site's front door is the live session page,
+// which Caddy serves at "/" by forwarding to the GNSIS runtime (see Caddyfile).
+// This bundle only ever owns the operator control plane and the way into it.
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {/* mode="dark" pins the Astryx theme dark regardless of OS preference,
-        matching the reference screenshots. The public landing page at "/" sits
-        outside that system — it carries the gnsis brand's own light ground. */}
+        matching the reference screenshots. */}
     <Theme theme={neutralTheme} mode="dark">
       <BrowserRouter>
         <SessionProvider>
           <Routes>
-            {/* The public front door: what GNSIS is, and a QR that puts a phone
-                into a live session. No sign-in — during the pilot the session
-                is open to anyone with the address. */}
-            <Route path="/" element={<LandingPage />} />
-            {/* Older public entry points both resolve to the front door. */}
-            <Route path="/welcome" element={<Navigate to="/" replace />} />
-            <Route path="/home" element={<Navigate to="/" replace />} />
-
             {/* Sign-in exists for operators reaching /admin, not for visitors. */}
             <Route path="/login" element={<LoginPage />} />
 
@@ -43,8 +38,8 @@ createRoot(document.getElementById('root')!).render(
               <Route path={`${ADMIN_BASE}/*`} element={<App />} />
             </Route>
 
-            {/* Anything else is a visitor who mistyped: show the front door. */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* Anything else is a visitor who mistyped: the front door. */}
+            <Route path="*" element={<FrontDoor />} />
           </Routes>
         </SessionProvider>
       </BrowserRouter>

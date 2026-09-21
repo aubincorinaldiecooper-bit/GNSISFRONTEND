@@ -16,6 +16,34 @@
 	@envjs path /env.js
 	header @envjs Cache-Control "no-store"
 
-	try_files {path} /index.html
-	file_server
+	# The site's front door is the live session page. The older public entry
+	# points resolve there too.
+	rewrite / /live
+	redir /welcome / permanent
+	redir /home / permanent
+
+	# The live session is served by the GNSIS runtime (the GPU service) and shown
+	# under this domain: the page, its assets, the QR and both websockets are
+	# forwarded to it. Nothing else is — the control plane under /admin, /login
+	# and the app bundle are served from this container as before.
+	#
+	# Host is set to the upstream because Modal routes requests by hostname. The
+	# forwarded headers carry this site's own scheme and host; the runtime reads
+	# them when it draws /live/qr.svg, so the code encodes this domain rather than
+	# the runtime's. The scheme is asserted as https because Railway terminates
+	# TLS and speaks plain HTTP to this container: left to Caddy it would read
+	# "http", and the runtime refuses to draw a code for a plain-http address.
+	@live path /live /live/* /assets/live.css /assets/live.js /assets/live/* /assets/mic-worklet.js /ws/*
+	handle @live {
+		reverse_proxy {$GNSIS_LIVE_UPSTREAM:https://unset.invalid} {
+			header_up Host {upstream_hostport}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 }

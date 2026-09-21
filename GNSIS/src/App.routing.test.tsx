@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 
 const sessionValue = {
   status: "authenticated",
@@ -34,9 +34,12 @@ vi.mock("@/lib/env", () => ({
   isApiConfigured: () => true,
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
-  liveRuntimeUrl: () => "https://runtime.example.test",
-  isLiveRuntimeConfigured: () => true,
 }));
+
+// The catch-all is a full navigation to "/", which Caddy serves by forwarding
+// to the runtime. jsdom cannot navigate, so the call is observed instead.
+const goToFrontDoorMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/frontDoor", () => ({ goToFrontDoor: () => goToFrontDoorMock() }));
 
 const apiMocks = vi.hoisted(() => {
   class MockApiError extends Error {
@@ -103,7 +106,7 @@ vi.mock("@/lib/api", () => ({
 import App from "@/App";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
-import LandingPage from "@/pages/LandingPage";
+import FrontDoor from "@/components/FrontDoor";
 import LegacyDashboardRedirect from "@/components/LegacyDashboardRedirect";
 import { ADMIN_BASE, LEGACY_DASHBOARD_PATHS, adminPath } from "@/lib/adminRoutes";
 import type { JobRecord } from "@/lib/api";
@@ -183,20 +186,17 @@ function renderProtected(initialPath: string, status: "authenticated" | "unauthe
   );
 }
 
-// Mirrors the top-level route table in main.tsx: the public perception landing
-// page at "/", the /welcome and /home redirects, the operator /login, the legacy
+// Mirrors the top-level route table in main.tsx: the operator /login, the legacy
 // dashboard paths that now forward under /admin, the ProtectedRoute-gated control
-// plane, and the catch-all back to the front door. The legacy redirect and its
-// path list are imported from the same module main.tsx uses, so this cannot
-// drift away from what ships.
+// plane, and the catch-all that hands a stray visitor to the front door. There is
+// no "/" route on purpose — Caddy serves the live page there by forwarding to the
+// runtime. The redirect component and its path list are imported from the same
+// modules main.tsx uses, so this cannot drift away from what ships.
 function renderFull(initialPath: string, status: "authenticated" | "unauthenticated" = "authenticated") {
   useSessionMock.mockReturnValue({ ...sessionValue, status });
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/welcome" element={<Navigate to="/" replace />} />
-        <Route path="/home" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<LoginPage />} />
         {LEGACY_DASHBOARD_PATHS.map((path) => (
           <Route key={path} path={path} element={<LegacyDashboardRedirect />} />
@@ -204,7 +204,7 @@ function renderFull(initialPath: string, status: "authenticated" | "unauthentica
         <Route element={<ProtectedRoute />}>
           <Route path={`${ADMIN_BASE}/*`} element={<App />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<FrontDoor />} />
       </Routes>
       <LocationProbe />
     </MemoryRouter>,
@@ -426,47 +426,13 @@ describe("workspace routing", () => {
     expect(screen.getByText(/Sign in to your GNSIS workspace/i)).toBeInTheDocument();
   });
 
-  // -- public landing at "/" + control plane under /admin -------------------
+  // -- front door + control plane under /admin -------------------------------
 
-  it("renders the public landing page at / without requiring authentication", () => {
-    renderFull("/", "unauthenticated");
-    expect(screen.getByRole("heading", { name: /Let it see what you see/i })).toBeInTheDocument();
-    expect(screen.getByTestId("pathname")).toHaveTextContent(/^\/$/);
-    expect(screen.queryByText(/Sign in to your GNSIS workspace/i)).not.toBeInTheDocument();
-  });
-
-  it("offers no sign-in and no route into the control plane on the public page", () => {
-    renderFull("/", "unauthenticated");
-    expect(screen.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /sign in/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /admin/i })).not.toBeInTheDocument();
-    expect(document.querySelector('a[href^="/admin"]')).toBeNull();
-  });
-
-  it("points the landing page at the runtime's own live page and QR image", () => {
-    renderFull("/", "unauthenticated");
-    // hidden: true because the start button is the phone half of the page and
-    // the QR is the desktop half; only one is on screen at a time.
-    expect(screen.getByTestId("start-session")).toHaveAttribute(
-      "href",
-      "https://runtime.example.test/live",
-    );
-    expect(screen.getByRole("img", { name: /QR code/i, hidden: true })).toHaveAttribute(
-      "src",
-      "https://runtime.example.test/live/qr.svg",
-    );
-  });
-
-  it("redirects the legacy /welcome path to the landing page", async () => {
-    renderFull("/welcome", "unauthenticated");
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(/^\/$/));
-    expect(screen.getByRole("heading", { name: /Let it see what you see/i })).toBeInTheDocument();
-  });
-
-  it("sends an unknown public path to the landing page", async () => {
+  it("hands an unknown path to the front door with a full navigation", async () => {
     renderFull("/nothing-here", "unauthenticated");
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(/^\/$/));
-    expect(screen.getByRole("heading", { name: /Let it see what you see/i })).toBeInTheDocument();
+    await waitFor(() => expect(goToFrontDoorMock).toHaveBeenCalledTimes(1));
+    // Nothing of the app is drawn for a path it does not own.
+    expect(screen.queryByText(/Sign in to your GNSIS workspace/i)).not.toBeInTheDocument();
   });
 
   it("renders the New Run composer at /admin/new for an authenticated user", async () => {
@@ -530,16 +496,13 @@ describe("workspace routing", () => {
     expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
   });
 
-  it("no redirect loop exists between /, /login and /admin/new", async () => {
-    const { unmount: unmountDoor } = renderFull("/", "authenticated");
-    expect(screen.getByTestId("pathname")).toHaveTextContent(/^\/$/);
-    unmountDoor();
-
+  it("no redirect loop exists between /login and /admin/new", async () => {
     const { unmount: unmountLogin } = renderFull("/login", "authenticated");
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/new")));
     unmountLogin();
 
     renderFull(adminPath("/new"), "authenticated");
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/new")));
+    expect(goToFrontDoorMock).not.toHaveBeenCalled();
   });
 });
