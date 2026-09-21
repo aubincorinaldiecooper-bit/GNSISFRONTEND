@@ -119,22 +119,89 @@ jobs:
             echo "no stylesheet asset emitted (acceptable)"
           fi
 
-      - name: The front door and the live paths are forwarded, not served from the bundle
+      - name: The live surface is served locally and never waits on the runtime
         run: |
-          # GNSIS_LIVE_UPSTREAM is not set here, so the forward cannot succeed
-          # and Caddy answers 502. What this proves is that the request reached
-          # the proxy at all: a regression that let "/" fall back to the SPA
-          # would answer 200 with index.html instead.
-          for path in "/" "/live" "/live/qr.svg" "/assets/live.js" "/assets/live/gnsis-mark.svg" "/ws/duplex"; do
-            code=$(curl -s -o fwd.html -w '%{http_code}' "http://localhost:8080${path}")
+          # The whole point of this split: the page and everything it loads come
+          # from this container, so a visitor never waits on a GPU cold start.
+          # GNSIS_LIVE_UPSTREAM is unset here, so anything that reached the proxy
+          # would answer 502 — these must not.
+          for path in "/" "/live" "/live/qr.svg" "/assets/live.css" "/assets/live.js" \
+                      "/assets/mic-worklet.js" "/assets/live/gnsis-mark.svg" \
+                      "/assets/live/orbit.svg" "/assets/live/Roboto.woff2" \
+                      "/assets/live/torph.mjs" "/assets/live/web-haptics.mjs"; do
+            code=$(curl -s -o local.out -w '%{http_code}' "http://localhost:8080${path}")
             echo "GET ${path} -> ${code}"
-            grep -q '<div id="root">' fwd.html && { echo "${path} was served from the bundle, not forwarded"; exit 1; } || true
-            test "$code" = "502" || { echo "expected 502 from the unset upstream for ${path}, got ${code}"; exit 1; }
+            test "$code" = "200" || { echo "${path} did not return 200"; exit 1; }
+            grep -q '<div id="root">' local.out && { echo "${path} fell through to the SPA"; exit 1; } || true
           done
-          # And the bundle's own hashed assets are untouched by the live matchers.
+
+      - name: The front door is the live page, with both doors in it
+        run: |
+          curl -s http://localhost:8080/ -o door.html
+          grep -q 'Let it see what you see.' door.html || { echo "front door is not the live page"; exit 1; }
+          # A QR is useless on the device you would scan it with, so both the
+          # code and the start button ship in the markup; CSS picks by pointer.
+          grep -q 'Scan with your phone' door.html || { echo "no QR door in the page"; exit 1; }
+          grep -q 'id="start"' door.html || { echo "no start button in the page"; exit 1; }
+          # The page must not promise a session before the server confirms one.
+          grep -q 'Session ready' door.html && { echo "'Session ready' must not be in the markup"; exit 1; } || true
+          # /live serves the same page.
+          curl -s http://localhost:8080/live -o live.html
+          cmp -s door.html live.html || { echo "/ and /live differ"; exit 1; }
+          echo "front door ok"
+
+      - name: The QR encodes this site, not the runtime
+        run: |
+          ct=$(curl -s -o qr.svg -w '%{content_type}' http://localhost:8080/live/qr.svg)
+          echo "/live/qr.svg -> ${ct}"
+          echo "$ct" | grep -qi 'svg' || { echo "QR not served as SVG"; exit 1; }
+          # Read the URL the code was drawn for out of its own accessible label,
+          # and assert on THAT. Scanning the whole file would be meaningless:
+          # every hex colour in an SVG contains a '#'.
+          target=$(grep -oE 'aria-label="QR code for [^"]+"' qr.svg | sed 's/.*QR code for //; s/"$//')
+          echo "QR target: ${target}"
+          test "$target" = "https://gnsis.studio/live" \
+            || { echo "QR target is not this site's live page"; exit 1; }
+          # A QR is photographed and passed around, so the encoded URL must carry
+          # nothing but the address: no credentials, query string or fragment.
+          echo "$target" | grep -qE '[?#@]' \
+            && { echo "QR target carries credentials, a query or a fragment"; exit 1; } || true
+          echo "$target" | grep -qiE 'token|key|secret|password' \
+            && { echo "QR target looks like it carries a secret"; exit 1; } || true
+
+      - name: Only the sockets are forwarded to the runtime
+        run: |
+          # With no upstream configured the proxy answers 502. That is the proof
+          # the request was forwarded at all, rather than served from the bundle.
+          for path in "/ws/duplex" "/ws/screen"; do
+            code=$(curl -s -o fwd.out -w '%{http_code}' "http://localhost:8080${path}")
+            echo "GET ${path} -> ${code}"
+            test "$code" = "502" || { echo "expected 502 from the unset upstream for ${path}, got ${code}"; exit 1; }
+            grep -q '<div id="root">' fwd.out && { echo "${path} was served from the bundle"; exit 1; } || true
+          done
+          # And a hashed bundle asset must never be forwarded.
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/assets/index-not-a-real-hash.js)
           echo "GET /assets/index-not-a-real-hash.js -> ${code}"
           test "$code" != "502" || { echo "bundle asset path was forwarded to the runtime"; exit 1; }
+
+      - name: The vendored live surface still matches what the page asks for
+        run: |
+          # Every path live.html and live.js request must exist. A half-finished
+          # re-copy from the backend fails here rather than in production.
+          curl -s http://localhost:8080/live -o page.html
+          missing=0
+          for ref in $(grep -oE '(src|href)="/[^"]+"' page.html | cut -d'"' -f2 | sort -u); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${ref}")
+            echo "  referenced ${ref} -> ${code}"
+            test "$code" = "200" || missing=1
+          done
+          # live.js loads these at runtime rather than from the markup.
+          for ref in /assets/live/web-haptics.mjs /assets/live/torph.mjs /assets/mic-worklet.js; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${ref}")
+            echo "  imported ${ref} -> ${code}"
+            test "$code" = "200" || missing=1
+          done
+          test "$missing" = "0" || { echo "the live surface is incomplete"; exit 1; }
 
       - name: Unsafe characters do not break the generated /env.js
         run: |
