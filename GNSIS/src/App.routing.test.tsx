@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 
 const sessionValue = {
   status: "authenticated",
@@ -35,6 +35,11 @@ vi.mock("@/lib/env", () => ({
   isAuthConfigured: () => true,
   smokeTestModel: () => "gpt-test",
 }));
+
+// The catch-all is a full navigation to "/", which Caddy serves by forwarding
+// to the runtime. jsdom cannot navigate, so the call is observed instead.
+const goToFrontDoorMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/frontDoor", () => ({ goToFrontDoor: () => goToFrontDoorMock() }));
 
 const apiMocks = vi.hoisted(() => {
   class MockApiError extends Error {
@@ -101,7 +106,9 @@ vi.mock("@/lib/api", () => ({
 import App from "@/App";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
-import HomePage from "@/pages/HomePage";
+import FrontDoor from "@/components/FrontDoor";
+import LegacyDashboardRedirect from "@/components/LegacyDashboardRedirect";
+import { ADMIN_BASE, LEGACY_DASHBOARD_PATHS, adminPath } from "@/lib/adminRoutes";
 import type { JobRecord } from "@/lib/api";
 
 const jobs: JobRecord[] = [
@@ -154,7 +161,7 @@ function BackButton() {
 
 function renderWorkspace(initialPath: string, options: { strict?: boolean } = {}) {
   const content = (
-    <MemoryRouter initialEntries={[initialPath]}>
+    <MemoryRouter initialEntries={[adminPath(initialPath)]}>
       <App />
       <BackButton />
       <LocationProbe />
@@ -167,11 +174,11 @@ function renderWorkspace(initialPath: string, options: { strict?: boolean } = {}
 function renderProtected(initialPath: string, status: "authenticated" | "unauthenticated" = "authenticated") {
   useSessionMock.mockReturnValue({ ...sessionValue, status });
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
+    <MemoryRouter initialEntries={[adminPath(initialPath)]}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route element={<ProtectedRoute />}>
-          <Route path="/*" element={<App />} />
+          <Route path={`${ADMIN_BASE}/*`} element={<App />} />
         </Route>
       </Routes>
       <LocationProbe />
@@ -179,20 +186,25 @@ function renderProtected(initialPath: string, status: "authenticated" | "unauthe
   );
 }
 
-// Mirrors the exact top-level route table in main.tsx: public homepage at "/",
-// the /welcome → "/" redirect, the public /login, and the ProtectedRoute-gated
-// application (New Run at /new, plus /runs, /dashboard, /settings, /billing).
+// Mirrors the top-level route table in main.tsx: the operator /login, the legacy
+// dashboard paths that now forward under /admin, the ProtectedRoute-gated control
+// plane, and the catch-all that hands a stray visitor to the front door. There is
+// no "/" route on purpose — Caddy serves the live page there by forwarding to the
+// runtime. The redirect component and its path list are imported from the same
+// modules main.tsx uses, so this cannot drift away from what ships.
 function renderFull(initialPath: string, status: "authenticated" | "unauthenticated" = "authenticated") {
   useSessionMock.mockReturnValue({ ...sessionValue, status });
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/welcome" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<LoginPage />} />
+        {LEGACY_DASHBOARD_PATHS.map((path) => (
+          <Route key={path} path={path} element={<LegacyDashboardRedirect />} />
+        ))}
         <Route element={<ProtectedRoute />}>
-          <Route path="/*" element={<App />} />
+          <Route path={`${ADMIN_BASE}/*`} element={<App />} />
         </Route>
+        <Route path="*" element={<FrontDoor />} />
       </Routes>
       <LocationProbe />
     </MemoryRouter>,
@@ -247,7 +259,7 @@ describe("workspace routing", () => {
     publicBetaModeMock.mockReturnValue(true);
     const view = renderWorkspace("/dashboard");
     expect(await screen.findByText("What should GNSIS work on?")).toBeInTheDocument();
-    expect(view.getByTestId("pathname")).toHaveTextContent("/new");
+    expect(view.getByTestId("pathname")).toHaveTextContent(adminPath("/new"));
     expect(screen.getAllByText("New run")[0]).toBeInTheDocument();
     expect(screen.getAllByText("Runs")[0]).toBeInTheDocument();
     expect(screen.getAllByText("Intelligence")[0]).toBeInTheDocument();
@@ -287,7 +299,7 @@ describe("workspace routing", () => {
     const settingsItems = await screen.findAllByRole("menuitem", { name: /Settings/i });
     await user.click(settingsItems[0]);
 
-    expect(screen.getByTestId("pathname")).toHaveTextContent("/settings");
+    expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/settings"));
   });
 
   it("selecting Dashboard updates the pathname to /dashboard", async () => {
@@ -296,7 +308,7 @@ describe("workspace routing", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Dashboard" })[0]);
 
-    expect(screen.getByTestId("pathname")).toHaveTextContent("/dashboard");
+    expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/dashboard"));
   });
 
   it("selecting a run updates the pathname to /runs/:runId", async () => {
@@ -305,7 +317,7 @@ describe("workspace routing", () => {
 
     await user.click((await screen.findAllByRole("button", { name: /Fix dashboard routing/i }))[0]);
 
-    expect(screen.getByTestId("pathname")).toHaveTextContent("/runs/run-1");
+    expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/runs/run-1"));
   });
 
   it("directly loading /runs/:runId resolves and renders its thread", async () => {
@@ -338,7 +350,7 @@ describe("workspace routing", () => {
 
     await user.click(screen.getByRole("button", { name: "Browser back" }));
 
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/dashboard"));
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/dashboard")));
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
@@ -353,7 +365,7 @@ describe("workspace routing", () => {
     renderProtected("/settings", "authenticated");
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByTestId("pathname")).toHaveTextContent("/settings");
+    expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/settings"));
   });
 
 
@@ -365,7 +377,7 @@ describe("workspace routing", () => {
     // transient "Connecting…" text is not reliable to assert on. What this
     // test actually guards is StrictMode's double-invoke of effects not
     // producing a duplicate claim submission.
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/settings")));
     expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(1);
     expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledWith(12345);
   });
@@ -376,7 +388,7 @@ describe("workspace routing", () => {
     // GitHub App access IS the permission — the successful claim delivers
     // the user directly into Settings, with no "Choose repositories" step
     // in between.
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/settings")));
     expect(sessionValue.refreshMe).toHaveBeenCalledTimes(1);
     expect(
       screen.queryByRole("heading", { name: /Choose repositories for GNSIS/i }),
@@ -403,7 +415,7 @@ describe("workspace routing", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => expect(apiMocks.claimGitHubInstallationMock).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/settings"));
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/settings")));
   });
 
   it("unauthenticated access still redirects through ProtectedRoute", async () => {
@@ -414,100 +426,83 @@ describe("workspace routing", () => {
     expect(screen.getByText(/Sign in to your GNSIS workspace/i)).toBeInTheDocument();
   });
 
-  // -- homepage-at-/ + New Run-at-/new routing (PR #24) ----------------------
+  // -- front door + control plane under /admin -------------------------------
 
-  it("renders the public homepage at / without requiring authentication", () => {
-    renderFull("/", "unauthenticated");
-    // The marketing homepage renders even when signed out — it is NOT gated by
-    // ProtectedRoute, so no redirect to /login.
-    expect(screen.getByRole("heading", { name: /Own the intelligence your coding agents create/i })).toBeInTheDocument();
-    expect(screen.getByTestId("pathname")).toHaveTextContent("/");
+  it("hands an unknown path to the front door with a full navigation", async () => {
+    renderFull("/nothing-here", "unauthenticated");
+    await waitFor(() => expect(goToFrontDoorMock).toHaveBeenCalledTimes(1));
+    // Nothing of the app is drawn for a path it does not own.
     expect(screen.queryByText(/Sign in to your GNSIS workspace/i)).not.toBeInTheDocument();
   });
 
-  it("redirects the legacy /welcome path to / (homepage)", async () => {
-    renderFull("/welcome", "unauthenticated");
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/"));
-    expect(screen.getByRole("heading", { name: /Own the intelligence your coding agents create/i })).toBeInTheDocument();
-  });
-
-  it("renders the New Run composer at /new for an authenticated user", async () => {
+  it("renders the New Run composer at /admin/new for an authenticated user", async () => {
     renderWorkspace("/new");
     expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
-  it("the New run sidebar action navigates to /new", async () => {
+  it("the New run sidebar action navigates to /admin/new", async () => {
     const user = userEvent.setup();
     renderWorkspace("/runs");
     await screen.findByRole("heading", { name: "Runs" });
 
     await user.click(screen.getAllByRole("button", { name: "New run" })[0]);
 
-    expect(screen.getByTestId("pathname")).toHaveTextContent("/new");
+    expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/new"));
     expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
-  it("keeps /billing intact", async () => {
+  it("keeps billing intact under /admin", async () => {
     renderWorkspace("/billing");
     expect(await screen.findByRole("heading", { name: /Billing/i })).toBeInTheDocument();
   });
 
-  it("redirects an unauthenticated /new to /login carrying next=/new", async () => {
-    // ProtectedRoute encodes location.pathname + search into ?next=. Render
-    // just the protected tree with a LoginProbe that shows the full
-    // pathname+search it was redirected with, proving /new (the intended
-    // destination) is preserved for after sign-in, not dropped.
+  it("forwards a legacy dashboard bookmark to the same screen under /admin", async () => {
+    renderFull("/runs", "authenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/runs")));
+    expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
+  });
+
+  it("a legacy bookmark does not bypass the gate when signed out", async () => {
+    renderFull("/runs", "unauthenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/login"));
+    expect(screen.queryByRole("heading", { name: "Runs" })).not.toBeInTheDocument();
+  });
+
+  it("redirects an unauthenticated /admin/new to /login carrying the admin path", async () => {
     useSessionMock.mockReturnValue({ ...sessionValue, status: "unauthenticated" });
     render(
-      <MemoryRouter initialEntries={["/new"]}>
+      <MemoryRouter initialEntries={[adminPath("/new")]}>
         <Routes>
           <Route path="/login" element={<LocationProbe />} />
           <Route element={<ProtectedRoute />}>
-            <Route path="/*" element={<div>APP</div>} />
+            <Route path={`${ADMIN_BASE}/*`} element={<div>APP</div>} />
           </Route>
         </Routes>
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/login"));
-    expect(screen.getByTestId("search")).toHaveTextContent("next=%2Fnew");
+    expect(screen.getByTestId("search")).toHaveTextContent("next=%2Fadmin%2Fnew");
   });
 
-  it("defaults an authenticated user landing on /login to /new", async () => {
+  it("defaults an authenticated user landing on /login into the control plane", async () => {
     renderFull("/login", "authenticated");
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/new")));
     expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
   });
 
-  it("respects an explicit ?next=/runs on /login instead of defaulting to /new", async () => {
-    renderFull("/login?next=%2Fruns", "authenticated");
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/runs"));
+  it("respects an explicit ?next pointing into the control plane", async () => {
+    renderFull("/login?next=%2Fadmin%2Fruns", "authenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/runs")));
     expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
   });
 
-  it("no redirect loop exists between /, /login and /new", async () => {
-    // An authenticated visitor landing on each of the three entry points
-    // settles immediately — none of them bounce back into one of the others.
-    const { unmount: unmountHome } = renderFull("/", "authenticated");
-    expect(screen.getByTestId("pathname")).toHaveTextContent("/");
-    unmountHome();
-
+  it("no redirect loop exists between /login and /admin/new", async () => {
     const { unmount: unmountLogin } = renderFull("/login", "authenticated");
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/new")));
     unmountLogin();
 
-    renderFull("/new", "authenticated");
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
-  });
-
-  it("homepage Connect GitHub flows through /login and lands in New Run (/new)", async () => {
-    const user = userEvent.setup();
-    renderFull("/", "authenticated");
-
-    await user.click(screen.getAllByRole("button", { name: /Connect GitHub/i })[1]);
-
-    // /login?next=/new → authenticated → /new → New Run composer. One settled
-    // destination, no bouncing between /, /login and /new.
-    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent("/new"));
-    expect(await screen.findByRole("heading", { name: /What should GNSIS work on\?/i })).toBeInTheDocument();
+    renderFull(adminPath("/new"), "authenticated");
+    await waitFor(() => expect(screen.getByTestId("pathname")).toHaveTextContent(adminPath("/new")));
+    expect(goToFrontDoorMock).not.toHaveBeenCalled();
   });
 });

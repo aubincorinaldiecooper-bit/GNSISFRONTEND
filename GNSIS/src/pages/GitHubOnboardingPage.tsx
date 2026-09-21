@@ -3,6 +3,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { adminPath } from "@/lib/adminRoutes";
 import { ApiError, claimGitHubInstallation } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
@@ -42,7 +43,7 @@ export default function GitHubOnboardingPage() {
       // straight into Settings; the accessible repositories are already
       // available for runs. Changing which repositories are accessible is
       // done through GitHub via the "Manage GitHub access" action.
-      navigate("/settings?github=connected", { replace: true });
+      navigate(adminPath("/settings?github=connected"), { replace: true });
     } catch (err) {
       setState({
         kind: "error",
@@ -66,7 +67,7 @@ export default function GitHubOnboardingPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             GitHub did not include a valid installation ID. Return to Settings and try installing the app again.
           </p>
-          <Button className="mt-5" variant="outline" onClick={() => navigate("/settings")}>Return to Settings</Button>
+          <Button className="mt-5" variant="outline" onClick={() => navigate(adminPath("/settings"))}>Return to Settings</Button>
         </div>
       </div>
     );
@@ -81,7 +82,7 @@ export default function GitHubOnboardingPage() {
           <p className="mt-2 text-sm text-red-400">{state.message}</p>
           <div className="mt-5 flex justify-center gap-2">
             <Button onClick={() => void claim()}>Retry</Button>
-            <Button variant="outline" onClick={() => navigate("/settings")}>Return to Settings</Button>
+            <Button variant="outline" onClick={() => navigate(adminPath("/settings"))}>Return to Settings</Button>
           </div>
         </div>
       </div>
