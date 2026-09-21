@@ -16,33 +16,39 @@
 	@envjs path /env.js
 	header @envjs Cache-Control "no-store"
 
-	# The site's front door is the live session page. The older public entry
-	# points resolve there too.
-	rewrite / /live
+	# The live page is the site's front door, and it is static: HTML, a
+	# stylesheet, a script, two fonts, some SVGs and a pre-drawn QR. All of it is
+	# served from this container, so a visitor sees the page immediately.
+	#
+	# It used to be forwarded to the runtime. That was wrong: the runtime loads
+	# MiniCPM-o and the Thinker checkpoint onto a GPU inside build_app(), and only
+	# then binds its port, so Modal could not route a request until the whole
+	# model was in GPU memory. Looking at a QR code cost a full cold start —
+	# measured at gnsis.studio as two requests held 125 seconds each before the
+	# browser gave up.
+	@livepage path / /live
+	rewrite @livepage /live.html
+
 	redir /welcome / permanent
 	redir /home / permanent
 
-	# The live session is served by the GNSIS runtime (the GPU service) and shown
-	# under this domain: the page, its assets, the QR and both websockets are
-	# forwarded to it. Nothing else is — the control plane under /admin, /login
-	# and the app bundle are served from this container as before.
+	# Only the sockets reach the runtime, which is where a GPU is genuinely
+	# needed. The model now starts when somebody starts a session, not when they
+	# look at the page.
 	#
-	# Modal routes requests by hostname. Caddy already sends the upstream's own
-	# hostname as Host when the upstream is https://, and already forwards this
-	# site's host as X-Forwarded-Host — so the upstream must be given with its
-	# scheme, and neither header is set here. The runtime reads X-Forwarded-Host
-	# and X-Forwarded-Proto when it draws /live/qr.svg, so the code encodes this
-	# domain rather than the runtime's. The scheme IS asserted, because Railway
-	# terminates TLS and speaks plain HTTP to this container: left to Caddy it
-	# would read "http", and the runtime refuses to draw a code for a plain-http
-	# address.
-	@live path /live /live/* /assets/live.css /assets/live.js /assets/live/* /assets/mic-worklet.js /ws/*
-	handle @live {
+	# Host and X-Forwarded-Host are left to Caddy: for an https:// upstream it
+	# already sends the upstream's hostname as Host and forwards this site's host.
+	# X-Forwarded-Proto is asserted because Railway terminates TLS and speaks
+	# plain HTTP to this container.
+	@sockets path /ws/*
+	handle @sockets {
 		reverse_proxy {$GNSIS_LIVE_UPSTREAM:https://unset.invalid} {
 			header_up X-Forwarded-Proto https
 		}
 	}
 
+	# Everything else is the React bundle: /login and the control plane under
+	# /admin, with the usual single-page fallback.
 	handle {
 		try_files {path} /index.html
 		file_server
