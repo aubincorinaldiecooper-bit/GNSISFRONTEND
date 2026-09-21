@@ -96,9 +96,11 @@ jobs:
             echo "SPA fallback ok: ${path}"
           done
 
+      # "/" is the live page, forwarded to the runtime (see Caddyfile), so the
+      # bundle's index.html is read from a path the bundle still owns.
       - name: Real JS asset is served (not index.html)
         run: |
-          index=$(curl -s http://localhost:8080/)
+          index=$(curl -s http://localhost:8080/login)
           asset=$(echo "$index" | grep -oE '/assets/[^"]+\.js' | head -1)
           test -n "$asset" || { echo "no JS asset referenced by index.html"; exit 1; }
           ct=$(curl -s -o body.js -D - "http://localhost:8080${asset}" | grep -i '^content-type:' | tr -d '\r')
@@ -108,7 +110,7 @@ jobs:
 
       - name: Real CSS asset is served where present
         run: |
-          index=$(curl -s http://localhost:8080/)
+          index=$(curl -s http://localhost:8080/login)
           css=$(echo "$index" | grep -oE '/assets/[^"]+\.css' | head -1 || true)
           if [ -n "$css" ]; then
             ct=$(curl -s -o /dev/null -w '%{content_type}' "http://localhost:8080${css}")
@@ -116,6 +118,23 @@ jobs:
           else
             echo "no stylesheet asset emitted (acceptable)"
           fi
+
+      - name: The front door and the live paths are forwarded, not served from the bundle
+        run: |
+          # GNSIS_LIVE_UPSTREAM is not set here, so the forward cannot succeed
+          # and Caddy answers 502. What this proves is that the request reached
+          # the proxy at all: a regression that let "/" fall back to the SPA
+          # would answer 200 with index.html instead.
+          for path in "/" "/live" "/live/qr.svg" "/assets/live.js" "/assets/live/gnsis-mark.svg" "/ws/duplex"; do
+            code=$(curl -s -o fwd.html -w '%{http_code}' "http://localhost:8080${path}")
+            echo "GET ${path} -> ${code}"
+            grep -q '<div id="root">' fwd.html && { echo "${path} was served from the bundle, not forwarded"; exit 1; } || true
+            test "$code" = "502" || { echo "expected 502 from the unset upstream for ${path}, got ${code}"; exit 1; }
+          done
+          # And the bundle's own hashed assets are untouched by the live matchers.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/assets/index-not-a-real-hash.js)
+          echo "GET /assets/index-not-a-real-hash.js -> ${code}"
+          test "$code" != "502" || { echo "bundle asset path was forwarded to the runtime"; exit 1; }
 
       - name: Unsafe characters do not break the generated /env.js
         run: |
