@@ -155,9 +155,19 @@ jobs:
           ct=$(curl -s -o qr.svg -w '%{content_type}' http://localhost:8080/live/qr.svg)
           echo "/live/qr.svg -> ${ct}"
           echo "$ct" | grep -qi 'svg' || { echo "QR not served as SVG"; exit 1; }
-          grep -q 'gnsis.studio/live' qr.svg || { echo "QR does not target this site"; exit 1; }
-          # A QR is photographed and passed around: it must carry no secrets.
-          grep -qiE 'token|key|secret|password|[?#]' qr.svg && { echo "QR carries a query, fragment or secret"; exit 1; } || true
+          # Read the URL the code was drawn for out of its own accessible label,
+          # and assert on THAT. Scanning the whole file would be meaningless:
+          # every hex colour in an SVG contains a '#'.
+          target=$(grep -oE 'aria-label="QR code for [^"]+"' qr.svg | sed 's/.*QR code for //; s/"$//')
+          echo "QR target: ${target}"
+          test "$target" = "https://gnsis.studio/live" \
+            || { echo "QR target is not this site's live page"; exit 1; }
+          # A QR is photographed and passed around, so the encoded URL must carry
+          # nothing but the address: no credentials, query string or fragment.
+          echo "$target" | grep -qE '[?#@]' \
+            && { echo "QR target carries credentials, a query or a fragment"; exit 1; } || true
+          echo "$target" | grep -qiE 'token|key|secret|password' \
+            && { echo "QR target looks like it carries a secret"; exit 1; } || true
 
       - name: Only the sockets are forwarded to the runtime
         run: |
