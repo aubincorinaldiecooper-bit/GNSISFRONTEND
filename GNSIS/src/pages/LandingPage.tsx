@@ -71,22 +71,26 @@ const BRAND_CSS = `
   position: absolute;
   z-index: -1;
   border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.55;
+  filter: blur(110px);
   pointer-events: none;
 }
+/* Sized and placed to sit mostly off-canvas: the guideline's gradient is a
+   signature at the edge of the page, not a tint over the whole of it. Rendered
+   at full strength it washed the ground out and took the statement with it. */
 .gnsis-door::before {
-  width: 520px;
-  height: 520px;
-  top: -180px;
-  right: -140px;
+  width: 440px;
+  height: 440px;
+  top: -230px;
+  right: -190px;
+  opacity: 0.32;
   background: radial-gradient(circle at 30% 30%, var(--coral), var(--peach) 60%, transparent 72%);
 }
 .gnsis-door::after {
-  width: 460px;
-  height: 460px;
-  bottom: -200px;
-  left: -160px;
+  width: 400px;
+  height: 400px;
+  bottom: -250px;
+  left: -210px;
+  opacity: 0.28;
   background: radial-gradient(circle at 60% 40%, var(--orange), var(--glow) 58%, transparent 72%);
 }
 
@@ -98,6 +102,7 @@ const BRAND_CSS = `
 }
 .gnsis-door__mark { width: 40px; height: 40px; display: block; }
 .gnsis-door__wordmark {
+  color: var(--night);
   font: 800 20px/1 var(--display);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -116,6 +121,10 @@ const BRAND_CSS = `
 }
 
 .gnsis-door__statement {
+  /* Explicit, not inherited. A global "h1 { color: … }" in the app stylesheet
+     beats an inherited colour every time, and under the dark Astryx theme that
+     rule painted this statement near-white on the warm ground — invisible. */
+  color: var(--night);
   font: 800 clamp(40px, 9vw, 56px)/1.04 var(--display);
   letter-spacing: -0.01em;
   text-transform: uppercase;
@@ -153,6 +162,16 @@ const BRAND_CSS = `
   display: block;
   border-radius: var(--r-lg);
 }
+.gnsis-door__qr-fallback {
+  color: var(--mist);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  max-width: 24ch;
+  padding: 40px 8px;
+}
+.gnsis-door__qr-fallback a { color: var(--mist); }
+
 .gnsis-door__qr-caption {
   color: var(--mist);
   font-size: 14px;
@@ -202,7 +221,7 @@ const BRAND_CSS = `
   padding: 24px;
   max-width: 52ch;
 }
-.gnsis-door__unset h2 { font: 700 18px/26px var(--body); margin-bottom: 8px; }
+.gnsis-door__unset h2 { color: var(--night); font: 700 18px/26px var(--body); margin-bottom: 8px; }
 .gnsis-door__unset p { color: var(--ink-2); font-size: 15px; line-height: 23px; }
 .gnsis-door__unset code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -297,19 +316,29 @@ export default function LandingPage() {
           <RuntimeUnset />
         ) : (
           <div className="gnsis-door__panels">
-            {!qrFailed && (
-              <section className="gnsis-door__qr-panel gnsis-door__desk-only">
-                <img
-                  className="gnsis-door__qr"
-                  src={qrUrl}
-                  width={224}
-                  height={224}
-                  alt={`QR code that opens ${liveUrl}`}
-                  onError={() => setQrFailed(true)}
-                />
-                <p className="gnsis-door__qr-caption">Scan this with your phone to start a session</p>
-              </section>
-            )}
+            <section className="gnsis-door__qr-panel gnsis-door__desk-only">
+              {qrFailed ? (
+                // The runtime draws the code, so if it is unreachable there is
+                // nothing to scan. Keep the panel and hand over the address:
+                // the Start button is the phone half of the page, so dropping
+                // the panel entirely would leave a desktop with no way in.
+                <p className="gnsis-door__qr-fallback">
+                  The code could not be loaded. Open <a href={liveUrl}>{liveUrl}</a> on your phone.
+                </p>
+              ) : (
+                <>
+                  <img
+                    className="gnsis-door__qr"
+                    src={qrUrl}
+                    width={224}
+                    height={224}
+                    alt={`QR code that opens ${liveUrl}`}
+                    onError={() => setQrFailed(true)}
+                  />
+                  <p className="gnsis-door__qr-caption">Scan this with your phone to start a session</p>
+                </>
+              )}
+            </section>
 
             <div className="gnsis-door__aside">
               <a

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 const runtimeUrlMock = vi.hoisted(() => vi.fn(() => "https://runtime.example.test"));
 
@@ -60,6 +60,21 @@ describe("LandingPage", () => {
     expect(screen.getByText(/VITE_LIVE_RUNTIME_URL/)).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /QR code/i, hidden: true })).not.toBeInTheDocument();
     expect(screen.queryByTestId("start-session")).not.toBeInTheDocument();
+  });
+
+  it("keeps the panel and hands over the address when the QR image fails to load", () => {
+    render(<LandingPage />);
+    const qr = screen.getByRole("img", { name: /QR code/i, hidden: true });
+
+    fireEvent.error(qr);
+
+    // The Start button is the phone half of the page, so losing the panel on a
+    // desktop would leave no way in at all.
+    expect(screen.queryByRole("img", { name: /QR code/i, hidden: true })).not.toBeInTheDocument();
+    expect(screen.getByText(/The code could not be loaded/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("link", { name: "https://runtime.example.test/live", hidden: true }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("does not put a trailing slash into the live URL when one is configured", () => {
