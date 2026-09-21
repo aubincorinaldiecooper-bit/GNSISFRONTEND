@@ -33,7 +33,8 @@ CONFIG="$(
           "VITE_AUTH_URL",
           "VITE_PUBLIC_BETA_MODE",
           "VITE_ENABLE_INTEGRATION_LAB",
-          "VITE_GITHUB_APP_SLUG"
+          "VITE_GITHUB_APP_SLUG",
+          "VITE_LIVE_RUNTIME_URL"
         ))
       )
   '

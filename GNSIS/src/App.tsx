@@ -49,6 +49,10 @@ import GitHubOnboardingPage from "@/pages/GitHubOnboardingPage";
 import IntelligencePage from "@/pages/IntelligencePage";
 import { useSession } from "@/lib/session";
 import { githubAppSlug, integrationLabEnabled, publicBetaMode } from "@/lib/env";
+// The dashboard is mounted under /admin. Every path it navigates to goes
+// through adminPath, and every pathname it reads goes through stripAdminBase,
+// so the route table below stays written in dashboard-relative terms.
+import { adminPath, stripAdminBase } from "@/lib/adminRoutes";
 import {
   createJob,
   listJobs,
@@ -2401,7 +2405,7 @@ function RunPanelRegion({
 }) {
   const location = useLocation();
   const hasThread = view.kind === "thread";
-  const selectedId = matchPath({ path: "/runs/:runId", end: true }, location.pathname)?.params.runId;
+  const selectedId = matchPath({ path: "/runs/:runId", end: true }, stripAdminBase(location.pathname))?.params.runId;
   // A deep link selects that immutable run even though the page renders its
   // complete conversation. Newly appended runs remain the active tip.
   const selectedRun = hasThread
@@ -3031,7 +3035,8 @@ export function useAppShell() {
 }
 
 
-function routeFromPathname(pathname: string): { route: RouteViewKind; runId: string | null } {
+function routeFromPathname(rawPathname: string): { route: RouteViewKind; runId: string | null } {
+  const pathname = stripAdminBase(rawPathname);
   const runMatch = matchPath({ path: "/runs/:runId", end: true }, pathname);
   if (runMatch?.params.runId) return { route: "run", runId: runMatch.params.runId };
 
@@ -3136,11 +3141,11 @@ function GNSISWorkspacePreview() {
     else if (route === "runs") setView({ kind: "runs" });
     else if (route === "intelligence") setView({ kind: "intelligence" });
     else if (route === "dashboard") {
-      if (publicBetaMode()) navigate("/new", { replace: true }); else setView({ kind: "dashboard" });
+      if (publicBetaMode()) navigate(adminPath("/new"), { replace: true }); else setView({ kind: "dashboard" });
     }
     else if (route === "settings") setView({ kind: "settings" });
     else if (route === "billing") {
-      if (publicBetaMode()) navigate("/new", { replace: true }); else setView({ kind: "billing" });
+      if (publicBetaMode()) navigate(adminPath("/new"), { replace: true }); else setView({ kind: "billing" });
     }
     else if (route === "integration-test") {
       // The route itself is gated, not just the nav link — a direct URL visit
@@ -3148,7 +3153,7 @@ function GNSISWorkspacePreview() {
       if (!publicBetaMode() && integrationLabEnabled()) {
         setView({ kind: "integration-test" });
       } else {
-        navigate("/new", { replace: true });
+        navigate(adminPath("/new"), { replace: true });
       }
     } else if (route === "github-onboarding") setView({ kind: "github-onboarding" });
   }, [route, navigate]);
@@ -3212,15 +3217,15 @@ function GNSISWorkspacePreview() {
       dashboard: "/dashboard",
       "integration-test": "/integration-test",
     };
-    navigate(nextPath[id]);
+    navigate(adminPath(nextPath[id]));
   };
 
   const handleRunSelect = (selectedRunId: string) => {
     if (!selectedRunId) {
-      navigate("/runs");
+      navigate(adminPath("/runs"));
       return;
     }
-    navigate(`/runs/${encodeURIComponent(selectedRunId)}`);
+    navigate(adminPath(`/runs/${encodeURIComponent(selectedRunId)}`));
   };
 
   const handleComposerSubmit = async (prompt: string, selection: ComposerSelection) => {
@@ -3233,7 +3238,7 @@ function GNSISWorkspacePreview() {
     });
     setJobs((prev) => upsertJob(prev, job));
     setView(threadFromJob(job));
-    navigate(`/runs/${encodeURIComponent(job.id)}`);
+    navigate(adminPath(`/runs/${encodeURIComponent(job.id)}`));
   };
 
   // Update a single run within the active thread by id (immutable).
@@ -3367,13 +3372,14 @@ function GNSISWorkspacePreview() {
     }
   };
 
-  const handleNewRun = () => navigate("/new");
-  const handleSettings = () => navigate("/settings");
-  const handleBilling = () => navigate("/billing");
+  const handleNewRun = () => navigate(adminPath("/new"));
+  const handleSettings = () => navigate(adminPath("/settings"));
+  const handleBilling = () => navigate(adminPath("/billing"));
   const navigateBackOrHome = () => {
-    // "Home" inside the authenticated app is the New Run workspace, not the
-    // public marketing homepage at "/".
-    if (location.key === "default") navigate("/new");
+    // "Home" inside the control plane is the New Run workspace, not "/" —
+    // that is the public perception landing page and leaving /admin from here
+    // would look like being signed out.
+    if (location.key === "default") navigate(adminPath("/new"));
     else navigate(-1);
   };
 

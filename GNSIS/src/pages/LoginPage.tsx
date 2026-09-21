@@ -13,10 +13,12 @@ import { Navigate, useLocation, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 import { isApiConfigured, isAuthConfigured } from "@/lib/env";
+import { adminPath } from "@/lib/adminRoutes";
 
-// The New Run composer is the app's landing spot after sign-in — the public
-// marketing homepage lives at "/", so signing in must not drop the user there.
-const DEFAULT_SIGNED_IN_PATH = "/new";
+// Signing in is an operator action: it leads into the control plane under
+// /admin, never to "/", which is the public perception landing page and has no
+// sign-in of its own.
+const DEFAULT_SIGNED_IN_PATH = adminPath("/new");
 
 function safeNext(raw: string | null): string {
   // Only allow same-app relative paths — never an absolute URL (open-redirect).

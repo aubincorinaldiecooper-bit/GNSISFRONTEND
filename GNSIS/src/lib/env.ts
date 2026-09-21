@@ -83,6 +83,25 @@ export function githubAppSlug(): string {
 }
 
 /**
+ * Base URL of the GNSIS realtime runtime (no trailing slash) — the GPU service
+ * that serves the live perception session.
+ *
+ * The landing page never opens a session itself. It points a phone at
+ * `<runtime>/live`, and shows `<runtime>/live/qr.svg`, which the runtime draws
+ * for its own address. Both are public URLs by design: the runtime refuses to
+ * put credentials, a query string or a fragment into a QR code, because a QR
+ * code is a thing people photograph and pass around.
+ */
+export function liveRuntimeUrl(): string {
+  return trimTrailingSlash(readPublicConfig("VITE_LIVE_RUNTIME_URL"));
+}
+
+/** True once a runtime address is configured and the landing page can show a QR. */
+export function isLiveRuntimeConfigured(): boolean {
+  return liveRuntimeUrl().length > 0;
+}
+
+/**
  * Whether the Integration Lab (/integration-test) is exposed in the nav.
  * Defaults to ON so the browser-based integration test is reachable; set
  * `VITE_ENABLE_INTEGRATION_LAB=false` to hide it in a locked-down deployment.
