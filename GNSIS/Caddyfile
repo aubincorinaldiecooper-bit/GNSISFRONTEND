@@ -40,10 +40,22 @@
 	# already sends the upstream's hostname as Host and forwards this site's host.
 	# X-Forwarded-Proto is asserted because Railway terminates TLS and speaks
 	# plain HTTP to this container.
+	# X-GNSIS-Edge is a shared secret proving a socket came through this front
+	# door. The runtime's own address is public, so without it a caller who
+	# learns that address reaches the GPU directly — around this proxy, around
+	# Cloudflare, and around every limit either of them applies. The runtime
+	# refuses a socket that arrives without the value.
+	#
+	# Unset here the header simply goes out empty. That is safe only while the
+	# runtime's own secret is also unset, because the runtime's value — not this
+	# one — is what switches its check on. Runtime set with this unset means an
+	# empty header arriving at a runtime that is checking, and every session is
+	# refused. So set this end FIRST, and on a rollback clear it LAST.
 	@sockets path /ws/*
 	handle @sockets {
 		reverse_proxy {$GNSIS_LIVE_UPSTREAM:https://unset.invalid} {
 			header_up X-Forwarded-Proto https
+			header_up X-GNSIS-Edge {$GNSIS_EDGE_SECRET}
 		}
 	}
 
