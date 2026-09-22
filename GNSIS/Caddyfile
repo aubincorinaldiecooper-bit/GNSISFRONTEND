@@ -46,9 +46,11 @@
 	# Cloudflare, and around every limit either of them applies. The runtime
 	# refuses a socket that arrives without the value.
 	#
-	# Unset here it expands to empty, which the runtime treats as "check off":
-	# the same behaviour as before the header existed. Set this end FIRST, then
-	# the runtime's, and no request is ever refused in between.
+	# Unset here the header simply goes out empty. That is safe only while the
+	# runtime's own secret is also unset, because the runtime's value — not this
+	# one — is what switches its check on. Runtime set with this unset means an
+	# empty header arriving at a runtime that is checking, and every session is
+	# refused. So set this end FIRST, and on a rollback clear it LAST.
 	@sockets path /ws/*
 	handle @sockets {
 		reverse_proxy {$GNSIS_LIVE_UPSTREAM:https://unset.invalid} {
