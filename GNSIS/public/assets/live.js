@@ -471,14 +471,20 @@ function setSwitchesDisabled(off) {
 
 /**
  * The switches follow the negotiation, not the click. While a source change
- * is waiting on the runtime's answer (`pendingSource`), both stay off: a
- * second switch may not overlap the one in flight. And a switch that was
- * refused, or that lost its channel, must hand the controls back rather than
- * leave them dead.
+ * is waiting on the runtime's answer (`pendingSource`) or on its first frame
+ * (`awaitingSight`), both stay off: a second switch may not overlap the one
+ * in flight, and the page may not offer a third state before the second is
+ * real. A switch that was refused, or that lost its channel, must hand the
+ * controls back rather than leave them dead.
  */
 function syncSourceControls(session) {
   if (live !== session) return;
-  setSwitchesDisabled(Boolean(session.pendingSource));
+  const busy = Boolean(session.sourceBusy || session.pendingSource || session.awaitingSight);
+  setSwitchesDisabled(busy);
+  if (!busy) {
+    ui.camToggle.removeAttribute('aria-busy');
+    ui.share.removeAttribute('aria-busy');
+  }
 }
 
 /** Back to how a session starts: everything on, nothing in flight. */
@@ -782,6 +788,20 @@ function attachScreen(session, ready) {
           show(line, { tone: 'live' });
           settle(line);
           syncSourceControls(session);
+          const t = live.switchTiming;
+          live.switchTiming = null;
+          if (t && t.requestedAt !== null && t.doneAt !== null) {
+            const now = performance.now();
+            console.debug('source_switch', {
+              attempt: t.attempt,
+              from: t.from,
+              to: t.to,
+              request_ms: Math.round(t.requestedAt - t.clickedAt),
+              negotiation_ms: Math.round(t.doneAt - t.requestedAt),
+              first_frame_after_done_ms: Math.round(now - t.doneAt),
+              total_visible_ms: Math.round(now - t.clickedAt),
+            });
+          }
         }
       }
       return;
@@ -795,7 +815,7 @@ function attachScreen(session, ready) {
     if (live !== session || session.stopped || session.screen !== socket) return;
     if (!session.source && !session.pendingSource) return;
     goDark(session, 'The video link dropped.');
-    setSwitchesDisabled(false);
+    syncSourceControls(session);
   };
   socket.addEventListener('close', dropped);
   socket.addEventListener('error', dropped);
@@ -845,7 +865,9 @@ function handleDuplex(session, event) {
       // Back to voice after Camera off: nothing to attach, frames already
       // paused.
       if (payload.video === false) {
-        live.pendingSource = null;
+        // Only the off request is being answered. `goDark` already cleared
+        // its own state; clearing `pendingSource` here would cancel a newer
+        // enable request whose `done` has not arrived yet.
         syncSourceControls(session);
         break;
       }
@@ -858,9 +880,13 @@ function handleDuplex(session, event) {
         live.pendingSource = null;
         // The very first frame has its own line ("Session ready."); after
         // that, a switch waits for a frame sent under the new source —
-        // `sightSeq` remembers where the old source's frames ended.
+        // `sightSeq` remembers where the old source's frames ended, and the
+        // controls stay locked until that frame is acknowledged.
         live.awaitingSight = live.stats.accepted > 0;
         live.sightSeq = live.frameSeq;
+        if (live.switchTiming && live.switchTiming.to === live.source) {
+          live.switchTiming.doneAt = performance.now();
+        }
       }
       // Only now is the server willing to look at a frame.
       if ((!live.screen || live.screen.readyState > WebSocket.OPEN) && live.ready) {
@@ -872,6 +898,7 @@ function handleDuplex(session, event) {
           ui.preview.srcObject = null;
           live.source = null;
           live.awaitingSight = false;
+          live.switchTiming = null;
           setSourceUi(null);
         } else if (live.stats.accepted === 0) {
           show('Waiting for the first frame…', { state: 'connecting' });
@@ -885,6 +912,8 @@ function handleDuplex(session, event) {
         // The switch was refused: let go of what we just opened.
         live.pendingSource = null;
         live.source = null;
+        live.awaitingSight = false;
+        live.switchTiming = null;
         for (const track of live.media.video.getTracks()) track.stop();
         ui.preview.srcObject = null;
         setSourceUi(null);
@@ -999,6 +1028,10 @@ async function start(kind = 'camera') {
     awaitingSight: false,
     frameSeq: 0,
     sightSeq: 0,
+    // A monotonic id and clock per source-switch attempt, so the time from
+    // click to the first real frame is measurable, not guessed.
+    switchAttempt: 0,
+    switchTiming: null,
     stopped: false,
     stats: { sent: 0, accepted: 0, dropped: 0, audio: 0 },
   };
@@ -1051,12 +1084,17 @@ function goDark(session, message) {
   session.source = null;
   session.pendingSource = null;
   session.awaitingSight = false;
+  session.switchTiming = null;
   setSourceUi(null);
   const duplex = session.duplex;
   if (duplex && duplex.readyState === WebSocket.OPEN) {
     duplex.send(JSON.stringify({ type: 'media.mode', video: false }));
   }
   show(message, { tone: null });
+  // A track that ends mid-wait clears `awaitingSight` here — without the
+  // resync the controls would stay locked on a source that is gone. While a
+  // `setSource` await is still open, `sourceBusy` keeps them locked.
+  syncSourceControls(session);
 }
 
 /**
@@ -1078,6 +1116,23 @@ async function setSource(kind) {
     return;
   }
   session.sourceBusy = true;
+  // Say it out loud from the click, not from the server's reply: the tap is
+  // answered immediately, and the words stay honest — "starting", not "on".
+  show(kind === 'screen' ? 'Starting to share…' : 'Turning the camera on…', { tone: 'busy' });
+  (kind === 'screen' ? ui.share : ui.camToggle).setAttribute('aria-busy', 'true');
+  session.switchAttempt += 1;
+  // Kept local across the permission await: `goDark` can clear the session's
+  // copy while the picker is open, and instrumentation must never abort the
+  // switch it is measuring.
+  const timing = {
+    attempt: session.switchAttempt,
+    from: session.source,
+    to: kind,
+    clickedAt: performance.now(),
+    requestedAt: null,
+    doneAt: null,
+  };
+  session.switchTiming = timing;
   setSwitchesDisabled(true);
   try {
     let stream;
@@ -1086,12 +1141,15 @@ async function setSource(kind) {
         // Opened straight from the click, before anything is awaited.
         stream = await navigator.mediaDevices.getDisplayMedia(SCREEN_OPTIONS);
       } else {
-        show('Turning the camera on…', { tone: 'busy' });
         stream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS });
       }
     } catch (error) {
       // Closing the picker is a choice, not a failure: nothing changes.
-      if (kind === 'screen' && error && error.name === 'NotAllowedError') return;
+      session.switchTiming = null;
+      if (kind === 'screen' && error && error.name === 'NotAllowedError') {
+        show('');
+        return;
+      }
       show(kind === 'screen' ? 'This browser would not share the screen.' : 'This device would not start the camera.', { tone: 'bad' });
       return;
     }
@@ -1110,7 +1168,8 @@ async function setSource(kind) {
     session.pendingSource = kind;
     session.awaitingSight = false;
     setSourceUi(kind);
-    if (kind === 'screen') show('Starting to share…', { tone: 'busy' });
+    session.switchTiming = timing;
+    timing.requestedAt = performance.now();
     duplex.send(JSON.stringify({ type: 'media.mode', video: true, source: kind }));
   } finally {
     session.sourceBusy = false;
