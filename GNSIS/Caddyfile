@@ -55,6 +55,14 @@
 	handle @sockets {
 		reverse_proxy {$GNSIS_LIVE_UPSTREAM:https://unset.invalid} {
 			header_up X-Forwarded-Proto https
+			# Modal proxy auth protects the web endpoint itself, including
+			# /health and both WebSockets, before a request can wake the GPU.
+			# These stay server-side in Railway; they are never emitted to env.js.
+			header_up Modal-Key {$MODAL_PROXY_KEY}
+			header_up Modal-Secret {$MODAL_PROXY_SECRET}
+			# Keep the application-layer edge proof as defense in depth: Modal
+			# auth says this caller may reach the endpoint; this says the live
+			# socket actually passed through the approved GNSIS front door.
 			header_up X-GNSIS-Edge {$GNSIS_EDGE_SECRET}
 		}
 	}
