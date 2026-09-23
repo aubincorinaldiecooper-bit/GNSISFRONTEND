@@ -12,7 +12,8 @@
 #     break the generated JavaScript. There is NO hand-rolled string escaping and
 #     NO `eval`.
 #   * Only the browser-safe VITE_ variables in the allowlist below are emitted.
-#     A server secret set in the environment is never read here.
+#     Server-only values such as GNSIS_EDGE_SECRET, MODAL_PROXY_KEY and
+#     MODAL_PROXY_SECRET are never read here and therefore never reach env.js.
 #
 # Absent vs. empty semantics: jq's $ENV contains exactly the variables that are
 # SET in the process environment — an unset variable is ABSENT from the object,
