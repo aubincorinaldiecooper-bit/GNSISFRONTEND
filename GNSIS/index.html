@@ -10,8 +10,9 @@
          empty object in local/non-container builds. -->
     <script src="/env.js"></script>
     <!-- The Panoptic pages are light and the console is dark. Mark a Panoptic
-         page before the stylesheet paints, so it never flashes dark first.
-         Keep the paths in step with src/panoptic/config.ts. -->
+         page before the stylesheet paints, so it never flashes dark first; the
+         colour itself comes from src/panoptic/tokens.css. Keep the paths in
+         step with src/panoptic/config.ts. -->
     <script>
       (function () {
         var path = location.pathname.replace(/\/+$/, "") || "/";
@@ -21,13 +22,6 @@
         if (panoptic) document.documentElement.setAttribute("data-surface", "panoptic");
       })();
     </script>
-    <style>
-      html[data-surface="panoptic"],
-      html[data-surface="panoptic"] body {
-        background: #f0eeed;
-        color-scheme: light;
-      }
-    </style>
   </head>
   <body>
     <div id="root"></div>

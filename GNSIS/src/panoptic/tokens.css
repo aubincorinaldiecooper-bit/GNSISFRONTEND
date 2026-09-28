@@ -1,0 +1,40 @@
+/*
+ * The Panoptic design tokens, in one place (the handoff's values; see
+ * AGENTS.md, "Scoped exception: the Panoptic pages").
+ *
+ * index.css imports this file, so it arrives with the first stylesheet, before
+ * the Panoptic pages' own chunk. That lets the page ground be painted light as
+ * soon as index.html marks a Panoptic address (data-surface="panoptic"),
+ * without writing the colour down a second time.
+ */
+
+html[data-surface="panoptic"],
+.pn {
+  --pn-bg: #f0eeed;
+  --pn-ink: #000000;
+  --pn-white: #ffffff;
+  --pn-text: #3f3c39;
+  --pn-text-2: #5e5b58;
+  --pn-placeholder: #6f6c69;
+  --pn-muted: #8c8883;
+  --pn-text-on-dark: #d9d6d2;
+  --pn-quiet-on-dark: #a8a49f;
+  --pn-hairline: #d8d5d1;
+  --pn-chip: #cfcbc6;
+  --pn-divider: #eceae7;
+  --pn-img: #e2e0dd;
+  --pn-code: #1b1a19;
+  --pn-bezel: #1f1e1c;
+  --pn-outline-on-dark: #3a3836;
+  --pn-store-ink: #2a2826;
+  --pn-font: "Helvetica Neue", "Inter Tight", Helvetica, Arial, sans-serif;
+  --pn-mono: "SF Mono", Menlo, Consolas, monospace;
+  --pn-gutter: 38px;
+  --pn-shadow-phone: 0 40px 80px rgba(0, 0, 0, 0.22);
+}
+
+html[data-surface="panoptic"],
+html[data-surface="panoptic"] body {
+  background: var(--pn-bg);
+  color-scheme: light;
+}

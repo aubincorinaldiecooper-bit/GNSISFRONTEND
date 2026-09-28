@@ -41,6 +41,15 @@
 	}
 	rewrite @livehome /live.html
 
+	# While the live page is the home page, the Panoptic pages are dormant:
+	# served, but kept out of search engines. The bundle also adds a noindex
+	# tag once it runs; this header covers crawlers that never run it.
+	@dormant {
+		path /video-search /video-search/ /use-cases/agentic-web-steering /use-cases/agentic-web-steering/ /privacy /privacy/ /terms /terms/
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "video-search"`
+	}
+	header @dormant X-Robots-Tag "noindex, nofollow"
+
 	redir /welcome / permanent
 	redir /home / permanent
 

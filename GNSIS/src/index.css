@@ -7,6 +7,8 @@
 @import '@astryxdesign/core/reset.css';
 @import '@astryxdesign/core/astryx.css';
 @import '@astryxdesign/theme-neutral/theme.css';
+/* The Panoptic tokens and pre-paint ground: small, and needed before that chunk loads. */
+@import './panoptic/tokens.css';
 
 @tailwind base;
 @tailwind components;

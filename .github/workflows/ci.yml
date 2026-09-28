@@ -211,9 +211,11 @@ jobs:
           node -e "global.window={};require('./env.js');const h=global.window.__GNSIS_CONFIG__.VITE_HOME_EXPERIENCE;
             if(h!=='live')throw new Error('home experience should default to live, got '+h);console.log('home: live');"
           for path in "/video-search" "/use-cases/agentic-web-steering" "/privacy" "/terms"; do
-            body=$(curl -s "http://localhost:8080${path}")
+            body=$(curl -s -D dormant-headers.txt "http://localhost:8080${path}")
             echo "$body" | grep -q '<div id="root">' || { echo "${path} is not served by the bundle"; exit 1; }
-            echo "served: ${path}"
+            # Dormant means out of search engines even for crawlers that run no JavaScript.
+            grep -qi '^x-robots-tag:.*noindex' dormant-headers.txt || { echo "${path} has no noindex header while dormant"; exit 1; }
+            echo "served, noindex: ${path}"
           done
           for img in summit kickflip; do
             ct=$(curl -s -o /dev/null -w '%{content_type}' "http://localhost:8080/images/panoptic/${img}.jpg")
@@ -233,6 +235,8 @@ jobs:
           # Switched on: "/" is the bundle (the landing), /live is still the live page.
           curl -s http://localhost:8082/ | grep -q '<div id="root">' || { echo "/ is not the landing when switched on"; exit 1; }
           curl -s http://localhost:8082/live | grep -q 'Let it see what you see.' || { echo "/live lost the live page"; exit 1; }
+          curl -s -D home-headers.txt -o /dev/null http://localhost:8082/privacy
+          grep -qi '^x-robots-tag:' home-headers.txt && { echo "switched on, the pages must be indexable"; exit 1; } || true
           curl -s http://localhost:8082/env.js -o env-home.js
           node -e "global.window={};require('./env-home.js');const h=global.window.__GNSIS_CONFIG__.VITE_HOME_EXPERIENCE;
             if(h!=='video-search')throw new Error('browser was not told the home experience: '+h);console.log('home: video-search');"

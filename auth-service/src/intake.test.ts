@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clientKey,
   createIntakeHandler,
   MAX_BODY_BYTES,
   MAX_TASK_LENGTH,
@@ -74,6 +75,19 @@ describe("rate limit", () => {
     expect(limiter.size).toBe(1);
     limiter.sweep(90_000);
     expect(limiter.size).toBe(0);
+  });
+});
+
+describe("who counts as the same client", () => {
+  const socket = { remoteAddress: "10.0.0.9" } as never;
+
+  it("uses the address the proxy appended, not one the caller wrote", () => {
+    expect(clientKey({ headers: { "x-forwarded-for": "1.2.3.4, 203.0.113.7" }, socket })).toBe("203.0.113.7");
+    expect(clientKey({ headers: { "x-forwarded-for": "5.6.7.8, 203.0.113.7" }, socket })).toBe("203.0.113.7");
+  });
+
+  it("falls back to the connection itself", () => {
+    expect(clientKey({ headers: {}, socket })).toBe("10.0.0.9");
   });
 });
 
@@ -179,12 +193,18 @@ describe("intake routes", () => {
     expect(signups).toEqual([]);
   });
 
-  it("slows down a client that keeps submitting", async () => {
+  it("slows down a client that keeps submitting, whatever it claims to be", async () => {
     const { store } = fakeStore();
     const base = await start({ store, limiter: new RateLimiter(1, 60_000) });
-    const body = { email: "ada@example.com", source: "video-search:nav" };
-    expect((await post(base, "/api/intake/early-access", body)).status).toBe(201);
-    const again = await post(base, "/api/intake/early-access", body);
+    const body = JSON.stringify({ email: "ada@example.com", source: "video-search:nav" });
+    const send = (spoofed: string) =>
+      fetch(`${base}/api/intake/early-access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": `${spoofed}, 198.51.100.4` },
+        body,
+      });
+    expect((await send("1.1.1.1")).status).toBe(201);
+    const again = await send("2.2.2.2");
     expect(again.status).toBe(429);
     expect(Number(again.headers.get("retry-after"))).toBeGreaterThan(0);
   });
