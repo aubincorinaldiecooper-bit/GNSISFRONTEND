@@ -1,7 +1,8 @@
 /**
  * Entry point: mounts Better Auth's own handler for everything under
- * /api/auth/*, plus two small routes of our own — /health and the internal
- * installation-ownership check.
+ * /api/auth/*, plus a few routes of our own — /health, the internal
+ * installation-ownership check, and the Panoptic pages' public forms under
+ * /api/intake/* (see intake.ts).
  */
 
 import http from "node:http";
@@ -10,6 +11,12 @@ import { toNodeHandler } from "better-auth/node";
 
 import { auth } from "./auth.js";
 import { assertProductionEnv, loadEnv } from "./env.js";
+import {
+  createIntakeHandler,
+  INTAKE_PREFIX,
+  lazyPool,
+  postgresIntakeStore,
+} from "./intake.js";
 import { redactError } from "./redact.js";
 import { verifyInstallation } from "./verify-installation.js";
 
@@ -17,6 +24,12 @@ const env = loadEnv();
 assertProductionEnv();
 
 const authHandler = toNodeHandler(auth);
+
+const intakeHandler = createIntakeHandler({
+  store: env.authDatabaseUrl
+    ? postgresIntakeStore(lazyPool(env.authDatabaseUrl))
+    : null,
+});
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -224,6 +237,29 @@ async function handleRequest(
         valid: false,
         reason: "internal error",
       });
+    }
+
+    return;
+  }
+
+  if (url.pathname.startsWith(INTAKE_PREFIX)) {
+    try {
+      await intakeHandler(req, res, url.pathname);
+    } catch (err) {
+      const safe = redactError(err);
+
+      // eslint-disable-next-line no-console
+      console.error(
+        "[intake] unhandled error:",
+        safe.name,
+        safe.message,
+      );
+
+      if (!res.headersSent) {
+        sendJson(res, 500, {
+          detail: "internal error",
+        });
+      }
     }
 
     return;

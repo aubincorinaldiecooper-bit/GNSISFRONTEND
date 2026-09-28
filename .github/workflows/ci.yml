@@ -203,6 +203,44 @@ jobs:
           done
           test "$missing" = "0" || { echo "the live surface is incomplete"; exit 1; }
 
+      - name: The Panoptic pages are served beside the live front door, dormant
+        run: |
+          # GNSIS_HOME_EXPERIENCE is unset here: "/" stays the live page (checked
+          # above) and the Panoptic pages are served by the bundle at their own
+          # addresses, which nothing on the live page links to.
+          node -e "global.window={};require('./env.js');const h=global.window.__GNSIS_CONFIG__.VITE_HOME_EXPERIENCE;
+            if(h!=='live')throw new Error('home experience should default to live, got '+h);console.log('home: live');"
+          for path in "/video-search" "/use-cases/agentic-web-steering" "/privacy" "/terms"; do
+            body=$(curl -s "http://localhost:8080${path}")
+            echo "$body" | grep -q '<div id="root">' || { echo "${path} is not served by the bundle"; exit 1; }
+            echo "served: ${path}"
+          done
+          for img in summit kickflip; do
+            ct=$(curl -s -o /dev/null -w '%{content_type}' "http://localhost:8080/images/panoptic/${img}.jpg")
+            echo "/images/panoptic/${img}.jpg -> ${ct}"
+            echo "$ct" | grep -qi 'image/jpeg' || { echo "${img}.jpg not served as an image"; exit 1; }
+          done
+
+      - name: GNSIS_HOME_EXPERIENCE=video-search makes the landing the home page and keeps /live
+        run: |
+          docker run -d --name gnsis-fe-home -p 8082:8080 \
+            -e GNSIS_HOME_EXPERIENCE=video-search gnsis-frontend:ci
+          docker run -d --name gnsis-fe-typo -p 8083:8080 \
+            -e GNSIS_HOME_EXPERIENCE=videosearch gnsis-frontend:ci
+          for port in 8082 8083; do
+            for i in $(seq 1 30); do curl -fsS "http://localhost:${port}/health" >/dev/null 2>&1 && break; sleep 1; done
+          done
+          # Switched on: "/" is the bundle (the landing), /live is still the live page.
+          curl -s http://localhost:8082/ | grep -q '<div id="root">' || { echo "/ is not the landing when switched on"; exit 1; }
+          curl -s http://localhost:8082/live | grep -q 'Let it see what you see.' || { echo "/live lost the live page"; exit 1; }
+          curl -s http://localhost:8082/env.js -o env-home.js
+          node -e "global.window={};require('./env-home.js');const h=global.window.__GNSIS_CONFIG__.VITE_HOME_EXPERIENCE;
+            if(h!=='video-search')throw new Error('browser was not told the home experience: '+h);console.log('home: video-search');"
+          # A value that is neither: the live page stays the home page, and the log says why.
+          curl -s http://localhost:8083/ | grep -q 'Let it see what you see.' || { echo "an unknown value took the live page off /"; exit 1; }
+          docker logs gnsis-fe-typo 2>&1 | grep -q "GNSIS_HOME_EXPERIENCE must be" || { echo "no warning for an unknown value"; exit 1; }
+          echo "home switch ok"
+
       - name: Unsafe characters do not break the generated /env.js
         run: |
           docker rm -f gnsis-fe >/dev/null 2>&1 || true
@@ -224,6 +262,8 @@ jobs:
         run: |
           docker logs gnsis-fe 2>&1 || true
           docker logs gnsis-fe-unsafe 2>&1 || true
+          docker logs gnsis-fe-home 2>&1 || true
+          docker logs gnsis-fe-typo 2>&1 || true
 
   react-frontend:
     name: React frontend

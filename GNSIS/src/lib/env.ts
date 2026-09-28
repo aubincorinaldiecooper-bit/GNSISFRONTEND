@@ -97,6 +97,18 @@ export function publicBetaMode(): boolean {
   return (readPublicConfig("VITE_PUBLIC_BETA_MODE") ?? "true").toLowerCase() !== "false";
 }
 
+export type HomeExperience = "live" | "video-search";
+
+/**
+ * What gnsis.studio/ shows. The container sets VITE_HOME_EXPERIENCE from the
+ * operator's GNSIS_HOME_EXPERIENCE (see docker-entrypoint.sh), which also
+ * decides what Caddy serves at "/". Anything but "video-search" is the live
+ * page, today's front door.
+ */
+export function homeExperience(): HomeExperience {
+  return readPublicConfig("VITE_HOME_EXPERIENCE") === "video-search" ? "video-search" : "live";
+}
+
 /** Default model id pre-filled in the gateway smoke test. */
 export function smokeTestModel(): string {
   return readPublicConfig("VITE_SMOKE_TEST_MODEL") ?? "";
