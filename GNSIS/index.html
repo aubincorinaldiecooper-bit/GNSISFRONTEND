@@ -9,6 +9,25 @@
          the time the app reads it. Overwritten at container startup; a no-op
          empty object in local/non-container builds. -->
     <script src="/env.js"></script>
+    <!-- The Panoptic pages are light and the console is dark. Mark a Panoptic
+         page before the stylesheet paints, so it never flashes dark first.
+         Keep the paths in step with src/panoptic/config.ts. -->
+    <script>
+      (function () {
+        var path = location.pathname.replace(/\/+$/, "") || "/";
+        var config = window.__GNSIS_CONFIG__ || {};
+        var panoptic = /^\/(video-search|use-cases\/agentic-web-steering|privacy|terms)$/.test(path) ||
+          (path === "/" && config.VITE_HOME_EXPERIENCE === "video-search");
+        if (panoptic) document.documentElement.setAttribute("data-surface", "panoptic");
+      })();
+    </script>
+    <style>
+      html[data-surface="panoptic"],
+      html[data-surface="panoptic"] body {
+        background: #f0eeed;
+        color-scheme: light;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

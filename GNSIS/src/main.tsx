@@ -1,48 +1,74 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Route, Routes } from 'react-router'
-import { Theme } from '@astryxdesign/core/theme'
-import { neutralTheme } from '@astryxdesign/theme-neutral/built'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import './index.css'
 import App from './App.tsx'
 import LoginPage from './pages/LoginPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import LegacyDashboardRedirect from './components/LegacyDashboardRedirect.tsx'
 import FrontDoor from './components/FrontDoor.tsx'
-import { SessionProvider } from './lib/session'
+import ConsoleFrame from './components/ConsoleFrame.tsx'
 import { ADMIN_BASE, LEGACY_DASHBOARD_PATHS } from './lib/adminRoutes'
+import { homeExperience } from './lib/env'
+import { PATHS } from './panoptic/config'
 
-// "/" is not here on purpose. The site's front door is the live session page,
-// which Caddy serves at "/" by forwarding to the GNSIS runtime (see Caddyfile).
-// This bundle only ever owns the operator control plane and the way into it.
+// The Panoptic pages load as their own chunk, only when one is visited.
+const panoptic = () => import('./panoptic/pages')
+const PanopticSite = lazy(() => panoptic().then((m) => ({ default: m.PanopticSite })))
+const LandingPage = lazy(() => panoptic().then((m) => ({ default: m.LandingPage })))
+const WebSteeringPage = lazy(() => panoptic().then((m) => ({ default: m.WebSteeringPage })))
+const PrivacyPage = lazy(() => panoptic().then((m) => ({ default: m.PrivacyPage })))
+const TermsPage = lazy(() => panoptic().then((m) => ({ default: m.TermsPage })))
+
+// What "/" is depends on GNSIS_HOME_EXPERIENCE (see docker-entrypoint.sh and
+// the Caddyfile). With "live", the default, Caddy serves the live session
+// page at "/" and this bundle never sees it. With "video-search", Caddy hands
+// "/" to this bundle and the Panoptic landing is the home page.
+const videoSearchIsHome = homeExperience() === 'video-search'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {/* mode="dark" pins the Astryx theme dark regardless of OS preference,
-        matching the reference screenshots. */}
-    <Theme theme={neutralTheme} mode="dark">
-      <BrowserRouter>
-        <SessionProvider>
-          <Routes>
-            {/* Sign-in exists for operators reaching /admin, not for visitors. */}
-            <Route path="/login" element={<LoginPage />} />
+    <BrowserRouter>
+      <Routes>
+        {/* Panoptic: public pages with their own look, outside the console's
+            theme and session. Dormant (unlinked, noindex) until the landing is
+            the home page. */}
+        <Route
+          element={
+            <Suspense fallback={null}>
+              <PanopticSite />
+            </Suspense>
+          }
+        >
+          {videoSearchIsHome && <Route index element={<LandingPage />} />}
+          <Route
+            path={PATHS.videoSearch}
+            element={videoSearchIsHome ? <Navigate to="/" replace /> : <LandingPage />}
+          />
+          <Route path={PATHS.webSteering} element={<WebSteeringPage />} />
+          <Route path={PATHS.privacy} element={<PrivacyPage />} />
+          <Route path={PATHS.terms} element={<TermsPage />} />
+        </Route>
 
-            {LEGACY_DASHBOARD_PATHS.map((path) => (
-              <Route key={path} path={path} element={<LegacyDashboardRedirect />} />
-            ))}
+        <Route element={<ConsoleFrame />}>
+          {/* Sign-in exists for operators reaching /admin, not for visitors. */}
+          <Route path="/login" element={<LoginPage />} />
 
-            {/* The operator control plane: runs, repositories, usage, billing,
-                API/MCP access and account administration. Authenticated only,
-                and deliberately absent from every public surface. */}
-            <Route element={<ProtectedRoute />}>
-              <Route path={`${ADMIN_BASE}/*`} element={<App />} />
-            </Route>
+          {LEGACY_DASHBOARD_PATHS.map((path) => (
+            <Route key={path} path={path} element={<LegacyDashboardRedirect />} />
+          ))}
 
-            {/* Anything else is a visitor who mistyped: the front door. */}
-            <Route path="*" element={<FrontDoor />} />
-          </Routes>
-        </SessionProvider>
-      </BrowserRouter>
-    </Theme>
+          {/* The operator control plane: runs, repositories, usage, billing,
+              API/MCP access and account administration. Authenticated only,
+              and deliberately absent from every public surface. */}
+          <Route element={<ProtectedRoute />}>
+            <Route path={`${ADMIN_BASE}/*`} element={<App />} />
+          </Route>
+
+          {/* Anything else is a visitor who mistyped: the front door. */}
+          <Route path="*" element={<FrontDoor />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   </StrictMode>,
 )

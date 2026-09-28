@@ -4,6 +4,7 @@ import {
   apiBaseUrl,
   authBaseUrl,
   githubAppSlug,
+  homeExperience,
   integrationLabEnabled,
   isApiConfigured,
   publicBetaMode,
@@ -97,5 +98,15 @@ describe("public beta mode", () => {
   it("is disabled only by explicit false", () => {
     window.__GNSIS_CONFIG__ = { VITE_PUBLIC_BETA_MODE: "false" };
     expect(publicBetaMode()).toBe(false);
+  });
+});
+
+describe("home experience", () => {
+  it("is the live page unless the operator switched it to Video Search", () => {
+    expect(homeExperience()).toBe("live");
+    window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "video-search" };
+    expect(homeExperience()).toBe("video-search");
+    window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "Video Search" };
+    expect(homeExperience()).toBe("live");
   });
 });

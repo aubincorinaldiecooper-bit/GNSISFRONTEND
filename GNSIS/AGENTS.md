@@ -69,6 +69,33 @@ runtime; this copy is then refreshed wholesale, by the command in
 harm, by silently diverging the page the runtime serves from the page this
 domain serves.
 
+## Scoped exception: the Panoptic pages
+
+`src/panoptic/` — the Video Search landing (`/video-search`, or `/` when
+`GNSIS_HOME_EXPERIENCE=video-search`), agentic web steering
+(`/use-cases/agentic-web-steering`), `/privacy` and `/terms` — is also
+**exempt from the Astryx rules above.** It has its own stylesheet
+(`src/panoptic/panoptic.css`), raw `<div>` layout inside its drawings, and the
+Panoptic colours, type and pixel values as literals, named once as `--pn-*`
+tokens at the top of that stylesheet.
+
+The reason is the same as for the live surface: these pages already have a
+design system, and it is a different one. The owner's Panoptic design handoff
+fixes the type (Helvetica Neue, falling back to Inter Tight, self-hosted), the
+warm off-white and black palette, the pill shapes and every size, and asked
+for the desktop pages to be pixel-faithful to it. Astryx tokens do not express
+those values, and Astryx components would not produce those pages.
+
+What the exception does not cover: anything outside `src/panoptic/`. The pages
+render outside the console's Astryx theme and session (see `main.tsx`), and
+the console must not borrow their styles. Motion there comes from `motion`
+(Motion for React), kept small, and switched off under reduced motion.
+
+Their forms post to the auth service (`auth-service/src/intake.ts`), which
+stores early-access sign-ups and contact messages in their own tables.
+`/privacy` describes exactly what those forms and pages collect: change it in
+the same pull request as any change to what they collect.
+
 Everything else in this repository — `/login`, the control plane under
 `/admin`, and any new interface written here — follows the Astryx rules above
 without exception.

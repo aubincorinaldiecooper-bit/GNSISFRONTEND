@@ -26,8 +26,20 @@
 	# model was in GPU memory. Looking at a QR code cost a full cold start —
 	# measured at gnsis.studio as two requests held 125 seconds each before the
 	# browser gave up.
-	@livepage path / /live
+	#
+	# "/" is the live page unless GNSIS_HOME_EXPERIENCE=video-search, which
+	# gives "/" to the React bundle's Panoptic landing instead. /live is the
+	# live page either way: printed QR codes and shared links point there.
+	# docker-entrypoint.sh has already reduced the variable to one of the two
+	# values; Caddy substitutes it once, when it reads this file.
+	@livepage path /live
 	rewrite @livepage /live.html
+
+	@livehome {
+		path /
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "video-search"`
+	}
+	rewrite @livehome /live.html
 
 	redir /welcome / permanent
 	redir /home / permanent
