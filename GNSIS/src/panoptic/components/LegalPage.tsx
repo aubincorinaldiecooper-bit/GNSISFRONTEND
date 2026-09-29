@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import type { PageId } from "../config";
+import type { PageMeta } from "../pageMeta";
 import { usePageMeta } from "../usePageMeta";
 import { Footer } from "./Footer";
 import { Nav } from "./Nav";
@@ -10,17 +11,19 @@ import { Nav } from "./Nav";
 export function LegalPage({
   page,
   title,
-  description,
+  meta,
   updated,
   children,
 }: {
   page: PageId;
+  /** The heading on the page. */
   title: string;
-  description: string;
+  /** Tab title and description, shared with the build (pageMeta.ts). */
+  meta: PageMeta;
   updated: string;
   children: ReactNode;
 }) {
-  usePageMeta(`${title} — Panoptic`, description);
+  usePageMeta(meta.title, meta.description);
   return (
     <div className="pn-page">
       <div className="pn-wrap">

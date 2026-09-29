@@ -211,15 +211,46 @@ jobs:
           node -e "global.window={};require('./env.js');const h=global.window.__GNSIS_CONFIG__.VITE_HOME_EXPERIENCE;
             if(h!=='live')throw new Error('home experience should default to live, got '+h);console.log('home: live');"
           for path in "/video-search" "/use-cases/agentic-web-steering" "/privacy" "/terms"; do
-            body=$(curl -s "http://localhost:8080${path}")
+            body=$(curl -s -D dormant-headers.txt "http://localhost:8080${path}")
             echo "$body" | grep -q '<div id="root">' || { echo "${path} is not served by the bundle"; exit 1; }
-            echo "served: ${path}"
+            # Dormant means out of search engines even for crawlers that run no JavaScript.
+            grep -qi '^x-robots-tag:.*noindex' dormant-headers.txt || { echo "${path} has no noindex header while dormant"; exit 1; }
+            echo "served, noindex: ${path}"
           done
           for img in summit kickflip; do
             ct=$(curl -s -o /dev/null -w '%{content_type}' "http://localhost:8080/images/panoptic/${img}.jpg")
             echo "/images/panoptic/${img}.jpg -> ${ct}"
             echo "$ct" | grep -qi 'image/jpeg' || { echo "${img}.jpg not served as an image"; exit 1; }
           done
+
+      - name: Each page's link preview names that page and shows the logo
+        run: |
+          # Link previews are drawn from the served HTML without running the
+          # bundle, so each Panoptic page is served its own copy of index.html
+          # (src/panoptic/pageMeta.ts), and the console keeps its own.
+          image='https://gnsis.studio/og/genesis-preview.png'
+          while IFS='|' read -r path title; do
+            curl -s "http://localhost:8080${path}" -o preview.html
+            grep -qF "<title>${title}</title>" preview.html \
+              || { echo "${path}: title is not '${title}'"; grep -o '<title>[^<]*</title>' preview.html; exit 1; }
+            grep -qF "property=\"og:title\" content=\"${title}\"" preview.html || { echo "${path}: preview is not named '${title}'"; exit 1; }
+            grep -qF "property=\"og:image\" content=\"${image}\"" preview.html || { echo "${path}: no logo in its link preview"; exit 1; }
+            echo "preview ok: ${path} -> ${title}"
+          done <<'EOF'
+          /login|GNSIS Developer Console
+          /admin|GNSIS Developer Console
+          /video-search|Panoptic — you ask. Panoptic remembers.
+          /video-search/|Panoptic — you ask. Panoptic remembers.
+          /use-cases/agentic-web-steering|Agentic web steering — Panoptic
+          /privacy|Privacy — Panoptic
+          /terms|Terms — Panoptic
+          EOF
+          ct=$(curl -s -o /dev/null -w '%{content_type}' http://localhost:8080/og/genesis-preview.png)
+          echo "/og/genesis-preview.png -> ${ct}"
+          echo "$ct" | grep -qi 'image/png' || { echo "the preview picture is not served as an image"; exit 1; }
+          # The copies are how a page is served, not addresses of their own.
+          loc=$(curl -s -o /dev/null -w '%{redirect_url}' http://localhost:8080/privacy.html)
+          test "$loc" = "http://localhost:8080/privacy" || { echo "/privacy.html should redirect to /privacy, got '${loc}'"; exit 1; }
 
       - name: GNSIS_HOME_EXPERIENCE=video-search makes the landing the home page and keeps /live
         run: |
@@ -232,7 +263,11 @@ jobs:
           done
           # Switched on: "/" is the bundle (the landing), /live is still the live page.
           curl -s http://localhost:8082/ | grep -q '<div id="root">' || { echo "/ is not the landing when switched on"; exit 1; }
+          curl -s http://localhost:8082/ | grep -qF '<title>Panoptic — you ask. Panoptic remembers.</title>' \
+            || { echo "/ does not carry the landing's title and link preview when switched on"; exit 1; }
           curl -s http://localhost:8082/live | grep -q 'Let it see what you see.' || { echo "/live lost the live page"; exit 1; }
+          curl -s -D home-headers.txt -o /dev/null http://localhost:8082/privacy
+          grep -qi '^x-robots-tag:' home-headers.txt && { echo "switched on, the pages must be indexable"; exit 1; } || true
           curl -s http://localhost:8082/env.js -o env-home.js
           node -e "global.window={};require('./env-home.js');const h=global.window.__GNSIS_CONFIG__.VITE_HOME_EXPERIENCE;
             if(h!=='video-search')throw new Error('browser was not told the home experience: '+h);console.log('home: video-search');"

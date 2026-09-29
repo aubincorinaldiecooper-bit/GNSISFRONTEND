@@ -1,9 +1,9 @@
 // The early-access and contact forms. Neither has a page of its own: each
 // opens over whatever the visitor was looking at, takes an email, and says
-// in place that it arrived. Radix supplies the dialog behaviour (focus kept
-// inside, Escape and outside-click to close, focus returned after); Motion
-// supplies the fade, the settle, and the height change when the form turns
-// into its confirmation.
+// in place that it arrived, in a box that keeps its size. Radix supplies the
+// dialog behaviour (focus kept inside, Escape and outside-click to close,
+// focus returned after); Motion supplies the fade, the settle, and the
+// cross-fade when the form turns into its confirmation.
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "motion/react";
@@ -154,20 +154,60 @@ function AutoHeight({ children }: { children: ReactNode }) {
   );
 }
 
-function Swap({ view, children }: { view: string; children: ReactNode }) {
+/**
+ * The form and its confirmation in one place, so the box keeps its size when
+ * one turns into the other: both sit in the same grid cell, which is as big
+ * as the form, and cross-fade where they stand. The sent form stays in that
+ * cell, hidden and inert, holding the size; its "Done" takes the place of the
+ * submit button.
+ */
+function Stage({ sent, form, done }: { sent: boolean; form: ReactNode; done: ReactNode }) {
   const m = useMotionPrefs();
+  const blur = m.reduce ? "none" : "blur(4px)";
   return (
-    <AnimatePresence mode="wait" initial={false}>
+    <div className="pn-stage">
       <motion.div
-        key={view}
-        initial={{ opacity: 0, filter: m.reduce ? "none" : "blur(4px)" }}
-        animate={{ opacity: 1, filter: "blur(0px)" }}
-        exit={{ opacity: 0, filter: m.reduce ? "none" : "blur(4px)" }}
-        transition={m.quick}
+        className="pn-stage-view"
+        initial={false}
+        animate={
+          sent
+            ? { opacity: 0, filter: blur, transitionEnd: { visibility: "hidden" } }
+            : { opacity: 1, filter: "blur(0px)", visibility: "visible" }
+        }
+        transition={m.reduce ? m.quick : { duration: 0.16, ease: [0, 0, 0.2, 1] }}
+        aria-hidden={sent || undefined}
+        inert={sent}
       >
-        {children}
+        {form}
       </motion.div>
-    </AnimatePresence>
+      {sent && (
+        <motion.div
+          className="pn-stage-view pn-stage-done"
+          initial={{ opacity: 0, filter: blur }}
+          animate={{ opacity: 1, filter: "blur(0px)" }}
+          transition={m.reduce ? m.quick : { duration: 0.24, ease: [0.2, 0, 0, 1] }}
+        >
+          {done}
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The dialog's name and description come from the view on show. Both views
+ * are in the page at once, so the hidden one's heading is plain text: Radix
+ * gives its title and description a fixed id each, which must stay unique.
+ */
+function Title({ live, children }: { live: boolean; children: ReactNode }) {
+  return live ? <Dialog.Title className="pn-dialog-title">{children}</Dialog.Title> : <h2 className="pn-dialog-title">{children}</h2>;
+}
+
+function Description({ live, children }: { live: boolean; children: ReactNode }) {
+  return live ? (
+    <Dialog.Description className="pn-dialog-text">{children}</Dialog.Description>
+  ) : (
+    <p className="pn-dialog-text">{children}</p>
   );
 }
 
@@ -196,7 +236,8 @@ function useSubmission() {
 }
 
 function SubmitButton({ busy, label, busyLabel }: { busy: boolean; label: string; busyLabel: string }) {
-  // Both labels sit in one cell so the button never changes width.
+  // Both labels sit in one cell so the button never changes width. Busy stays
+  // on once sent, so the fading form still reads "Sending…", not its idle label.
   return (
     <Cta type="submit" disabled={busy}>
       <span className="pn-swap">
@@ -211,6 +252,7 @@ function EarlyAccessForm({ task, source, onDone }: { task: string | null; source
   const ids = useId();
   const { state, error, setError, run } = useSubmission();
   const [email, setEmail] = useState("");
+  const sent = state === "sent";
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -224,39 +266,25 @@ function EarlyAccessForm({ task, source, onDone }: { task: string | null; source
   return (
     <AutoHeight>
       <p className="pn-visually-hidden" role="status">
-        {state === "sent" ? "Sent. You’re on the list." : ""}
+        {sent ? "Sent. You’re on the list." : ""}
       </p>
-      <Swap view={state === "sent" ? "sent" : "form"}>
-        {state === "sent" ? (
+      <Stage
+        sent={sent}
+        done={
           <>
-            <Dialog.Title className="pn-dialog-title">You’re on the list.</Dialog.Title>
-            <Dialog.Description className="pn-dialog-text">
-              {task
-                ? "We saved your email and your task, and we’ll pick it up with you when Panoptic is ready for you."
-                : "We saved your email, and we’ll let you know when Panoptic is ready for you."}
-            </Dialog.Description>
+            <Title live>You’re on the list.</Title>
+            <Description live>We saved your email, and we’ll let you know when Panoptic is ready for you.</Description>
             <p className="pn-dialog-actions pn-dialog-actions--done">
               <Cta arrow={false} onClick={onDone} autoFocus>
                 Done
               </Cta>
             </p>
           </>
-        ) : (
+        }
+        form={
           <form onSubmit={submit} noValidate>
-            <Dialog.Title className="pn-dialog-title">Get early access</Dialog.Title>
-            <Dialog.Description className="pn-dialog-text">
-              Leave your email and we’ll let you know when you can try Panoptic.
-            </Dialog.Description>
-            {task && (
-              <>
-                <p className="pn-task-label" id={`${ids}-task`}>
-                  Your task, kept with your request
-                </p>
-                <p className="pn-task" aria-labelledby={`${ids}-task`}>
-                  {task}
-                </p>
-              </>
-            )}
+            <Title live={!sent}>Get early access</Title>
+            <Description live={!sent}>Leave your email and we’ll let you know when you can try Panoptic.</Description>
             <label className="pn-field" htmlFor={`${ids}-email`}>
               <span className="pn-field-label">Email</span>
             </label>
@@ -280,18 +308,19 @@ function EarlyAccessForm({ task, source, onDone }: { task: string | null; source
               {error}
             </p>
             <p className="pn-dialog-actions">
-              <SubmitButton busy={state === "sending"} label="Get early access" busyLabel="Sending…" />
-            </p>
-            <p className="pn-dialog-fineprint">
-              We keep your email{task ? " and your task" : ""} only for this. See{" "}
-              <Link to={PATHS.privacy} onClick={onDone}>
-                Privacy
-              </Link>
-              .
+              <SubmitButton busy={state !== "idle"} label="Get early access" busyLabel="Sending…" />
             </p>
           </form>
-        )}
-      </Swap>
+        }
+      />
+      <p className="pn-dialog-fineprint">
+        {/* What they typed into the bar is still kept with the sign-up, so it is still named here. */}
+        We keep your email{task ? " and what you asked" : ""} only for this. See{" "}
+        <Link to={PATHS.privacy} onClick={onDone}>
+          Privacy
+        </Link>
+        .
+      </p>
     </AutoHeight>
   );
 }
@@ -301,6 +330,7 @@ function ContactForm({ source, onDone }: { source: string; onDone: () => void })
   const { state, error, setError, run } = useSubmission();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+  const sent = state === "sent";
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -318,23 +348,25 @@ function ContactForm({ source, onDone }: { source: string; onDone: () => void })
   return (
     <AutoHeight>
       <p className="pn-visually-hidden" role="status">
-        {state === "sent" ? "Sent. We got your message." : ""}
+        {sent ? "Sent. We got your message." : ""}
       </p>
-      <Swap view={state === "sent" ? "sent" : "form"}>
-        {state === "sent" ? (
+      <Stage
+        sent={sent}
+        done={
           <>
-            <Dialog.Title className="pn-dialog-title">Thanks. We got your message.</Dialog.Title>
-            <Dialog.Description className="pn-dialog-text">If it needs an answer, we’ll reply to {email.trim()}.</Dialog.Description>
+            <Title live>Thanks. We got your message.</Title>
+            <Description live>If it needs an answer, we’ll reply to {email.trim()}.</Description>
             <p className="pn-dialog-actions pn-dialog-actions--done">
               <Cta arrow={false} onClick={onDone} autoFocus>
                 Done
               </Cta>
             </p>
           </>
-        ) : (
+        }
+        form={
           <form onSubmit={submit} noValidate>
-            <Dialog.Title className="pn-dialog-title">Contact</Dialog.Title>
-            <Dialog.Description className="pn-dialog-text">Send a message to the GNSIS.studio team.</Dialog.Description>
+            <Title live={!sent}>Contact</Title>
+            <Description live={!sent}>Send a message to the GNSIS.studio team.</Description>
             <label className="pn-field" htmlFor={`${ids}-email`}>
               <span className="pn-field-label">Email</span>
             </label>
@@ -371,18 +403,18 @@ function ContactForm({ source, onDone }: { source: string; onDone: () => void })
               {error}
             </p>
             <p className="pn-dialog-actions">
-              <SubmitButton busy={state === "sending"} label="Send message" busyLabel="Sending…" />
-            </p>
-            <p className="pn-dialog-fineprint">
-              How we handle what you send: see{" "}
-              <Link to={PATHS.privacy} onClick={onDone}>
-                Privacy
-              </Link>
-              .
+              <SubmitButton busy={state !== "idle"} label="Send message" busyLabel="Sending…" />
             </p>
           </form>
-        )}
-      </Swap>
+        }
+      />
+      <p className="pn-dialog-fineprint">
+        How we handle what you send: see{" "}
+        <Link to={PATHS.privacy} onClick={onDone}>
+          Privacy
+        </Link>
+        .
+      </p>
     </AutoHeight>
   );
 }

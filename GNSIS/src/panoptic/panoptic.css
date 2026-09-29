@@ -3,39 +3,19 @@
  *
  * These pages follow the Panoptic design handoff, not Astryx: its colours,
  * type and spacing are the specification, so they live here as literal values
- * — named once as tokens below and used through them. See AGENTS.md, "Scoped
- * exception: the Panoptic pages".
+ * — named once as tokens in tokens.css and used through them. See AGENTS.md,
+ * "Scoped exception: the Panoptic pages".
  *
  * Widths:
  *   desktop  ≥ 1024px  the 1280 design, type scaling down with the width below 1280
  *   tablet   700–1023  two columns kept where they fit; wide visuals stack or scroll
  *   phone    < 700     the 390 mobile design
- * Everything is scoped under .pn so nothing leaks into the console.
+ * Everything is scoped under .pn so nothing leaks into the console. The
+ * --pn-* tokens live in tokens.css, which the global stylesheet loads, so the
+ * ground can be painted before this file arrives.
  */
 
 .pn {
-  --pn-bg: #f0eeed;
-  --pn-ink: #000000;
-  --pn-white: #ffffff;
-  --pn-text: #3f3c39;
-  --pn-text-2: #5e5b58;
-  --pn-placeholder: #6f6c69;
-  --pn-muted: #8c8883;
-  --pn-text-on-dark: #d9d6d2;
-  --pn-quiet-on-dark: #a8a49f;
-  --pn-hairline: #d8d5d1;
-  --pn-chip: #cfcbc6;
-  --pn-divider: #eceae7;
-  --pn-img: #e2e0dd;
-  --pn-code: #1b1a19;
-  --pn-bezel: #1f1e1c;
-  --pn-outline-on-dark: #3a3836;
-  --pn-store-ink: #2a2826;
-  --pn-font: "Helvetica Neue", "Inter Tight", Helvetica, Arial, sans-serif;
-  --pn-mono: "SF Mono", Menlo, Consolas, monospace;
-  --pn-gutter: 38px;
-  --pn-shadow-phone: 0 40px 80px rgba(0, 0, 0, 0.22);
-
   font-family: var(--pn-font);
   line-height: normal;
   color: var(--pn-ink);
@@ -875,25 +855,6 @@
   color: var(--pn-text);
 }
 
-.pn-task-label {
-  margin: 22px 0 8px 4px;
-  font-size: 14px;
-  color: var(--pn-text-2);
-}
-
-.pn-task {
-  max-height: 9.5em;
-  overflow: auto;
-  padding: 14px 18px;
-  border-radius: 16px;
-  background: var(--pn-bg);
-  font-size: 17px;
-  line-height: 1.45;
-  letter-spacing: -0.01em;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .pn-field {
   display: block;
   margin-top: 22px;
@@ -948,8 +909,26 @@
   margin-top: 8px;
 }
 
+/* The form and its confirmation share one cell, as big as the form, so the
+   box keeps its size when one turns into the other. "Done" sits at the
+   bottom of the cell, exactly where the submit button was. */
+.pn-stage {
+  display: grid;
+}
+
+.pn-stage > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.pn-stage-done {
+  display: flex;
+  flex-direction: column;
+}
+
 .pn-dialog-actions--done {
-  margin-top: 24px;
+  margin-top: auto;
+  padding-top: 24px;
 }
 
 .pn-dialog-fineprint {
@@ -965,6 +944,7 @@
 }
 
 .pn-autoheight-inner {
+  /* Room for focus rings, which the height animation's clipping would cut. */
   margin: -6px;
   padding: 6px;
 }

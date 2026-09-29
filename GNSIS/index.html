@@ -3,15 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GNSIS Workspace</title>
+    <!-- page-meta -->
+    <!-- The console's title and link preview. The build writes each Panoptic
+         page its own copy of this file with this block swapped for the
+         page's own (src/panoptic/pageMeta.ts); keep both markers. -->
+    <title>GNSIS Developer Console</title>
+    <meta name="description" content="API and MCP access, users and permissions, and telemetry for GNSIS." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="GNSIS.studio" />
+    <meta property="og:title" content="GNSIS Developer Console" />
+    <meta property="og:description" content="API and MCP access, users and permissions, and telemetry for GNSIS." />
+    <meta property="og:image" content="https://gnsis.studio/og/genesis-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="genesis" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GNSIS Developer Console" />
+    <meta name="twitter:description" content="API and MCP access, users and permissions, and telemetry for GNSIS." />
+    <meta name="twitter:image" content="https://gnsis.studio/og/genesis-preview.png" />
+    <!-- /page-meta -->
     <!-- Public runtime config. A classic (non-module) script, so it executes
          before the deferred module bundle and window.__GNSIS_CONFIG__ is set by
          the time the app reads it. Overwritten at container startup; a no-op
          empty object in local/non-container builds. -->
     <script src="/env.js"></script>
     <!-- The Panoptic pages are light and the console is dark. Mark a Panoptic
-         page before the stylesheet paints, so it never flashes dark first.
-         Keep the paths in step with src/panoptic/config.ts. -->
+         page before the stylesheet paints, so it never flashes dark first; the
+         colour itself comes from src/panoptic/tokens.css. Keep the paths in
+         step with src/panoptic/config.ts. -->
     <script>
       (function () {
         var path = location.pathname.replace(/\/+$/, "") || "/";
@@ -21,13 +40,6 @@
         if (panoptic) document.documentElement.setAttribute("data-surface", "panoptic");
       })();
     </script>
-    <style>
-      html[data-surface="panoptic"],
-      html[data-surface="panoptic"] body {
-        background: #f0eeed;
-        color-scheme: light;
-      }
-    </style>
   </head>
   <body>
     <div id="root"></div>

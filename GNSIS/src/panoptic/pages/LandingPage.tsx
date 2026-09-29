@@ -4,18 +4,17 @@ import { useNavigate } from "react-router";
 
 import { Footer } from "../components/Footer";
 import { Nav } from "../components/Nav";
+import { RevealSection } from "../components/Reveal";
 import { AnswerPhone, GlancePhone, SearchPhone } from "../components/Phones";
 import { TaskBar } from "../components/TaskBar";
 import { SUMMIT } from "../components/Crop";
 import { useDialogs } from "../dialogContext";
 import { handOffTask, routeTask } from "../taskFlow";
+import { LANDING_META } from "../pageMeta";
 import { usePageMeta } from "../usePageMeta";
 
 export default function LandingPage() {
-  usePageMeta(
-    "Panoptic — you ask. Panoptic remembers.",
-    "Describe what you’re looking for in plain words. Panoptic looks inside the videos, not just their titles, and shows you the ones where it happens.",
-  );
+  usePageMeta(LANDING_META.title, LANDING_META.description);
   const navigate = useNavigate();
   const { openEarlyAccess } = useDialogs();
 
@@ -54,7 +53,7 @@ export default function LandingPage() {
           />
         </section>
 
-        <section className="pn-wrap pn-split" aria-labelledby="pn-moment">
+        <RevealSection className="pn-wrap pn-split" aria-labelledby="pn-moment">
           <div className="pn-split-text">
             <h2 className="pn-h2" id="pn-moment">
               Ask for a moment.
@@ -67,10 +66,10 @@ export default function LandingPage() {
           <div className="pn-phone-col">
             <SearchPhone />
           </div>
-        </section>
+        </RevealSection>
 
         <div className="pn-band pn-on-dark">
-          <section className="pn-wrap pn-split" aria-labelledby="pn-glance">
+          <RevealSection className="pn-wrap pn-split" aria-labelledby="pn-glance">
             <div className="pn-split-text">
               <h2 className="pn-h2" id="pn-glance">
                 Sees it at a glance.
@@ -84,10 +83,10 @@ export default function LandingPage() {
             <div className="pn-phone-col">
               <GlancePhone />
             </div>
-          </section>
+          </RevealSection>
         </div>
 
-        <section className="pn-wrap pn-split pn-split--last" aria-labelledby="pn-anything">
+        <RevealSection className="pn-wrap pn-split pn-split--last" aria-labelledby="pn-anything">
           <div className="pn-split-text">
             <h2 className="pn-h2" id="pn-anything">
               Ask it anything.
@@ -99,7 +98,7 @@ export default function LandingPage() {
           <div className="pn-phone-col">
             <AnswerPhone />
           </div>
-        </section>
+        </RevealSection>
       </main>
       <Footer page="video-search" />
     </div>

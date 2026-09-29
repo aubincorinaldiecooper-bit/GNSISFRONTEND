@@ -41,6 +41,15 @@
 	}
 	rewrite @livehome /live.html
 
+	# While the live page is the home page, the Panoptic pages are dormant:
+	# served, but kept out of search engines. The bundle also adds a noindex
+	# tag once it runs; this header covers crawlers that never run it.
+	@dormant {
+		path /video-search /video-search/ /use-cases/agentic-web-steering /use-cases/agentic-web-steering/ /privacy /privacy/ /terms /terms/
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "video-search"`
+	}
+	header @dormant X-Robots-Tag "noindex, nofollow"
+
 	redir /welcome / permanent
 	redir /home / permanent
 
@@ -79,10 +88,29 @@
 		}
 	}
 
+	# Each Panoptic page has its own copy of index.html, written at build time
+	# with that page's title and link preview (src/panoptic/pageMeta.ts): the
+	# apps that draw link previews read the file without running the bundle.
+	# "/" gets the landing's copy when the landing is the home page, and a
+	# trailing slash gets the same copy as the address without one.
+	@searchhome {
+		path /
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "video-search"`
+	}
+	rewrite @searchhome /video-search.html
+
+	@panopticslash path_regexp slashed ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms)/$
+	rewrite @panopticslash {re.slashed.1}.html
+
+	# The copies are how a page is served, not addresses of their own.
+	@panoptichtml path_regexp html ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms)\.html$
+	redir @panoptichtml {re.html.1} permanent
+
 	# Everything else is the React bundle: /login and the control plane under
-	# /admin, with the usual single-page fallback.
+	# /admin, with the usual single-page fallback. {path}.html is where a
+	# Panoptic page's own copy is found.
 	handle {
-		try_files {path} /index.html
+		try_files {path} {path}.html /index.html
 		file_server
 	}
 }

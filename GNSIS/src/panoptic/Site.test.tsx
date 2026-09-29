@@ -27,7 +27,7 @@ function renderAt(path: string) {
 }
 
 describe("the landing's task bar", () => {
-  it("opens early access with the task kept exactly, and sends it with the sign-up", async () => {
+  it("opens early access without repeating the question, and sends it, exactly, with the sign-up", async () => {
     window.__GNSIS_CONFIG__ = { VITE_AUTH_URL: "https://auth.example.test", VITE_HOME_EXPERIENCE: "live" };
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: "received" }), { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -36,12 +36,20 @@ describe("the landing's task bar", () => {
 
     await user.type(screen.getByRole("textbox", { name: "Ask Panoptic" }), " Find me a flight to Montreal next Friday{Enter}");
     const dialog = await screen.findByRole("dialog", { name: "Get early access" });
-    expect(within(dialog).getByText(/Find me a flight to Montreal next Friday/).textContent).toBe(" Find me a flight to Montreal next Friday");
+    expect(within(dialog).queryByText(/Find me a flight to Montreal/)).toBeNull();
+    expect(within(dialog).getByText(/We keep your email and what you asked only for this/)).toBeInTheDocument();
 
     await user.type(within(dialog).getByRole("textbox", { name: "Email" }), "ada@example.com");
     await user.click(within(dialog).getByRole("button", { name: /Get early access/ }));
 
-    await screen.findByText("You’re on the list.");
+    // The confirmation takes the form's place in the same dialog: it names the
+    // dialog now, and the sent form is out of reach, not merely faded.
+    const done = await screen.findByRole("dialog", { name: "You’re on the list." });
+    expect(done).toBe(dialog);
+    expect(within(dialog).queryByRole("textbox", { name: "Email" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Done" })).toHaveFocus();
+    expect(document.querySelectorAll(`[id="${dialog.getAttribute("aria-labelledby")}"]`)).toHaveLength(1);
+
     const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     expect(body).toEqual({ email: "ada@example.com", task: " Find me a flight to Montreal next Friday", source: "video-search:task-bar" });
   });

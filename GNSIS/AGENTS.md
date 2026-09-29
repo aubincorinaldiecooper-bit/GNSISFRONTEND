@@ -77,7 +77,7 @@ domain serves.
 **exempt from the Astryx rules above.** It has its own stylesheet
 (`src/panoptic/panoptic.css`), raw `<div>` layout inside its drawings, and the
 Panoptic colours, type and pixel values as literals, named once as `--pn-*`
-tokens at the top of that stylesheet.
+tokens in `src/panoptic/tokens.css`.
 
 The reason is the same as for the live surface: these pages already have a
 design system, and it is a different one. The owner's Panoptic design handoff
@@ -95,6 +95,18 @@ Their forms post to the auth service (`auth-service/src/intake.ts`), which
 stores early-access sign-ups and contact messages in their own tables.
 `/privacy` describes exactly what those forms and pages collect: change it in
 the same pull request as any change to what they collect.
+
+Each page's title and link preview are written once, in
+`src/panoptic/pageMeta.ts`. The apps that draw link previews read the served
+HTML without running the bundle, so the build writes each page its own copy
+of `index.html` with that page's block swapped in (`panopticPageHtml` in
+`vite.config.ts`), and the Caddyfile serves the copy at the page's address.
+The console's own title and preview stay in `index.html`. The preview picture,
+`public/og/genesis-preview.png`, is the owner's horizontal genesis lockup
+placed unaltered on Paper (#F7F6F2), as the genesis logo guidelines require:
+if the logo changes, re-export it from the master SVG; never redraw it. The
+live page's title and preview (`/`, `/live`) belong to GNSISBACKEND, like the
+rest of that page.
 
 Everything else in this repository — `/login`, the control plane under
 `/admin`, and any new interface written here — follows the Astryx rules above

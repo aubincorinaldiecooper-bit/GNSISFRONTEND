@@ -3,6 +3,7 @@
 
 import { ContactLink } from "../components/ContactLink";
 import { LegalPage } from "../components/LegalPage";
+import { PRIVACY_META } from "../pageMeta";
 
 export default function PrivacyPage() {
   return (
@@ -10,7 +11,7 @@ export default function PrivacyPage() {
       page="privacy"
       title="Privacy"
       updated="28 September 2026"
-      description="What the Panoptic pages on gnsis.studio collect, why, and how to have it deleted."
+      meta={PRIVACY_META}
     >
       <p>
         This covers the Panoptic pages on gnsis.studio and the two forms on them: early access and contact. It is short because they collect

@@ -285,12 +285,19 @@ async function readBoundedJson(req: http.IncomingMessage): Promise<unknown> {
   }
 }
 
-function clientKey(req: http.IncomingMessage): string {
-  // Railway's edge appends the caller to X-Forwarded-For; the first entry is
-  // the visitor. Used only as a rate-limit key, never stored.
-  const forwarded = req.headers["x-forwarded-for"];
-  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
-  return first || req.socket.remoteAddress || "unknown";
+/**
+ * Who is submitting, for the rate limit only (never stored). A caller can
+ * put anything in X-Forwarded-For, so only the last entry counts: the one
+ * the proxy in front of this service appended for the address it actually
+ * saw. Without the header, the socket's own peer.
+ */
+export function clientKey(req: Pick<http.IncomingMessage, "headers" | "socket">): string {
+  const header = req.headers["x-forwarded-for"];
+  const entries = (Array.isArray(header) ? header.join(",") : header ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return entries[entries.length - 1] || req.socket.remoteAddress || "unknown";
 }
 
 function send(res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
