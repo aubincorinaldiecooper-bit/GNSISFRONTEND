@@ -3,8 +3,8 @@
  *
  * These pages follow the Panoptic design handoff, not Astryx: its colours,
  * type and spacing are the specification, so they live here as literal values
- * — named once as tokens below and used through them. See AGENTS.md, "Scoped
- * exception: the Panoptic pages".
+ * — named once as tokens in tokens.css and used through them. See AGENTS.md,
+ * "Scoped exception: the Panoptic pages".
  *
  * Widths:
  *   desktop  ≥ 1024px  the 1280 design, type scaling down with the width below 1280
@@ -855,25 +855,6 @@
   color: var(--pn-text);
 }
 
-.pn-task-label {
-  margin: 22px 0 8px 4px;
-  font-size: 14px;
-  color: var(--pn-text-2);
-}
-
-.pn-task {
-  max-height: 9.5em;
-  overflow: auto;
-  padding: 14px 18px;
-  border-radius: 16px;
-  background: var(--pn-bg);
-  font-size: 17px;
-  line-height: 1.45;
-  letter-spacing: -0.01em;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .pn-field {
   display: block;
   margin-top: 22px;
@@ -928,8 +909,26 @@
   margin-top: 8px;
 }
 
+/* The form and its confirmation share one cell, as big as the form, so the
+   box keeps its size when one turns into the other. "Done" sits at the
+   bottom of the cell, exactly where the submit button was. */
+.pn-stage {
+  display: grid;
+}
+
+.pn-stage > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.pn-stage-done {
+  display: flex;
+  flex-direction: column;
+}
+
 .pn-dialog-actions--done {
-  margin-top: 24px;
+  margin-top: auto;
+  padding-top: 24px;
 }
 
 .pn-dialog-fineprint {
@@ -945,6 +944,7 @@
 }
 
 .pn-autoheight-inner {
+  /* Room for focus rings, which the height animation's clipping would cut. */
   margin: -6px;
   padding: 6px;
 }

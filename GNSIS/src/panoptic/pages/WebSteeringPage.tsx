@@ -10,7 +10,9 @@ import { Cta } from "../components/Cta";
 import { Footer } from "../components/Footer";
 import { CursorIcon, ThenArrow } from "../components/Icons";
 import { Nav } from "../components/Nav";
+import { RevealSection } from "../components/Reveal";
 import { useDialogs } from "../dialogContext";
+import { WEB_STEERING_META } from "../pageMeta";
 import { usePageMeta } from "../usePageMeta";
 
 const DECK_825: CropSpec = { src: KICKFLIP, width: 243.1, left: -95.24, top: -63.81 };
@@ -41,10 +43,7 @@ function at(left: number, top: number, extra: CSSProperties = {}): CSSProperties
 }
 
 export default function WebSteeringPage() {
-  usePageMeta(
-    "Agentic web steering — Panoptic",
-    "Most agents read a website’s code. Panoptic looks at the screen the way you do, and steers your agent through any site, one move at a time.",
-  );
+  usePageMeta(WEB_STEERING_META.title, WEB_STEERING_META.description);
   const { openEarlyAccess } = useDialogs();
 
   return (
@@ -87,7 +86,7 @@ export default function WebSteeringPage() {
         </div>
       </div>
 
-      <section className="pn-wrap ws-section" aria-labelledby="ws-read">
+      <RevealSection className="pn-wrap ws-section" aria-labelledby="ws-read">
         <div className="ws-head">
           <h2 className="ws-h2" id="ws-read">
             <span className="pn-line">Agents read</span> <span className="pn-line">the web.</span>{" "}
@@ -112,10 +111,10 @@ export default function WebSteeringPage() {
             <figcaption className="ws-panel-caption">The page itself. What the photo shows, why the button is grey, and what to do next.</figcaption>
           </figure>
         </div>
-      </section>
+      </RevealSection>
 
       <div className="ws-video">
-        <section className="pn-wrap ws-section" aria-labelledby="ws-video">
+        <RevealSection className="pn-wrap ws-section" aria-labelledby="ws-video">
           <div className="ws-head">
             <h2 className="ws-h2 ws-h2--video" id="ws-video">
               <span className="pn-line">The web</span> <span className="pn-line">is video.</span>
@@ -128,11 +127,11 @@ export default function WebSteeringPage() {
             </div>
           </div>
           <Film />
-        </section>
+        </RevealSection>
       </div>
 
       <div className="pn-band pn-on-dark">
-        <section className="pn-wrap ws-section ws-section--even" aria-labelledby="ws-think">
+        <RevealSection className="pn-wrap ws-section ws-section--even" aria-labelledby="ws-think">
           <div className="ws-head">
             <h2 className="ws-h2" id="ws-think">
               <span className="pn-line">Your agent thinks.</span> <span className="pn-line">Panoptic sees.</span>
@@ -167,11 +166,11 @@ export default function WebSteeringPage() {
               <p className="ws-rhythm ws-rhythm--panoptic">sees in glances</p>
             </div>
           </div>
-        </section>
+        </RevealSection>
       </div>
 
       <div className="pn-wrap">
-        <section className="ws-change" aria-labelledby="ws-change">
+        <RevealSection className="ws-change" aria-labelledby="ws-change">
           <div>
             <h2 className="ws-h2" id="ws-change">
               Notices what changed.
@@ -220,7 +219,7 @@ export default function WebSteeringPage() {
               </p>
             </div>
           </div>
-        </section>
+        </RevealSection>
       </div>
       </main>
 

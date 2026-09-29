@@ -2,6 +2,7 @@
 
 import { ContactLink } from "../components/ContactLink";
 import { LegalPage } from "../components/LegalPage";
+import { TERMS_META } from "../pageMeta";
 
 export default function TermsPage() {
   return (
@@ -9,7 +10,7 @@ export default function TermsPage() {
       page="terms"
       title="Terms"
       updated="28 September 2026"
-      description="The terms for using the Panoptic pages on gnsis.studio and their early-access and contact forms."
+      meta={TERMS_META}
     >
       <p>
         These pages describe Panoptic, which GNSIS.studio is building. You are welcome to read them and to use the early-access and contact
