@@ -72,7 +72,8 @@ domain serves.
 ## Scoped exception: the Panoptic pages
 
 `src/panoptic/` — the Video Search landing (`/video-search`, or `/` when
-`GNSIS_HOME_EXPERIENCE=video-search`), agentic web steering
+`GNSIS_HOME_EXPERIENCE=video-search`; a dark phone-app page styled by
+`src/panoptic/moments/moments.css`), agentic web steering
 (`/use-cases/agentic-web-steering`), `/privacy` and `/terms` — is also
 **exempt from the Astryx rules above.** It has its own stylesheet
 (`src/panoptic/panoptic.css`), raw `<div>` layout inside its drawings, and the

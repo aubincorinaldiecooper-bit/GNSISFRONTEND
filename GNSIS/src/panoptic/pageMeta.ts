@@ -29,9 +29,9 @@ export interface PageMeta {
 export const LANDING_META: PageMeta = {
   path: "/video-search",
   file: "video-search.html",
-  title: "Panoptic — you ask. Panoptic remembers.",
+  title: "Panoptic — ask, and see the exact moment.",
   description:
-    "Describe what you’re looking for in plain words. Panoptic looks inside the videos, not just their titles, and shows you the ones where it happens.",
+    "Ask in plain words. Panoptic looks inside videos across platforms and takes you to the exact moments that answer you.",
 };
 
 export const WEB_STEERING_META: PageMeta = {
