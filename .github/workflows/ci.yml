@@ -239,8 +239,8 @@ jobs:
           done <<'EOF'
           /login|GNSIS Developer Console
           /admin|GNSIS Developer Console
-          /video-search|Panoptic — you ask. Panoptic remembers.
-          /video-search/|Panoptic — you ask. Panoptic remembers.
+          /video-search|Panoptic — ask, and see the exact moment.
+          /video-search/|Panoptic — ask, and see the exact moment.
           /use-cases/agentic-web-steering|Agentic web steering — Panoptic
           /privacy|Privacy — Panoptic
           /terms|Terms — Panoptic
@@ -263,7 +263,7 @@ jobs:
           done
           # Switched on: "/" is the bundle (the landing), /live is still the live page.
           curl -s http://localhost:8082/ | grep -q '<div id="root">' || { echo "/ is not the landing when switched on"; exit 1; }
-          curl -s http://localhost:8082/ | grep -qF '<title>Panoptic — you ask. Panoptic remembers.</title>' \
+          curl -s http://localhost:8082/ | grep -qF '<title>Panoptic — ask, and see the exact moment.</title>' \
             || { echo "/ does not carry the landing's title and link preview when switched on"; exit 1; }
           curl -s http://localhost:8082/live | grep -q 'Let it see what you see.' || { echo "/live lost the live page"; exit 1; }
           curl -s -D home-headers.txt -o /dev/null http://localhost:8082/privacy
