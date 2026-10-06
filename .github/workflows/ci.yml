@@ -135,6 +135,13 @@ jobs:
             grep -q '<div id="root">' local.out && { echo "${path} fell through to the SPA"; exit 1; } || true
           done
 
+      - name: llms.txt is served as plain text for agents
+        run: |
+          ct=$(curl -s -o llms.txt -w '%{content_type}' http://localhost:8080/llms.txt)
+          echo "GET /llms.txt -> ${ct}"
+          case "$ct" in text/plain*) ;; *) echo "/llms.txt is not text/plain"; exit 1;; esac
+          head -1 llms.txt | grep -qx '# GNSIS' || { echo "/llms.txt fell through"; exit 1; }
+
       - name: The front door is the live page, with both doors in it
         run: |
           curl -s http://localhost:8080/ -o door.html

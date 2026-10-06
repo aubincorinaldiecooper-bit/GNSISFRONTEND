@@ -1,0 +1,40 @@
+# GNSIS
+
+> GNSIS is an AI research lab in Toronto. Its released model, Panoptic, gives agents persistent vision: a trusted host streams a browser tab or desktop, and Panoptic describes what is on screen, what just changed, and what is at any point you ask about. It can also propose one grounded next action. It never captures the screen or executes actions itself.
+
+Access is by request: https://gnsis.studio/developers/panoptic. Each workspace receives a GNSIS API key scoped to `visual:host` and the address of its Panoptic endpoint.
+
+How an agent uses Panoptic:
+
+1. The host exchanges the API key for a short-lived grant: `POST https://api.gnsis.studio/v1/visual/grants`.
+2. The host opens a session with the grant (`POST {PANOPTIC_API_BASE}/v1/visual/sessions`) and streams frames over the returned stream URL.
+3. The host gives the session's planner token to the agent. That token can only read and plan within that one session.
+4. The agent calls perception (`POST /v1/visual/sessions/{id}/perceptions`) or asks for a decision. The host checks and carries out any action itself.
+
+Sessions end when the host closes them, or after 2 minutes with no frames and no requests. Send `X-Panoptic-Client: <your-agent>/<version>` so usage can be attributed to your agent.
+
+## Docs
+
+- [Panoptic service guide](https://raw.githubusercontent.com/aubincorinaldiecooper-bit/GNSISBACKEND/main/docs/smaller-gnsis-service.md): Trust boundary, REST lifecycle, commercial access, usage metering and the MCP adapter
+- [MCP adapter](https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND/blob/main/docs/smaller-gnsis-service.md#mcp-adapter): `panoptic-mcp` tools and setup for Claude Code, Codex and OpenClaw
+
+## SDKs
+
+- [Python SDK and MCP server](https://raw.githubusercontent.com/aubincorinaldiecooper-bit/GNSISBACKEND/main/sdks/python/README.md): `pip install "gnsis-visual-sdk[mcp] @ git+https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND.git#subdirectory=sdks/python"`, then run `panoptic-mcp`
+- [TypeScript SDK](https://raw.githubusercontent.com/aubincorinaldiecooper-bit/GNSISBACKEND/main/sdks/typescript/README.md): `@gnsis/visual-sdk` client for the same API
+
+## MCP tools
+
+- `visual_perceive` (read-only): Describe the current screen, optionally focused on a question or grounded at a pixel
+- `visual_state` (read-only): Task, bounded history, current frame and usage state
+- `visual_history` (read-only): Retained frames and earlier perception answers
+- `visual_inspect` (read-only): Enlarged full-resolution crop of a retained frame
+- `visual_read_pixels` (read-only): Exact colours of a retained frame region
+- `visual_set_task`: Set the goal and allowed action set
+- `visual_decide`: One grounded action proposal for the current frame; it never executes
+- `visual_reset`: Clear the goal and visual action history
+
+## Optional
+
+- [Panoptic model page](https://gnsis.studio/models/panoptic): What Panoptic is for
+- [Privacy](https://gnsis.studio/privacy): What gnsis.studio collects
