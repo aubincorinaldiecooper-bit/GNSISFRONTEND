@@ -3,6 +3,7 @@
 @import 'tw-animate-css';
 /* Warm decorative brand tokens remain scoped to Panoptic; controls use Beautiful. */
 @import './panoptic/tokens.css';
+@import './studio/surface.css';
 
 /* Migration utility aliases, not a second palette. Full colors, never HSL channels. */
 @theme inline {
@@ -44,6 +45,15 @@
   --color-sidebar-accent-foreground: var(--ink);
   --color-sidebar-border: var(--line);
   --color-sidebar-ring: var(--accent);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-signal-tint: var(--signal-tint);
+  --color-ok: var(--ok);
+  --color-ok-tint: var(--ok-tint);
+  --color-warm: var(--warm);
+  --color-warm-tint: var(--warm-tint);
+  --font-studio: 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Newsreader', Georgia, serif;
   --radius-xs: var(--radius-chip);
   --radius-sm: var(--radius-chip);
   --radius-md: var(--radius-control);
@@ -58,6 +68,12 @@
 }
 .dark { color-scheme: dark; }
 .light { color-scheme: light; }
+
+html[data-surface="studio"] {
+  --accent: var(--signal);
+  --accent-ink: var(--signal-ink);
+  --accent-tint: var(--signal-tint);
+}
 
 /* Application ground instead of the upstream gallery's decorative stripes. */
 body {

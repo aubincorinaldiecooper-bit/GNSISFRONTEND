@@ -65,7 +65,7 @@ describe("one shared Beautiful UI frontend system", () => {
 
   it("compiles legacy color aliases to full upstream colors without replacing the blue accent", async () => {
     const path = `${root}src/index.css`;
-    const css = source("src/index.css") + '\n@source inline("bg-background text-foreground bg-primary text-primary-foreground bg-muted bg-accent text-accent-foreground border-border");';
+    const css = source("src/index.css") + '\n@source inline("bg-background text-foreground bg-primary text-primary-foreground bg-muted bg-accent text-accent-foreground border-border bg-signal text-signal-ink font-studio font-display");';
     const result = await postcss([tailwind({ base: root })]).process(css, { from: path });
     expect(result.warnings()).toHaveLength(0);
     const declarations = (selector: string) => {
@@ -83,6 +83,10 @@ describe("one shared Beautiful UI frontend system", () => {
     expect(declarations(".bg-accent")["background-color"]).toBe("var(--accent)");
     expect(declarations(".text-accent-foreground").color).toBe("white");
     expect(declarations(".border-border")["border-color"]).toBe("var(--line)");
+    expect(declarations(".bg-signal")["background-color"]).toBe("var(--signal)");
+    expect(declarations(".text-signal-ink").color).toBe("var(--signal-ink)");
+    expect(declarations(".font-studio")["font-family"]).toContain("Inter Tight");
+    expect(declarations(".font-display")["font-family"]).toContain("Newsreader");
     expect(result.css).not.toContain("hsl(var(--accent))");
   });
 

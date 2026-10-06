@@ -109,4 +109,11 @@ describe("home experience", () => {
     window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "Video Search" };
     expect(homeExperience()).toBe("live");
   });
+
+  it("recognizes only the exact studio value", () => {
+    window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "studio" };
+    expect(homeExperience()).toBe("studio");
+    window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "Studio" };
+    expect(homeExperience()).toBe("live");
+  });
 });

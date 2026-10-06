@@ -30,7 +30,7 @@ export default function PrivacyPage() {
         </li>
         <li><strong>Sign-in email:</strong> if you request an email link, Resend receives your email address and the sign-in email to deliver it. Sign-in links expire after ten minutes and can be used once.</li>
         <li>
-          <strong>Early access:</strong> your email address and, if you typed one into the Panoptic bar, your task, kept exactly as you wrote it.
+          <strong>Early access:</strong> your email address and, if you typed one into the Panoptic bar, your task, kept exactly as you wrote it. If you request developer access, also what you told us you plan to build, kept the same way.
         </li>
         <li>
           <strong>Contact:</strong> your email address and your message.
@@ -53,6 +53,7 @@ export default function PrivacyPage() {
       <h2>Why we keep it</h2>
       <ul>
         <li>To identify your account, keep you signed in and show your profile.</li>
+        <li>To review developer access requests and send you an API key.</li>
         <li>To let you know when you can try Panoptic, and to start you off with the task you gave us.</li>
         <li>To answer your message.</li>
       </ul>
