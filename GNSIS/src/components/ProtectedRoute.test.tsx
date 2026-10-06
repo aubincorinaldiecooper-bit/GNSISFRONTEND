@@ -7,8 +7,8 @@ vi.mock("@/lib/session", () => ({ useSession: () => useSessionMock() }));
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 
-function renderWith(status: string) {
-  useSessionMock.mockReturnValue({ status });
+function renderWith(status: string, backendState = "ok") {
+  useSessionMock.mockReturnValue({ status, backendState });
   return render(
     <MemoryRouter initialEntries={["/app"]}>
       <Routes>
@@ -36,6 +36,12 @@ describe("ProtectedRoute", () => {
   it("shows a loading state while the session resolves", () => {
     renderWith("loading");
     expect(screen.getByText(/Loading your workspace/i)).toBeInTheDocument();
+    expect(screen.queryByText("APP CONTENT")).toBeNull();
+  });
+
+  it("redirects a consumer session without a developer API token to GitHub login", () => {
+    renderWith("authenticated", "unauthorized");
+    expect(screen.getByText("LOGIN PAGE")).toBeInTheDocument();
     expect(screen.queryByText("APP CONTENT")).toBeNull();
   });
 });

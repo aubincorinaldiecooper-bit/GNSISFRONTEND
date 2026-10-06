@@ -19,11 +19,13 @@ function LoadingScreen() {
 }
 
 export default function ProtectedRoute() {
-  const { status } = useSession();
+  const { status, backendState } = useSession();
   const location = useLocation();
 
-  if (status === "loading") return <LoadingScreen />;
-  if (status === "unauthenticated") {
+  if (status === "loading" || (status === "authenticated" && (backendState === "checking" || backendState === "idle"))) {
+    return <LoadingScreen />;
+  }
+  if (status === "unauthenticated" || backendState === "unauthorized") {
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
   }

@@ -98,7 +98,7 @@ export default function LoginPage() {
               <div className="flex items-start gap-2 rounded-control border border-orange/20 bg-orange-tint px-3 py-2.5">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange" />
                 <p className="text-xs leading-relaxed text-ink">
-                  You're signed in, but the GNSIS backend didn't accept the session
+                  Developer access requires GitHub sign-in and a valid backend session
                   {backendState === "unavailable" ? " (it may be unreachable right now)" : ""}.
                 </p>
               </div>
@@ -108,6 +108,13 @@ export default function LoginPage() {
               >
                 Retry
               </Button>
+              {backendState === "unauthorized" && (
+                <Button variant="primary" onClick={startSignIn} disabled={redirecting || !authConfigured} className="w-full gap-2">
+                  <Github className="h-4 w-4" />
+                  {redirecting ? "Connecting GitHub…" : "Continue with GitHub"}
+                </Button>
+              )}
+              {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
             </div>
           ) : (
             <div className="space-y-3">

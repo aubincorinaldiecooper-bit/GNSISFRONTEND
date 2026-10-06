@@ -3,10 +3,12 @@ import { render, waitFor } from "@testing-library/react";
 
 // A rejecting remote sign-out is the case under test.
 const signOutMock = vi.fn();
+const linkSocialMock = vi.fn();
 vi.mock("@/lib/authClient", () => ({
   authClient: {
     useSession: () => ({ data: { user: { id: "u1", email: "a@b.c", name: "A" } }, isPending: false }),
     signIn: { social: vi.fn() },
+    linkSocial: (...a: unknown[]) => linkSocialMock(...a),
     signOut: (...a: unknown[]) => signOutMock(...a),
   },
 }));
@@ -38,6 +40,20 @@ function Capture({ onReady }: { onReady: (fn: () => Promise<void>) => void }) {
   onReady(signOut);
   return null;
 }
+
+function CaptureGitHub({ onReady }: { onReady: (fn: (path?: string) => Promise<void>) => void }) {
+  onReady(useSession().signInGitHub);
+  return null;
+}
+
+it("connects GitHub to an existing consumer identity for developer sign-in", async () => {
+  linkSocialMock.mockResolvedValue({ data: {}, error: null });
+  let signIn: ((path?: string) => Promise<void>) | null = null;
+  render(<SessionProvider><CaptureGitHub onReady={(fn) => { signIn = fn; }} /></SessionProvider>);
+  await waitFor(() => expect(signIn).not.toBeNull());
+  await signIn!("/admin/new");
+  expect(linkSocialMock).toHaveBeenCalledWith({ provider: "github", callbackURL: `${window.location.origin}/admin/new` });
+});
 
 describe("SessionProvider signOut", () => {
   beforeEach(() => {

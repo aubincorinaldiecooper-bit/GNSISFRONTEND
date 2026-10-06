@@ -8,6 +8,7 @@
  */
 
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { jwt, magicLink } from "better-auth/plugins";
 import { Pool } from "pg";
 
@@ -62,6 +63,18 @@ export const auth = betterAuth({
     encryptOAuthTokens: true,
   },
 
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/token") return;
+      const session = await getSessionFromCtx(ctx);
+      if (!session) throw new APIError("UNAUTHORIZED", { message: "Sign in with GitHub for developer access" });
+      const accounts = await ctx.context.internalAdapter.findAccounts(session.user.id);
+      if (!accounts.some((account) => account.providerId === "github")) {
+        throw new APIError("FORBIDDEN", { message: "GitHub is required for developer API access" });
+      }
+    }),
+  },
+
   advanced: {
     useSecureCookies: env.nodeEnv === "production",
     defaultCookieAttributes: {
@@ -79,6 +92,7 @@ export const auth = betterAuth({
       sendMagicLink: createSignInMailer(env),
     })] : []),
     jwt({
+      disableSettingJwtHeader: true,
       jwt: {
         issuer: env.betterAuthUrl,
         audience: env.apiAudience,

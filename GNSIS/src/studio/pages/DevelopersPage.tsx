@@ -1,7 +1,10 @@
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { ArrowRight, ExternalLink } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { cn } from "@/lib/utils";
+import { authClient } from "@/lib/authClient";
+import { authBaseUrl } from "@/lib/env";
 import { DEVELOPERS_GNSIS01_META, DEVELOPERS_PANOPTIC_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
 import { developerPath } from "../config";
@@ -40,9 +43,58 @@ function FeatureRow({ feature }: { feature: DeveloperFeature }) {
 
 export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
   const { open } = useEarlyAccess();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [connectingGitHub, setConnectingGitHub] = useState(false);
+  const [githubError, setGitHubError] = useState(false);
   const content = developerPageData(modelId);
   const meta = modelId === "panoptic" ? DEVELOPERS_PANOPTIC_META : DEVELOPERS_GNSIS01_META;
   usePageMeta(meta.title, meta.description);
+
+  const openForLinkedGitHub = useCallback(async (placement: "hero" | "closing") => {
+    const base = authBaseUrl();
+    if (!base) return false;
+    const response = await fetch(`${base}/api/accounts/developer-identity`, { credentials: "include" });
+    if (!response.ok) return false;
+    const identity = await response.json() as { email?: unknown };
+    if (typeof identity.email !== "string") return false;
+    open(`developers-${modelId}:${placement}`, modelId, identity.email);
+    return true;
+  }, [modelId, open]);
+
+  useEffect(() => {
+    const placement = new URLSearchParams(location.search).get("developerRequest");
+    if (placement !== "hero" && placement !== "closing") return;
+    navigate(location.pathname, { replace: true });
+    void openForLinkedGitHub(placement)
+      .then((opened) => setGitHubError(!opened))
+      .catch(() => setGitHubError(true));
+  }, [location.pathname, location.search, navigate, openForLinkedGitHub]);
+
+  const startDeveloperRequest = async (placement: "hero" | "closing") => {
+    if (connectingGitHub) return;
+    setConnectingGitHub(true);
+    setGitHubError(false);
+    try {
+      if (!authBaseUrl()) throw new Error("Authentication is not configured");
+      if (await openForLinkedGitHub(placement)) return;
+      const callback = new URL(location.pathname, window.location.origin);
+      callback.searchParams.set("developerRequest", placement);
+      const session = await authClient.getSession();
+      const result = session.data
+        ? await authClient.linkSocial({ provider: "github", callbackURL: callback.toString() })
+        : await authClient.signIn.social({
+            provider: "github",
+            callbackURL: callback.toString(),
+            errorCallbackURL: `${window.location.origin}${location.pathname}?githubError=oauth`,
+          });
+      if (result.error) throw new Error("GitHub connection failed");
+    } catch {
+      setGitHubError(true);
+    } finally {
+      setConnectingGitHub(false);
+    }
+  };
 
   return (
     <div className="relative overflow-x-clip">
@@ -90,10 +142,11 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.96 }}
-                onClick={() => open(`developers-${modelId}:hero`, modelId)}
+                onClick={() => void startDeveloperRequest("hero")}
+                disabled={connectingGitHub}
                 className={studioButton({ variant: "primary", size: "lg" })}
               >
-                Request developer access
+                {connectingGitHub ? "Connecting GitHub…" : "Request with GitHub"}
                 <ArrowRight aria-hidden className={buttonArrow} />
               </motion.button>
               <a
@@ -106,6 +159,11 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
                 <ExternalLink aria-hidden className="size-4" />
               </a>
             </div>
+            {(githubError || new URLSearchParams(location.search).has("githubError")) && (
+              <p role="alert" className="mt-3 text-[13px] text-[oklch(0.55_0.19_25)]">
+                GitHub sign-in didn’t complete. Please try again.
+              </p>
+            )}
           </div>
         </section>
 
@@ -164,10 +222,11 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
             <motion.button
               type="button"
               whileTap={{ scale: 0.96 }}
-              onClick={() => open(`developers-${modelId}:closing`, modelId)}
+              onClick={() => void startDeveloperRequest("closing")}
+              disabled={connectingGitHub}
               className={studioButton({ variant: "primary", size: "lg" })}
             >
-              Request developer access
+              {connectingGitHub ? "Connecting GitHub…" : "Request with GitHub"}
               <ArrowRight aria-hidden className={buttonArrow} />
             </motion.button>
           </div>
