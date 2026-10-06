@@ -10,7 +10,6 @@ const FILES: Record<string, string> = {
   "/models.html": "models page",
   "/models/panoptic.html": "panoptic page",
   "/developers/panoptic.html": "developers panoptic page",
-  "/developers/gnsis-01.html": "developers gnsis page",
   "/assets/app.js": "console.log(1)",
   "/live/qr.svg": "<svg></svg>",
 };
@@ -87,8 +86,8 @@ describe("gnsis.studio worker", () => {
   it("serves studio pages with and without a trailing slash", async () => {
     const env = makeEnv({ GNSIS_HOME_EXPERIENCE: "studio" });
     expect(await (await get("/models/panoptic", env)).text()).toBe("panoptic page");
-    expect(await (await get("/developers/gnsis-01/", env)).text()).toBe(
-      "developers gnsis page",
+    expect(await (await get("/developers/panoptic/", env)).text()).toBe(
+      "developers panoptic page",
     );
     expect((await get("/lab", env)).headers.get("X-Robots-Tag")).toBeNull();
   });
@@ -108,6 +107,11 @@ describe("gnsis.studio worker", () => {
     const developers = await get("/developers");
     expect(developers.status).toBe(301);
     expect(developers.headers.get("Location")).toBe("https://gnsis.studio/developers/panoptic");
+    for (const hidden of ["/developers/gnsis-01", "/developers/gnsis-01/", "/developers/gnsis-01.html"]) {
+      const response = await get(hidden);
+      expect(response.status).toBe(301);
+      expect(response.headers.get("Location")).toBe("https://gnsis.studio/developers/panoptic");
+    }
   });
 
   it("serves real assets and falls back to the bundle for app routes", async () => {

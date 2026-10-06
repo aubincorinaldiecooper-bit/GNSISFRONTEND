@@ -3,7 +3,7 @@ import { ArrowRight, LayoutGrid } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { STUDIO_PATHS } from "../config";
-import { MODELS } from "../models";
+import { LISTED_MODELS } from "../models";
 import { StudioDropdown } from "./StudioDropdown";
 import { StudioDropdownRow } from "./StudioDropdownRow";
 
@@ -17,7 +17,7 @@ const rowArrow =
 export function ModelsMenu() {
   return (
     <StudioDropdown label="Models" eyebrow="GNSIS models" triggerClassName="px-2 sm:px-3.5">
-      {MODELS.map((model, index) => (
+      {LISTED_MODELS.map((model, index) => (
         <DropdownMenu.Item key={model.id} asChild>
           <StudioDropdownRow
             modelId={model.id}

@@ -64,7 +64,7 @@ export const MODELS_META: PageMeta = {
   file: "models.html",
   title: "Models — GNSIS",
   description:
-    "Two models, different strengths: Panoptic for real-time visual perception of the web, GNSIS 1.0 for open-ended tasks.",
+    "Models from the GNSIS lab. Panoptic, our first release, gives agents real-time visual perception of the web.",
 };
 
 export const PANOPTIC_MODEL_META: PageMeta = {
@@ -103,7 +103,6 @@ export const STUDIO_PAGES: readonly PageMeta[] = [
   MODELS_META,
   PANOPTIC_MODEL_META,
   DEVELOPERS_PANOPTIC_META,
-  DEVELOPERS_GNSIS01_META,
 ];
 
 /** Every page the build writes its own HTML copy for. */

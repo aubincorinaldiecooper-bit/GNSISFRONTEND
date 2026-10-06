@@ -42,7 +42,6 @@ const PAGE_PATHS = [
   "/models/panoptic",
   "/lab",
   "/developers/panoptic",
-  "/developers/gnsis-01",
 ] as const;
 
 const PAGES = new Set<string>(PAGE_PATHS);
@@ -159,7 +158,7 @@ export async function handleRequest(request: Request, env: SiteEnv): Promise<Res
     return Response.redirect(new URL("/", url).toString(), 301);
   }
 
-  if (path === "/developers" || path === "/developers/") {
+  if (path === "/developers" || path === "/developers/" || /^\/developers\/gnsis-01(\/|\.html)?$/.test(path)) {
     return Response.redirect(new URL("/developers/panoptic", url).toString(), 301);
   }
 
