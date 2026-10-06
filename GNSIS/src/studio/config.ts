@@ -20,6 +20,3 @@ export function developerPath(id: ModelId): string {
 export function studioHomePath(): string {
   return homeExperience() === "studio" ? "/" : STUDIO_PATHS.home;
 }
-
-/** The live GNSIS session page. Caddy serves it, not this bundle, so link to it with a plain <a>. */
-export const LIVE_PATH = "/live";

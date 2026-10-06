@@ -1,4 +1,4 @@
-import { LIVE_PATH, STUDIO_PATHS } from "./config";
+import { STUDIO_PATHS } from "./config";
 
 export type ModelId = "panoptic" | "gnsis-01";
 
@@ -8,8 +8,6 @@ export interface StudioModel {
   tagline: string;
   summary: string;
   href: string;
-  /** Served outside this bundle (Caddy), so it needs a full page load. */
-  external: boolean;
 }
 
 export const MODELS: readonly StudioModel[] = [
@@ -20,7 +18,6 @@ export const MODELS: readonly StudioModel[] = [
     summary:
       "Panoptic continuously sees the page, understands what’s happening, and keeps visual context alive between actions.",
     href: STUDIO_PATHS.panoptic,
-    external: false,
   },
   {
     id: "gnsis-01",
@@ -28,7 +25,6 @@ export const MODELS: readonly StudioModel[] = [
     tagline: "General intelligence for open-ended tasks.",
     summary:
       "GNSIS 1.0 listens, sees, reasons and plans, completing complex tasks across your computer and the web with persistent context.",
-    href: LIVE_PATH,
-    external: true,
+    href: STUDIO_PATHS.developersGnsis01,
   },
 ];

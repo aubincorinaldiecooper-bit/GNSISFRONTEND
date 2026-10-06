@@ -1,0 +1,28 @@
+// gnsis.studio on Cloudflare Workers. `npm run build` first. The live page and
+// its sockets stay off until GNSIS_LIVE_ENABLED is "true"; their secrets
+// (GNSIS_EDGE_SECRET, MODAL_PROXY_KEY, MODAL_PROXY_SECRET) are then set with
+// `wrangler secret put`, never here.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gnsis-studio",
+  "main": "src/worker/site.ts",
+  "compatibility_date": "2026-09-29",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  "routes": [{ "pattern": "gnsis.studio/*", "zone_name": "gnsis.studio" }],
+  "observability": { "enabled": true },
+  "vars": {
+    "GNSIS_HOME_EXPERIENCE": "studio",
+    "GNSIS_LIVE_ENABLED": "false",
+    "GNSIS_LIVE_UPSTREAM": "https://aubincorinaldiecooper--gnsis-voice-gnsis-server.modal.run",
+    "VITE_API_BASE_URL": "https://api.gnsis.studio",
+    "VITE_AUTH_URL": "https://auth.gnsis.studio",
+    "VITE_ENABLE_INTEGRATION_LAB": "true",
+    "VITE_GITHUB_APP_SLUG": "gnsis-studio"
+  }
+}
