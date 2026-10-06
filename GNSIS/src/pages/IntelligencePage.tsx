@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { getAllRepositories, getAllRepositoryIntelligence, type RepositoryIntelligence, type RepositoryRecord } from "@/lib/api";
 
@@ -45,11 +46,13 @@ export default function IntelligencePage() {
       : repositoryState === "error" ? <div className="py-10"><p className="flex items-center gap-2 text-sm"><AlertTriangle className="h-4 w-4" />Repositories could not be loaded.</p><Button className="mt-3" variant="outline" size="sm" onClick={() => { setRepositoryState("loading"); discoverRepositories(); }}><RefreshCw className="h-3.5 w-3.5" />Retry</Button></div>
       : repositories.length === 0 ? <p className="py-10 text-sm text-muted-foreground">No repositories available.</p>
       : <>
-        <label className="mt-6 block text-xs font-medium">Repository
-          <select aria-label="Intelligence repository" className="mt-1 block h-10 w-full rounded-md border bg-background px-3 text-sm" value={repositoryId} onChange={(event) => { setItems([]); setIntelligenceState("loading"); setRepositoryId(event.target.value); }}>
-            {repositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.full_name}</option>)}
-          </select>
-        </label>
+        <div className="mt-6">
+          <label htmlFor="intelligence-repository" className="block text-xs font-medium">Repository</label>
+          <Select value={repositoryId} onValueChange={(value) => { setItems([]); setIntelligenceState("loading"); setRepositoryId(value); }}>
+            <SelectTrigger id="intelligence-repository" aria-label="Intelligence repository" className="mt-1 w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>{repositories.map((repo) => <SelectItem key={repo.id} value={repo.id}>{repo.full_name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
         {intelligenceState === "loading" ? <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading intelligence…</div>
           : intelligenceState === "error" ? <div className="py-10"><p className="flex items-center gap-2 text-sm"><AlertTriangle className="h-4 w-4" />Intelligence could not be loaded.</p><Button className="mt-3" variant="outline" size="sm" onClick={() => { setIntelligenceState("loading"); setIntelligenceAttempt((value) => value + 1); }}><RefreshCw className="h-3.5 w-3.5" />Retry</Button></div>
           : items.length === 0 ? <p className="py-10 text-sm text-muted-foreground">No approved intelligence yet.</p>

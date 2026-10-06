@@ -14,6 +14,10 @@ export interface Env {
   betterAuthUrl: string;
   githubClientId: string;
   githubClientSecret: string;
+  googleClientId: string;
+  googleClientSecret: string;
+  resendApiKey: string;
+  authEmailFrom: string;
   frontendUrl: string;
   apiAudience: string;
   internalSecret: string;
@@ -31,7 +35,11 @@ const REQUIRED_IN_PRODUCTION = [
 ] as const;
 
 export function missingProductionVars(source: NodeJS.ProcessEnv = process.env): string[] {
-  return REQUIRED_IN_PRODUCTION.filter((name) => !source[name]);
+  const missing: string[] = REQUIRED_IN_PRODUCTION.filter((name) => !source[name]);
+  for (const group of [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], ["RESEND_API_KEY", "AUTH_EMAIL_FROM"]]) {
+    if (group.some((name) => source[name])) missing.push(...group.filter((name) => !source[name]));
+  }
+  return missing;
 }
 
 export function assertProductionEnv(source: NodeJS.ProcessEnv = process.env): void {
@@ -55,6 +63,10 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     betterAuthUrl: source.BETTER_AUTH_URL ?? `http://localhost:${source.PORT ?? 3001}`,
     githubClientId: source.GITHUB_CLIENT_ID ?? "",
     githubClientSecret: source.GITHUB_CLIENT_SECRET ?? "",
+    googleClientId: source.GOOGLE_CLIENT_ID ?? "",
+    googleClientSecret: source.GOOGLE_CLIENT_SECRET ?? "",
+    resendApiKey: source.RESEND_API_KEY ?? "",
+    authEmailFrom: source.AUTH_EMAIL_FROM ?? "",
     frontendUrl: source.GNSIS_FRONTEND_URL ?? "http://localhost:5173",
     apiAudience: source.GNSIS_API_AUDIENCE ?? "gnsis-api",
     internalSecret: source.GNSIS_AUTH_INTERNAL_SECRET ?? "",

@@ -1,5 +1,5 @@
 /**
- * The Better Auth instance — GitHub social login, Postgres-backed sessions,
+ * The Better Auth instance — social/email login, Postgres-backed sessions,
  * and the JWT/JWKS bridge the FastAPI backend verifies against.
  *
  * This file is also the entry point the Better Auth CLI reads for
@@ -8,10 +8,11 @@
  */
 
 import { betterAuth } from "better-auth";
-import { jwt } from "better-auth/plugins";
+import { jwt, magicLink } from "better-auth/plugins";
 import { Pool } from "pg";
 
 import { loadEnv } from "./env.js";
+import { createSignInMailer } from "./account-email.js";
 
 const env = loadEnv();
 
@@ -29,6 +30,12 @@ export const auth = betterAuth({
   trustedOrigins: [env.frontendUrl],
 
   socialProviders: {
+    ...(env.googleClientId && env.googleClientSecret ? {
+      google: {
+        clientId: env.googleClientId,
+        clientSecret: env.googleClientSecret,
+      },
+    } : {}),
     github: {
       clientId: env.githubClientId,
       clientSecret: env.githubClientSecret,
@@ -65,6 +72,12 @@ export const auth = betterAuth({
   },
 
   plugins: [
+    ...(env.resendApiKey && env.authEmailFrom ? [magicLink({
+      expiresIn: 600,
+      storeToken: "hashed",
+      rateLimit: { window: 60, max: 5 },
+      sendMagicLink: createSignInMailer(env),
+    })] : []),
     jwt({
       jwt: {
         issuer: env.betterAuthUrl,

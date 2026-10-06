@@ -1,7 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
+
+// The package's Node export is SSR-only and removes registration/resize effects.
+// Exercise the real browser implementation under jsdom, not fake panel behavior.
+vi.mock("react-resizable-panels", () =>
+  vi.importActual<typeof import("react-resizable-panels")>(
+    "../node_modules/react-resizable-panels/dist/react-resizable-panels.browser.development.esm.js",
+  ),
+);
 
 // -- session / env / page mocks (mirror App.routing.test.tsx) -----------------
 
@@ -146,7 +154,23 @@ function renderThread(path: string) {
   );
 }
 
+// Give the real v2 resize handle a nonzero layout in jsdom. Without geometry,
+// its pointer hit area covers (0,0), swallowing user-event's default clicks on
+// unrelated controls. We exercise the library, not a mocked resize component.
+let geometry: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
+  geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const width = 1200;
+    if (this.hasAttribute("data-resize-handle")) {
+      const main = document.querySelector('[data-panel-id="workspace"]');
+      const x = Number((main as HTMLElement | null)?.style.flexGrow ?? 66.6666666667) / 100 * width;
+      return new DOMRect(x, 0, 1, 800);
+    }
+    if (this.hasAttribute("data-panel-group")) return new DOMRect(0, 0, width + 1, 800);
+    if (this.firstElementChild?.hasAttribute("data-panel-group")) return new DOMRect(0, 0, width + 1, 800);
+    if (this.hasAttribute("data-panel")) return new DOMRect(0, 0, Number(this.getAttribute("data-panel-size")) / 100 * width, 800);
+    return new DOMRect(0, 0, 0, 0);
+  });
   vi.clearAllMocks();
   useSessionMock.mockReturnValue(sessionValue);
   publicBetaModeMock.mockReturnValue(false);
@@ -174,6 +198,8 @@ beforeEach(() => {
     writable: true,
   });
 });
+
+afterEach(() => geometry.mockRestore());
 
 // -- pure helpers -------------------------------------------------------------
 
@@ -651,9 +677,103 @@ describe("canonical run receipt", () => {
   });
 });
 
+describe("Beautiful workspace panels", () => {
+  it("uses a keyboard separator with bounds, collapses to a 48px rail and restores the resized width", async () => {
+    const user = userEvent.setup();
+    mockThread([job({ id: "run-root", instruction: "Root" })]);
+    renderThread("/runs/run-root");
+    const handle = await screen.findByRole("separator", { name: "Resize run panel" });
+    expect(handle).toHaveAttribute("tabindex", "0");
+    const panel = document.querySelector('[data-panel-id="run-details"]')!;
+    // v2 serializes flex-grow to three significant digits; tolerate subpixel
+    // rounding for expanded sizes while checking the collapsed rail exactly.
+    const size = () => Number((panel as HTMLElement).style.flexGrow) / 100 * 1200;
+    await waitFor(() => expect(size()).toBeCloseTo(400, 0));
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(size()).toBeCloseTo(424, 0);
+    for (let i = 0; i < 30; i++) fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(size()).toBeCloseTo(560, 0);
+    await user.click(screen.getByRole("button", { name: "Collapse run panel" }));
+    expect(size()).toBeCloseTo(48, 3);
+    expect(screen.getByRole("button", { name: "Expand run panel" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Expand run panel" }));
+    expect(size()).toBeCloseTo(560, 0);
+    expect(screen.getByRole("navigation", { name: "Run panel" })).toBeInTheDocument();
+    // The minimum expanded width is 320px; further keyboard movement can
+    // reach collapse as well as the buttons.
+    for (let i = 0; i < 10; i++) fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(size()).toBeCloseTo(320, 0);
+    for (let i = 0; i < 30; i++) fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(size()).toBeCloseTo(48, 3);
+  });
+
+  it("resizes via the real pointer handle without disturbing a follow-up draft", async () => {
+    const user = userEvent.setup();
+    mockThread([job({ id: "run-root", instruction: "Root" })]);
+    renderThread("/runs/run-root");
+    const box = await screen.findByRole("textbox", { name: "Follow-up message" });
+    await user.type(box, "Keep this draft");
+    const handle = screen.getByRole("separator", { name: "Resize run panel" });
+    const start = handle.getBoundingClientRect().x;
+    await user.pointer([
+      { keys: "[MouseLeft>]", target: handle, coords: { clientX: start, clientY: 100 } },
+      { target: handle, coords: { clientX: start - 100, clientY: 100 } },
+      { keys: "[/MouseLeft]", target: handle, coords: { clientX: start - 100, clientY: 100 } },
+    ]);
+    const panel = document.querySelector('[data-panel-id="run-details"]')!;
+    const pixels = Number((panel as HTMLElement).style.flexGrow) / 100 * 1200;
+    expect(pixels).toBeGreaterThan(490);
+    expect(pixels).toBeLessThanOrEqual(560);
+    expect(box).toHaveValue("Keep this draft");
+  });
+});
+
 // -- follow-up composer -------------------------------------------------------
 
 describe("follow-up composer", () => {
+  it("guards IME and repeated Enter without losing the controlled draft", async () => {
+    const user = userEvent.setup();
+    mockThread([job({ id: "run-root", instruction: "Root" })]);
+    apiMocks.followUpJobMock.mockResolvedValue(job({ id: "run-2", instruction: "Follow up", parent_job_id: "run-root" }));
+    renderThread("/runs/run-root");
+    const box = await screen.findByRole("textbox", { name: "Follow-up message" });
+    expect(box.closest("form")).toHaveAttribute("data-slot", "chat-composer");
+    expect(box.closest('[data-slot="chat-panel"]')).toHaveAttribute("aria-label", "Run conversation");
+    await user.type(box, "  Follow up  ");
+    fireEvent.compositionStart(box);
+    fireEvent.keyDown(box, { key: "Enter" });
+    fireEvent.compositionEnd(box);
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(box, { key: "Enter", keyCode: 229 });
+    fireEvent.keyDown(box, { key: "Enter", repeat: true });
+    expect(apiMocks.followUpJobMock).not.toHaveBeenCalled();
+    expect(box).toHaveValue("  Follow up  ");
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(apiMocks.followUpJobMock).toHaveBeenCalledWith("run-root", "Follow up"));
+    await waitFor(() => expect(box).toHaveValue(""));
+  });
+
+  it("blocks duplicate pending sends and clears the draft only after success", async () => {
+    const user = userEvent.setup();
+    mockThread([job({ id: "run-root", instruction: "Root" })]);
+    let resolve!: (value: JobRecord) => void;
+    apiMocks.followUpJobMock.mockReturnValue(new Promise((resolveRequest) => { resolve = resolveRequest; }));
+    renderThread("/runs/run-root");
+    const box = await screen.findByRole("textbox", { name: "Follow-up message" });
+    await user.type(box, "Pending follow-up");
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }));
+    expect(box).toHaveValue("Pending follow-up");
+    expect(box).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Follow-up model" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send follow-up" })).toBeDisabled();
+    fireEvent.submit(box.closest("form")!);
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(apiMocks.followUpJobMock).toHaveBeenCalledTimes(1);
+    resolve(job({ id: "run-2", instruction: "Pending follow-up", parent_job_id: "run-root" }));
+    await waitFor(() => expect(box).toHaveValue(""));
+    expect(box).toBeEnabled();
+  });
+
   it("is disabled until there is text, then submits to the conversation tip", async () => {
     const user = userEvent.setup();
     mockThread([

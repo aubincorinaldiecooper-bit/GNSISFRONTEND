@@ -48,38 +48,39 @@ export default function SecretReveal({
   };
 
   return (
-    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 space-y-2">
+    <div className="rounded-card border border-green/20 bg-green-tint p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-emerald-400">
+        <p className="text-xs font-semibold text-green">
           Secret shown once — copy it now
         </p>
-        <button
+        <Button variant="quiet" size="icon"
           type="button"
           onClick={forget}
-          className="text-emerald-400/70 hover:text-emerald-300"
+          className="size-7 text-green"
           aria-label="Forget secret"
         >
           <X className="h-3.5 w-3.5" />
-        </button>
+        </Button>
       </div>
       <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5">
         <code className="flex-1 break-all font-mono text-xs text-foreground">
           {shown ? secret : mask(secret)}
         </code>
-        <button
+        <Button variant="quiet" size="icon"
           type="button"
+          aria-pressed={shown}
           onClick={() => setShown((v) => !v)}
-          className="shrink-0 text-muted-foreground hover:text-foreground"
+          className="size-7 shrink-0"
           aria-label={shown ? "Hide secret" : "Reveal secret"}
         >
           {shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-        </button>
+        </Button>
         <Button variant="outline" size="sm" onClick={copy} className="h-7 shrink-0 gap-1 text-xs">
-          {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? <Check className="h-3.5 w-3.5 text-green" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <p className="text-[11px] leading-relaxed text-emerald-700/80">
+      <p className="text-[11px] leading-relaxed text-ink-2">
         Stored only in this browser tab's memory — never saved. It disappears on
         sign-out or when you forget it, and can't be shown again afterwards.
       </p>

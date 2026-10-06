@@ -9,12 +9,18 @@ export default function TermsPage() {
     <LegalPage
       page="terms"
       title="Terms"
-      updated="28 September 2026"
+      updated="6 October 2026"
       meta={TERMS_META}
     >
       <p>
-        These pages describe Panoptic, which GNSIS.studio is building. You are welcome to read them and to use the early-access and contact
-        forms. Using them means you accept these terms.
+        These pages describe Panoptic, which GNSIS.studio is building. You are welcome to browse, create an account and use the early-access
+        and contact forms. Using them means you accept these terms.
+      </p>
+
+      <h2>Accounts</h2>
+      <p>
+        Sign-in uses Google or an email link to verify your identity through our existing GNSIS authentication service. No Panoptic password is needed.
+        Keep your Google or email account secure and sign out on shared devices. Account sign-in does not change the illustrative nature of the video results below.
       </p>
 
       <h2>Early access</h2>

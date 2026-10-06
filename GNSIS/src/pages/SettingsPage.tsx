@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { ChevronRight, Monitor, Moon, Sun } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import ApiKeysSection from "@/components/ApiKeysSection";
 import RepositoryPicker from "@/components/RepositoryPicker";
 import { useSession } from "@/lib/session";
@@ -106,20 +107,17 @@ function AppearanceSection() {
     <SettingsSection title="Appearance">
       <div className="flex gap-2">
         {options.map((opt) => (
-          <button
+          <Button
+            variant={theme === opt.value ? "primary" : "secondary"}
+            aria-pressed={theme === opt.value}
             key={opt.value}
             type="button"
             onClick={() => setTheme(opt.value)}
-            className={cn(
-              "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-              theme === opt.value
-                ? "border-foreground/20 bg-black/[0.04] font-semibold text-foreground"
-                : "border-border text-muted-foreground hover:bg-black/[0.03] hover:text-foreground",
-            )}
+            className="gap-2"
           >
             {opt.icon}
             {opt.label}
-          </button>
+          </Button>
         ))}
       </div>
     </SettingsSection>
@@ -166,14 +164,14 @@ export default function SettingsPage({
       <div className="mb-8">
         <div className="mb-1 flex items-center gap-2">
           {onBack && (
-            <button
+            <Button variant="quiet" size="icon"
               type="button"
               onClick={onBack}
-              className="rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:hidden"
+              className="md:hidden"
               aria-label="Back"
             >
               <ChevronRight className="h-4 w-4 rotate-180" />
-            </button>
+            </Button>
           )}
           <h1 className="text-lg font-semibold tracking-tight text-foreground">Settings</h1>
         </div>
@@ -183,7 +181,7 @@ export default function SettingsPage({
       </div>
 
       {githubConnected && (
-        <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
+        <div className="mb-6 rounded-card border border-green/20 bg-green-tint px-4 py-3 text-sm text-green">
           GitHub repositories connected successfully.
         </div>
       )}

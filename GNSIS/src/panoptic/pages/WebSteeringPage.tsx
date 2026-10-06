@@ -2,6 +2,7 @@
 // screen and steers. Every picture follows one task, buying an 8.25 skate
 // deck under $100. The store, products and prices are stand-ins.
 
+import { CodeBlock } from "@/components/ui/code-block";
 import type { CSSProperties } from "react";
 
 import { Canvas } from "../components/Canvas";
@@ -69,7 +70,7 @@ export default function WebSteeringPage() {
                     Most agents read a website’s code. Panoptic looks at the screen the way you do, and steers your agent through any site, one
                     move at a time.
                   </p>
-                  <Cta inverse large onClick={(event) => openEarlyAccess({ source: "web-steering:hero", returnFocus: event.currentTarget })}>
+                  <Cta inverse large className="mt-6" onClick={(event) => openEarlyAccess({ source: "web-steering:hero", returnFocus: event.currentTarget })}>
                     Get early access
                   </Cta>
                 </div>
@@ -102,7 +103,7 @@ export default function WebSteeringPage() {
         <div className="ws-panels">
           <figure>
             <p className="ws-panel-label">How agents see it today</p>
-            <pre className="ws-code">{CODE}</pre>
+            <CodeBlock variant="Code" code={CODE} filename="product.html" language="html" maxHeight={360} />
             <figcaption className="ws-panel-caption">Lines of code. No idea what the photo shows, or why the button won’t work.</figcaption>
           </figure>
           <figure>

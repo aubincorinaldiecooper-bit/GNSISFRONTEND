@@ -1,12 +1,9 @@
-// The early-access and contact forms. Neither has a page of its own: each
-// opens over whatever the visitor was looking at, takes an email, and says
-// in place that it arrived, in a box that keeps its size. Radix supplies the
-// dialog behaviour (focus kept inside, Escape and outside-click to close,
-// focus returned after); Motion supplies the fade, the settle, and the
-// cross-fade when the form turns into its confirmation.
-
-import * as Dialog from "@radix-ui/react-dialog";
-import { AnimatePresence, motion } from "motion/react";
+// Intake contracts stay unchanged. Shared Beautiful-themed Radix Dialog
+// owns focus, dismissal and portals; Motion only animates the form stages.
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { motion } from "motion/react";
 import {
   useCallback,
   useId,
@@ -24,7 +21,6 @@ import { DialogsContext, type Dialogs, type EarlyAccessRequest } from "../dialog
 import { looksLikeEmail, requestEarlyAccess, sendContactMessage, type IntakeResult } from "../intake";
 import { useMotionPrefs } from "../motion";
 import { Cta } from "./Cta";
-import { CloseIcon } from "./Icons";
 
 type Current =
   | { kind: "early-access"; task: string | null; source: string; returnFocus: HTMLElement | null; key: number }
@@ -82,52 +78,17 @@ function DialogFrame({
   returnFocus: HTMLElement | null;
   children: ReactNode;
 }) {
-  const m = useMotionPrefs();
-
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
-      <AnimatePresence>
-        {open && (
-          <Dialog.Portal forceMount>
-            <Dialog.Overlay forceMount asChild>
-              <motion.div
-                className="pn pn-overlay"
-                initial={{ opacity: 0, backdropFilter: "blur(0px)" }}
-                animate={{ opacity: 1, backdropFilter: "blur(6px)" }}
-                exit={{ opacity: 0, backdropFilter: "blur(0px)" }}
-                transition={m.quick}
-              >
-                <Dialog.Content
-                  forceMount
-                  asChild
-                  onCloseAutoFocus={(event) => {
-                    if (returnFocus && returnFocus.isConnected) {
-                      event.preventDefault();
-                      returnFocus.focus();
-                    }
-                  }}
-                >
-                  <motion.div
-                    className="pn-dialog"
-                    initial={{ opacity: 0, y: m.reduce ? 0 : 14, scale: m.reduce ? 1 : 0.985 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: m.reduce ? 0 : 8, scale: m.reduce ? 1 : 0.985 }}
-                    transition={m.spring}
-                  >
-                    <Dialog.Close asChild>
-                      <motion.button type="button" className="pn-round pn-dialog-close" aria-label="Close" whileTap={m.tap}>
-                        <CloseIcon />
-                      </motion.button>
-                    </Dialog.Close>
-                    {children}
-                  </motion.div>
-                </Dialog.Content>
-              </motion.div>
-            </Dialog.Overlay>
-          </Dialog.Portal>
-        )}
-      </AnimatePresence>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="pn gap-0 sm:max-w-[520px] p-6" onCloseAutoFocus={(event) => {
+        if (returnFocus?.isConnected) {
+          event.preventDefault();
+          returnFocus.focus();
+        }
+      }}>
+        {children}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -200,12 +161,12 @@ function Stage({ sent, form, done }: { sent: boolean; form: ReactNode; done: Rea
  * gives its title and description a fixed id each, which must stay unique.
  */
 function Title({ live, children }: { live: boolean; children: ReactNode }) {
-  return live ? <Dialog.Title className="pn-dialog-title">{children}</Dialog.Title> : <h2 className="pn-dialog-title">{children}</h2>;
+  return live ? <DialogTitle className="pn-dialog-title">{children}</DialogTitle> : <h2 className="pn-dialog-title">{children}</h2>;
 }
 
 function Description({ live, children }: { live: boolean; children: ReactNode }) {
   return live ? (
-    <Dialog.Description className="pn-dialog-text">{children}</Dialog.Description>
+    <DialogDescription className="pn-dialog-text">{children}</DialogDescription>
   ) : (
     <p className="pn-dialog-text">{children}</p>
   );
@@ -221,15 +182,25 @@ const FAILURE_TEXT: Record<Exclude<IntakeResult, { ok: true }>["reason"], string
 function useSubmission() {
   const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
   const [error, setError] = useState("");
+  const pending = useRef(false);
   const run = useCallback(async (send: () => Promise<IntakeResult>) => {
+    if (pending.current) return;
+    pending.current = true;
     setState("sending");
     setError("");
-    const result = await send();
-    if (result.ok) {
-      setState("sent");
-    } else {
+    try {
+      const result = await send();
+      if (result.ok) {
+        setState("sent");
+      } else {
+        setState("idle");
+        setError(FAILURE_TEXT[result.reason]);
+      }
+    } catch {
       setState("idle");
-      setError(FAILURE_TEXT[result.reason]);
+      setError(FAILURE_TEXT.failed);
+    } finally {
+      pending.current = false;
     }
   }, []);
   return { state, error, setError, run };
@@ -282,15 +253,15 @@ function EarlyAccessForm({ task, source, onDone }: { task: string | null; source
           </>
         }
         form={
-          <form onSubmit={submit} noValidate>
+          <form onSubmit={submit} noValidate aria-busy={state === "sending"}>
             <Title live={!sent}>Get early access</Title>
             <Description live={!sent}>Leave your email and we’ll let you know when you can try Panoptic.</Description>
             <label className="pn-field" htmlFor={`${ids}-email`}>
               <span className="pn-field-label">Email</span>
             </label>
-            <input
+            <Input
               id={`${ids}-email`}
-              className="pn-input"
+              disabled={state !== "idle"}
               type="email"
               name="email"
               autoComplete="email"
@@ -364,15 +335,15 @@ function ContactForm({ source, onDone }: { source: string; onDone: () => void })
           </>
         }
         form={
-          <form onSubmit={submit} noValidate>
+          <form onSubmit={submit} noValidate aria-busy={state === "sending"}>
             <Title live={!sent}>Contact</Title>
             <Description live={!sent}>Send a message to the GNSIS.studio team.</Description>
             <label className="pn-field" htmlFor={`${ids}-email`}>
               <span className="pn-field-label">Email</span>
             </label>
-            <input
+            <Input
               id={`${ids}-email`}
-              className="pn-input"
+              disabled={state !== "idle"}
               type="email"
               name="email"
               autoComplete="email"
@@ -388,9 +359,10 @@ function ContactForm({ source, onDone }: { source: string; onDone: () => void })
             <label className="pn-field" htmlFor={`${ids}-message`}>
               <span className="pn-field-label">Message</span>
             </label>
-            <textarea
+            <Textarea
               id={`${ids}-message`}
-              className="pn-input pn-textarea"
+              disabled={state !== "idle"}
+              aria-invalid={error ? true : undefined}
               name="message"
               required
               maxLength={5000}

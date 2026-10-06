@@ -3,6 +3,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { FolderGit2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/Combobox";
 
 const options: ComboboxOption[] = [
@@ -78,7 +80,7 @@ describe("Combobox", () => {
     );
 
     await user.click(screen.getByRole("combobox", { name: "Repository" }));
-    const search = screen.getByRole("listbox").querySelector("input")!;
+    const search = screen.getByRole("textbox", { name: "Search…" });
     await user.type(search, "some/repo-the-user-typed-by-hand");
 
     expect(screen.getByText("No matching repositories.")).toBeInTheDocument();
@@ -93,7 +95,7 @@ describe("Combobox", () => {
     render(
       <div>
         <Controlled />
-        <button type="button">outside</button>
+        <Button>outside</Button>
       </div>,
     );
 
@@ -151,8 +153,10 @@ describe("Combobox", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Repository" }));
     const listbox = screen.getByRole("listbox");
-    // The search input and every option are present inside the one listbox.
-    expect(within(listbox).getByRole("textbox")).toBeInTheDocument();
+    // Search is labeled separately; a listbox contains options, not a textbox.
+    expect(screen.getByRole("textbox", { name: "Search repositories…" })).toBeInTheDocument();
+    expect(within(listbox).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveAttribute("aria-controls", listbox.id);
     expect(within(listbox).getAllByRole("option")).toHaveLength(options.length);
   });
 
@@ -188,10 +192,39 @@ describe("Combobox", () => {
         options={options}
         value={null}
         onChange={() => {}}
-        icon={<svg data-testid="lead-icon" />}
+        icon={<FolderGit2 data-testid="lead-icon" aria-hidden="true" />}
       />,
     );
     const trigger = screen.getByRole("combobox", { name: "Repository" });
     expect(within(trigger).getByTestId("lead-icon")).toBeInTheDocument();
+  });
+
+  it("navigates options by keyboard, selects a real value and returns focus", async () => {
+    const user = userEvent.setup();
+    render(<Controlled />);
+    const trigger = screen.getByRole("combobox", { name: "Repository" });
+    trigger.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("textbox", { name: "Search repositories…" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("option", { name: "owner/alpha" })).toHaveFocus();
+    await user.keyboard("{End}{Enter}");
+    expect(trigger).toHaveTextContent("owner/beta");
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("returns focus on Escape and closes on Tab without trapping focus", async () => {
+    const user = userEvent.setup();
+    render(<><Controlled /><Button>Next control</Button></>);
+    const trigger = screen.getByRole("combobox", { name: "Repository" });
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
+    await user.click(trigger);
+    screen.getByRole("option", { name: "owner/beta" }).focus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Next control" })).toHaveFocus();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 });

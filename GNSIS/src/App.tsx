@@ -17,6 +17,7 @@ import {
   LayoutGrid,
   FlaskConical,
   CirclePlus,
+  Plus,
   Settings2,
   CreditCard,
   LogOut,
@@ -25,7 +26,6 @@ import {
   GitBranch,
   Cpu,
   Send,
-  Reply,
   Copy,
   Check,
   RotateCcw,
@@ -135,16 +135,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
+  ChatPanel,
   ChatMessage,
   ChatMessageBubble,
   ChatMessageList,
   ChatSystemMessage,
-} from "@astryxdesign/core/Chat";
-import { Avatar } from "@astryxdesign/core/Avatar";
-import { CodeBlock } from "@astryxdesign/core/CodeBlock";
-import { Toolbar } from "@astryxdesign/core/Toolbar";
-import { Section } from "@astryxdesign/core/Section";
-import { useResizable, ResizeHandle } from "@astryxdesign/core/Resizable";
+  ChatReply,
+} from "@/components/ui/chat";
+import { ChatComposer } from "@/components/ui/chat-composer";
+import { CodeBlock } from "@/components/ui/code-block";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+  type ImperativePanelHandle,
+} from "@/components/ui/resizable";
 
 // =============================================================================
 // UTILITY
@@ -167,7 +172,7 @@ function Divider({ orientation = "vertical", className }: DividerProps) {
   return (
     <div
       className={cn(
-        "bg-border shrink-0",
+        "bg-line shrink-0",
         orientation === "vertical" ? "w-px h-full" : "h-px w-full",
         className
       )}
@@ -182,19 +187,19 @@ function Divider({ orientation = "vertical", className }: DividerProps) {
 type StatusKind = "idle" | "active" | "completed" | "waiting" | "failed";
 
 const statusDotCls: Record<StatusKind, string> = {
-  idle: "bg-muted-foreground/40",
-  active: "bg-blue-500",
-  completed: "bg-emerald-500",
-  waiting: "bg-amber-500",
-  failed: "bg-red-500",
+  idle: "bg-ink-3/40",
+  active: "bg-accent",
+  completed: "bg-green",
+  waiting: "bg-orange",
+  failed: "bg-red",
 };
 
 const statusTextCls: Record<StatusKind, string> = {
-  idle: "text-muted-foreground",
-  active: "text-blue-600",
-  completed: "text-emerald-600",
-  waiting: "text-amber-600",
-  failed: "text-red-600",
+  idle: "text-ink-2",
+  active: "text-accent-ink",
+  completed: "text-green",
+  waiting: "text-orange",
+  failed: "text-red",
 };
 
 interface StatusIndicatorProps {
@@ -239,20 +244,20 @@ function IconButton({ icon, label, onClick, active, className }: IconButtonProps
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button variant="quiet" size="icon"
             type="button"
             onClick={onClick}
             aria-label={label}
             className={cn(
-              "inline-flex items-center justify-center h-8 w-8 rounded-lg transition-colors duration-150",
-              "text-muted-foreground hover:text-foreground hover:bg-black/[0.04]",
+              "inline-flex items-center justify-center h-8 w-8 rounded-control transition-colors duration-150",
+              "text-ink-2 hover:text-ink hover:bg-hover",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-              active && "bg-black/[0.04] text-foreground",
+              active && "bg-hover text-ink",
               className
             )}
           >
             {icon}
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="text-xs">
           {label}
@@ -279,19 +284,19 @@ function EmptyState({ icon, title, description, action }: EmptyStateProps) {
       <div className="text-center space-y-2 max-w-xs">
         {icon && (
           <div className="flex justify-center mb-3">
-            <span className="text-muted-foreground/40">{icon}</span>
+            <span className="text-ink-2/40">{icon}</span>
           </div>
         )}
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
+        <p className="text-sm font-medium text-ink">{title}</p>
+        <p className="text-sm text-ink-2 leading-relaxed">{description}</p>
         {action && (
-          <button
+          <Button variant="quiet" size="sm"
             type="button"
             onClick={action.onClick}
-            className="text-sm font-medium text-foreground underline underline-offset-2 hover:text-foreground/80 transition-colors mt-1"
+            className="text-sm font-medium text-ink underline underline-offset-2 hover:text-ink/80 transition-colors mt-1"
           >
             {action.label}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -309,22 +314,22 @@ type RouteViewKind = NavId | "settings" | "billing" | "run" | "github-onboarding
 // signal (never color alone); "Ready for review" and "Approved" deliberately
 // share amber since they're distinguished by wording, not hue.
 const lifecycleStageCls: Record<LifecycleStageId, string> = {
-  queued: "text-muted-foreground",
-  working: "text-blue-600",
-  ready_for_review: "text-amber-600",
-  approved: "text-amber-600",
-  published: "text-emerald-600",
-  attempt_stopped: "text-red-600",
-  publication_failed: "text-red-600",
-  rejected: "text-muted-foreground",
-  cancelled: "text-muted-foreground",
+  queued: "text-ink-2",
+  working: "text-accent-ink",
+  ready_for_review: "text-orange",
+  approved: "text-orange",
+  published: "text-green",
+  attempt_stopped: "text-red",
+  publication_failed: "text-red",
+  rejected: "text-ink-2",
+  cancelled: "text-ink-2",
 };
 
 function StatusLabel({ stage, qualifier }: { stage: LifecycleStageId; qualifier?: string | null }) {
   return (
     <span className={cn("font-medium", lifecycleStageCls[stage])}>
       {LIFECYCLE_STAGE_LABELS[stage]}
-      {qualifier && <span className="font-normal text-muted-foreground"> · {qualifier}</span>}
+      {qualifier && <span className="font-normal text-ink-2"> · {qualifier}</span>}
     </span>
   );
 }
@@ -371,21 +376,23 @@ function SidebarNavItem({
   onClick: () => void;
 }) {
   const content = (
-    <button
+    <Button variant="quiet" size="sm"
       type="button"
       onClick={onClick}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors duration-150",
+        "flex w-full justify-start items-center gap-2.5 rounded-control px-2.5 py-2 text-sm transition-colors duration-150",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         collapsed && "justify-center px-0 h-9 w-9 mx-auto",
         active
-          ? "bg-black/[0.04] text-foreground font-medium"
-          : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
+          ? "bg-hover text-ink font-medium"
+          : "text-ink-2 hover:bg-hover hover:text-ink"
       )}
     >
       <span className="shrink-0 [&_svg]:h-4 [&_svg]:w-4">{icon}</span>
       {!collapsed && <span className="truncate">{label}</span>}
-    </button>
+    </Button>
   );
 
   if (!collapsed) return content;
@@ -407,15 +414,15 @@ function SidebarNavItem({
 // =============================================================================
 
 const sidebarStatusIcon: Record<LifecycleStageId, React.ReactNode> = {
-  queued: <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 self-start mt-0.5" />,
-  working: <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
-  ready_for_review: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 self-start mt-0.5" />,
-  approved: <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 self-start mt-0.5" />,
-  published: <CircleCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0 self-start mt-0.5" />,
-  rejected: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
-  attempt_stopped: <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0 self-start mt-0.5" />,
-  publication_failed: <CircleX className="h-3.5 w-3.5 text-red-500 shrink-0 self-start mt-0.5" />,
-  cancelled: <CircleX className="h-3.5 w-3.5 text-muted-foreground shrink-0 self-start mt-0.5" />,
+  queued: <Circle className="h-3.5 w-3.5 text-ink-2/40 shrink-0 self-start mt-0.5" />,
+  working: <Loader2 className="h-3.5 w-3.5 text-accent animate-spin motion-reduce:animate-none shrink-0 self-start mt-0.5" />,
+  ready_for_review: <AlertTriangle className="h-3.5 w-3.5 text-orange shrink-0 self-start mt-0.5" />,
+  approved: <Clock className="h-3.5 w-3.5 text-orange shrink-0 self-start mt-0.5" />,
+  published: <CircleCheck className="h-3.5 w-3.5 text-green shrink-0 self-start mt-0.5" />,
+  rejected: <CircleX className="h-3.5 w-3.5 text-ink-2 shrink-0 self-start mt-0.5" />,
+  attempt_stopped: <AlertTriangle className="h-3.5 w-3.5 text-red shrink-0 self-start mt-0.5" />,
+  publication_failed: <CircleX className="h-3.5 w-3.5 text-red shrink-0 self-start mt-0.5" />,
+  cancelled: <CircleX className="h-3.5 w-3.5 text-ink-2 shrink-0 self-start mt-0.5" />,
 };
 
 function SidebarRunRow({
@@ -434,18 +441,18 @@ function SidebarRunRow({
       <TooltipProvider delayDuration={300}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Button variant="quiet" size="sm"
               type="button"
               onClick={onClick}
               aria-label={`${run.title} \u2014 ${LIFECYCLE_STAGE_LABELS[run.status]}`}
               className={cn(
-                "flex items-center justify-center h-8 w-8 mx-auto rounded-lg transition-colors duration-150",
+                "flex items-center justify-center h-8 w-8 mx-auto rounded-control transition-colors duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                active ? "bg-black/[0.05] text-foreground" : "hover:bg-black/[0.03]"
+                active ? "bg-field text-ink" : "hover:bg-hover"
               )}
             >
               {sidebarStatusIcon[run.status]}
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent side="right" className="text-xs max-w-48">
             {run.title}
@@ -456,27 +463,27 @@ function SidebarRunRow({
   }
 
   return (
-    <button
+    <Button variant="quiet" size="sm"
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors duration-150",
+        "flex h-auto w-full justify-start items-center gap-2 rounded-control px-2.5 py-2 text-left transition-colors duration-150",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        active ? "bg-black/[0.05]" : "hover:bg-black/[0.03]"
+        active ? "bg-field" : "hover:bg-hover"
       )}
     >
       {sidebarStatusIcon[run.status]}
       <span className="flex-1 min-w-0">
-        <span className="block text-sm text-foreground truncate leading-tight">
+        <span className="block text-sm text-ink truncate leading-tight">
           {run.title}
         </span>
-        <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground truncate leading-tight">
+        <span className="mt-0.5 flex items-center gap-1 text-xs text-ink-2 truncate leading-tight">
           <span className={cn("font-medium", lifecycleStageCls[run.status])}>{LIFECYCLE_STAGE_LABELS[run.status]}</span>
-          <span className="text-muted-foreground/40">·</span>
+          <span className="text-ink-2/40">·</span>
           <span className="truncate">{timeAgo(run.updatedAt)}</span>
         </span>
       </span>
-    </button>
+    </Button>
   );
 }
 
@@ -487,10 +494,10 @@ function SidebarRunRow({
 function UsageMeter({ available }: { available: string | null }) {
   return (
     <div className="px-3 pb-2.5 pt-3 space-y-1">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
         Available balance
       </span>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-ink-2">
         {available !== null ? usd(available) : "—"}
       </p>
     </div>
@@ -503,7 +510,7 @@ function CollapsedUsageIndicator() {
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="px-4 pb-2.5 pt-3 flex justify-center cursor-pointer">
-            <div className="h-1.5 w-9 rounded-full bg-muted overflow-hidden" />
+            <div className="h-1.5 w-9 rounded-full bg-inset overflow-hidden" />
           </div>
         </TooltipTrigger>
         <TooltipContent side="right" className="text-xs">
@@ -541,16 +548,17 @@ function AccountRow({
       referrerPolicy="no-referrer"
     />
   ) : (
-    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground shrink-0">
+    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-inset text-[10px] font-semibold text-ink-2 shrink-0">
       {initial}
     </div>
   );
 
   const trigger = (
-    <button
+    <Button variant="quiet" size="sm"
       type="button"
+      aria-label={`${displayName} account menu`}
       className={cn(
-        "flex items-center h-12 px-3 shrink-0 w-full transition-colors duration-150 hover:bg-black/[0.03]",
+        "flex items-center rounded-none h-12 px-3 shrink-0 w-full transition-colors duration-150 hover:bg-hover",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         collapsed && "justify-center px-0"
       )}
@@ -559,17 +567,17 @@ function AccountRow({
       {!collapsed && (
         <>
           <span className="ml-2 min-w-0 flex-1 text-left">
-            <span className="block text-xs font-semibold text-foreground truncate">
+            <span className="block text-xs font-semibold text-ink truncate">
               {displayName}
             </span>
-            <span className="block text-[11px] text-muted-foreground truncate">
+            <span className="block text-[11px] text-ink-2 truncate">
               {workspaceName}
             </span>
           </span>
-          <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+          <ChevronsUpDown className="h-3.5 w-3.5 text-ink-2/60 shrink-0" />
         </>
       )}
-    </button>
+    </Button>
   );
 
   return (
@@ -592,8 +600,8 @@ function AccountRow({
         {authUser?.email && (
           <>
             <div className="px-2 py-1.5">
-              <p className="text-xs font-medium text-foreground truncate">{displayName}</p>
-              <p className="text-[11px] text-muted-foreground truncate">{authUser.email}</p>
+              <p className="text-xs font-medium text-ink truncate">{displayName}</p>
+              <p className="text-[11px] text-ink-2 truncate">{authUser.email}</p>
             </div>
             <DropdownMenuSeparator />
           </>
@@ -659,7 +667,7 @@ function SidebarRegion({
     <aside
       style={{ width: collapsed ? 68 : 250 }}
       className={cn(
-        "relative flex flex-col h-full shrink-0 bg-muted",
+        "relative flex flex-col h-full shrink-0 bg-inset",
         "transition-[width] duration-200 ease-in-out overflow-hidden"
       )}
     >
@@ -671,11 +679,11 @@ function SidebarRegion({
         )}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-neutral-900 text-white shrink-0">
+          <div className="flex items-center justify-center h-7 w-7 rounded-control bg-ink text-canvas shrink-0">
             <Terminal className="h-3.5 w-3.5" />
           </div>
           {!collapsed && (
-            <span className="text-sm font-bold tracking-tight text-foreground truncate">
+            <span className="text-sm font-bold tracking-tight text-ink truncate">
               GNSIS
             </span>
           )}
@@ -714,12 +722,12 @@ function SidebarRegion({
           <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-width:thin]">
             <div className="py-2.5 px-2 space-y-0.5">
               {!collapsed && (
-                <p className="px-2.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="px-2.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-2">
                   Recent
                 </p>
               )}
               {runs.length === 0 && !collapsed && (
-                <p className="px-2.5 py-4 text-xs text-muted-foreground text-center">
+                <p className="px-2.5 py-4 text-xs text-ink-2 text-center">
                   No recent runs
                 </p>
               )}
@@ -733,14 +741,14 @@ function SidebarRegion({
                 />
               ))}
               {!collapsed && (
-                <button
+                <Button variant="quiet" size="sm"
                   type="button"
                   onClick={() => onNavSelect("runs")}
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-black/[0.04] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 mt-1"
+                  className="flex w-full items-center gap-2 rounded-control px-2.5 py-2 text-left text-xs text-ink-2 hover:text-ink hover:bg-hover transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 mt-1"
                 >
                   <ListChecks className="h-3.5 w-3.5 shrink-0" />
                   <span>View all runs</span>
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -947,6 +955,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
         model,
         advisorModel: !publicBetaMode() && showAdvisor ? advisorModel : null,
       });
+      setPrompt(""); // never discard a failed instruction
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start the run.");
       setIsSubmitting(false);
@@ -967,25 +976,25 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
   return (
     <div className="w-full max-w-4xl mx-auto px-4 md:px-6 pb-4 md:pb-0">
       <div className="text-center space-y-2 mb-6">
-        <h1 className="text-lg font-semibold tracking-tight text-foreground">
+        <h1 className="text-lg font-semibold tracking-tight text-ink">
           What should GNSIS work on?
         </h1>
-        <p className="text-sm text-muted-foreground leading-relaxed">
+        <p className="text-sm text-ink-2 leading-relaxed">
           Choose your repository, describe the task, and start the run.
         </p>
       </div>
 
       {noReposAvailable ? (
-        <div className="rounded-2xl border border-dashed border-border bg-muted/50 px-6 py-10 text-center">
-          <p className="text-sm font-medium text-foreground">No repositories are available.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+        <div className="rounded-window border border-dashed border-line bg-inset/50 px-6 py-10 text-center">
+          <p className="text-sm font-medium text-ink">No repositories are available.</p>
+          <p className="mt-1 text-xs text-ink-2">
             Grant GNSIS access to a repository through GitHub to start your first run.
           </p>
           {manageAccessLink && (
             <Button
               asChild
               size="sm"
-              variant="outline"
+              variant="secondary"
               className="mt-4 h-8 gap-1.5 text-xs"
             >
               <a href={manageAccessLink} target="_blank" rel="noreferrer">
@@ -995,34 +1004,30 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
           )}
         </div>
       ) : (
-        <div className="rounded-2xl border border-border bg-card shadow-sm">
-          {/*
-            The card is deliberately overflow-VISIBLE so the non-portal Combobox
-            dropdowns can extend past the card's bottom edge. Rounded corners are
-            preserved on the static top (textarea) and, on mobile, the config
-            sheet — never with overflow-hidden on an ancestor of an open dropdown.
-          */}
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the change you want GNSIS to make…"
-            className="min-h-28 resize-none border-none shadow-none rounded-t-2xl rounded-b-none px-4 py-3.5 text-sm focus-visible:ring-0"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-          />
-
+        <ChatComposer
+          value={prompt}
+          onValueChange={setPrompt}
+          onSubmit={() => void handleSubmit()}
+          label="Run instruction"
+          placeholder="Describe the change you want GNSIS to make…"
+          submitLabel="Submit run"
+          loading={isSubmitting}
+          submitDisabled={!canSubmit}
+          textareaProps={{ className: "min-h-28", "aria-describedby": error ? "new-run-error" : undefined }}
+          className="overflow-visible rounded-window bg-surface shadow-card"
+          footerClassName="flex-col items-stretch"
+          // Keep the readable desktop/mobile Start actions in the configuration
+          // footer. The shared form still owns Enter, Shift+Enter and IME.
+          submitClassName="hidden"
+          footer={<>
           {publicBetaMode() && prompt.trim().length >= 12 && (() => {
             const fresh = previewFor?.repo === repositoryId && previewFor?.prompt === prompt.trim();
             const shownPreview = fresh ? preview : null;
             const shownState: "idle" | "loading" | "loaded" | "error" = fresh ? previewState : (previewState === "error" ? "error" : "loading");
             return <div className="border-t px-4 py-3 text-xs" aria-live="polite">
               <p className="font-semibold">Repository intelligence</p>
-              <p className="mt-0.5 text-muted-foreground">{shownState === "loading" ? "Checking approved intelligence…" : shownState === "error" ? "Intelligence preview is temporarily unavailable." : shownState === "loaded" && shownPreview?.length ? `${shownPreview.length} approved insight${shownPreview.length === 1 ? " is" : "s are"} relevant to this task.` : shownState === "loaded" ? "No approved intelligence is relevant yet." : "The backend selects intelligence authoritatively when the run starts."}</p>
-              {!!shownPreview?.length && <details className="mt-1"><summary className="cursor-pointer">Preview candidates</summary><ul className="mt-2 space-y-2">{shownPreview.map((item) => <li key={item.memory_id}><p>{item.content}</p><p className="text-muted-foreground">{item.kind}</p></li>)}</ul></details>}
+              <p className="mt-0.5 text-ink-2">{shownState === "loading" ? "Checking approved intelligence…" : shownState === "error" ? "Intelligence preview is temporarily unavailable." : shownState === "loaded" && shownPreview?.length ? `${shownPreview.length} approved insight${shownPreview.length === 1 ? " is" : "s are"} relevant to this task.` : shownState === "loaded" ? "No approved intelligence is relevant yet." : "The backend selects intelligence authoritatively when the run starts."}</p>
+              {!!shownPreview?.length && <details className="mt-1"><summary className="cursor-pointer">Preview candidates</summary><ul className="mt-2 space-y-2">{shownPreview.map((item) => <li key={item.memory_id}><p>{item.content}</p><p className="text-ink-2">{item.kind}</p></li>)}</ul></details>}
             </div>;
           })()}
 
@@ -1047,7 +1052,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   placeholder="Select repository"
                   searchPlaceholder="Search repositories…"
                   emptyText="No matching repositories."
-                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                  className="h-9 rounded-control bg-surface px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1062,7 +1067,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   emptyText={branchesError ? "Could not load branches." : "No branches found."}
                   loading={branchesLoading}
                   disabled={!repositoryId}
-                  className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                  className="h-9 rounded-control bg-surface px-2.5 text-xs font-mono"
                 />
               </div>
               <div className="min-w-0">
@@ -1076,15 +1081,16 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   searchPlaceholder="Search models…"
                   emptyText="No matching models."
                   disabled={(models ?? []).length === 0}
-                  className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                  className="h-9 rounded-control bg-surface px-2.5 text-xs"
                 />
               </div>
               <div className="col-span-2 lg:col-span-1 flex justify-end">
                 <Button
+                  variant="primary"
                   size="sm"
                   disabled={!canSubmit}
                   onClick={handleSubmit}
-                  className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
+                  className="h-9 shrink-0 gap-1.5 rounded-control px-4"
                 >
                   {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Start run
@@ -1096,7 +1102,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
             {!publicBetaMode() && <div className="flex items-center gap-2 min-w-0">
               {showAdvisor ? (
                 <>
-                  <span className="shrink-0 text-xs text-muted-foreground">Advisor</span>
+                  <span className="shrink-0 text-xs text-ink-2">Advisor</span>
                   <div className="min-w-0 w-full max-w-xs">
                     <Combobox
                       ariaLabel="Advisor"
@@ -1108,7 +1114,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                      className="h-9 rounded-control bg-surface px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1117,7 +1123,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                     size="sm"
                     aria-label="Remove Advisor"
                     onClick={handleRemoveAdvisor}
-                    className="h-8 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className="h-8 shrink-0 gap-1 px-2 text-xs text-ink-2 hover:text-ink"
                   >
                     <X className="h-3.5 w-3.5" />
                     Remove
@@ -1129,9 +1135,10 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowAdvisor(true)}
-                  className="h-8 -ml-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  aria-label="+ Add Advisor"
+                  className="h-8 -ml-1 px-2 text-xs text-ink-2 hover:text-ink"
                 >
-                  + Add Advisor
+                  <Plus className="size-3.5" aria-hidden="true" /> Add Advisor
                 </Button>
               )}
             </div>}
@@ -1139,21 +1146,22 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 
           {/* Mobile bottom bar */}
           <div className="flex md:hidden items-center justify-between gap-2 px-3 py-2.5">
-            <button
+            <Button variant="quiet" size="sm"
               type="button"
               onClick={() => setShowMobileConfig((v) => !v)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors text-left min-w-0 truncate"
+              className="text-xs text-ink-2 hover:text-ink transition-colors text-left min-w-0 truncate"
             >
               <span className="font-mono">{selectedRepo?.full_name ?? "Select repository"}</span>
               {branch ? ` · ${branch}` : ""}
               {selectedModelLabel ? ` · ${selectedModelLabel}` : ""}
               {showAdvisor && selectedAdvisorLabel ? ` · Advisor: ${selectedAdvisorLabel}` : ""}
-            </button>
+            </Button>
             <Button
+              variant="primary"
               size="sm"
               disabled={!canSubmit}
               onClick={handleSubmit}
-              className="h-9 shrink-0 gap-1.5 rounded-lg px-4"
+              className="h-9 shrink-0 gap-1.5 rounded-control px-4"
             >
               {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               <span className="text-sm">Start</span>
@@ -1162,7 +1170,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
 
           {/* Mobile config sheet — rounded-b so the card's bottom corners stay clean */}
           {showMobileConfig && (
-            <div className="md:hidden rounded-b-2xl border-t border-border px-3 py-2.5 space-y-2 bg-muted/50">
+            <div className="md:hidden rounded-b-2xl border-t border-line px-3 py-2.5 space-y-2 bg-inset/50">
               <Combobox
                 ariaLabel="Repository"
                 icon={<FolderGit className="h-3.5 w-3.5" />}
@@ -1172,7 +1180,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 placeholder="Select repository"
                 searchPlaceholder="Search repositories…"
                 emptyText="No matching repositories."
-                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                className="h-9 rounded-control bg-surface px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Branch"
@@ -1185,7 +1193,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 emptyText={branchesError ? "Could not load branches." : "No branches found."}
                 loading={branchesLoading}
                 disabled={!repositoryId}
-                className="h-9 rounded-lg bg-card px-2.5 text-xs font-mono"
+                className="h-9 rounded-control bg-surface px-2.5 text-xs font-mono"
               />
               <Combobox
                 ariaLabel="Model"
@@ -1197,7 +1205,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                 searchPlaceholder="Search models…"
                 emptyText="No matching models."
                 disabled={(models ?? []).length === 0}
-                className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                className="h-9 rounded-control bg-surface px-2.5 text-xs"
               />
               {!publicBetaMode() && (showAdvisor ? (
                 <div className="flex items-center gap-2">
@@ -1212,7 +1220,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                       searchPlaceholder="Search Advisor models…"
                       emptyText="No matching models."
                       disabled={(models ?? []).length === 0}
-                      className="h-9 rounded-lg bg-card px-2.5 text-xs"
+                      className="h-9 rounded-control bg-surface px-2.5 text-xs"
                     />
                   </div>
                   <Button
@@ -1221,7 +1229,7 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
                     size="sm"
                     aria-label="Remove Advisor"
                     onClick={handleRemoveAdvisor}
-                    className="h-9 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className="h-9 shrink-0 gap-1 px-2 text-xs text-ink-2 hover:text-ink"
                   >
                     <X className="h-4 w-4" />
                     Remove
@@ -1230,29 +1238,31 @@ function NewRunComposer({ onSubmit }: NewRunComposerProps) {
               ) : (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   onClick={() => setShowAdvisor(true)}
+                  aria-label="+ Add Advisor"
                   className="h-9 w-full justify-start text-xs"
                 >
-                  + Add Advisor
+                  <Plus className="size-3.5" aria-hidden="true" /> Add Advisor
                 </Button>
               ))}
             </div>
           )}
-        </div>
+          </>}
+        />
       )}
 
       {error && (
-        <p className="mt-2 text-center text-xs text-red-600">{error}</p>
+        <p id="new-run-error" role="alert" className="mt-2 text-center text-xs text-red">{error}</p>
       )}
       {reposError && (
-        <p className="mt-2 text-center text-xs text-red-600">
+        <p className="mt-2 text-center text-xs text-red">
           Could not load your repositories. Try refreshing.
         </p>
       )}
       {!isApiConfigured() && (
-        <p className="mt-2 text-center text-xs text-amber-600">
+        <p className="mt-2 text-center text-xs text-orange">
           VITE_API_BASE_URL is not configured — runs cannot be started.
         </p>
       )}
@@ -1341,26 +1351,26 @@ function CopyButton({
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button variant="quiet" size="sm"
             type="button"
             onClick={onCopy}
             aria-label={label}
             className={cn(
               "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors",
-              "text-muted-foreground/70 hover:text-foreground hover:bg-black/[0.04]",
+              "text-ink-2/70 hover:text-ink hover:bg-hover",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
               className
             )}
           >
             {state === "copied" ? (
-              <Check className="h-3.5 w-3.5 text-emerald-600" />
+              <Check className="h-3.5 w-3.5 text-green" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}
-            <span className={cn(state === "copied" ? "text-emerald-600" : state === "error" && "text-red-500")}>
+            <span className={cn(state === "copied" ? "text-green" : state === "error" && "text-red")}>
               {state === "copied" ? "Copied" : state === "error" ? "Copy failed" : "Copy"}
             </span>
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
           {title}
@@ -1382,7 +1392,7 @@ function MessageMeta({
   timestamp: string;
 }) {
   return (
-    <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground/60">
+    <div className="mt-1.5 flex items-center gap-2 text-xs text-ink-2/60">
       <CopyButton text={copyText} label={copyLabel} />
       {timestamp && (
         <TooltipProvider delayDuration={300}>
@@ -1413,21 +1423,21 @@ function ThreadHeader({ thread }: { thread: ThreadState }) {
   // AttemptSummaryLine below.
   const singleAttempt = thread.runs.length === 1;
   return (
-    <div className="border-b border-border pb-4 mb-4">
-      <h1 className="text-lg font-semibold text-foreground leading-snug">
+    <div className="border-b border-line pb-4 mb-4">
+      <h1 className="text-lg font-semibold text-ink leading-snug">
         {threadTitle(first.instruction)}
       </h1>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground/80">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2/80">
         <span className="font-mono">{first.repo}</span>
         {singleAttempt && (
           <>
-            <span className="text-muted-foreground/40">·</span>
+            <span className="text-ink-2/40">·</span>
             <span>Model: {displayModel(first)}</span>
           </>
         )}
         {displayAdvisorModel(first) !== "—" && (
           <>
-            <span className="text-muted-foreground/40">·</span>
+            <span className="text-ink-2/40">·</span>
             <span>Advisor: {displayAdvisorModel(first)}</span>
           </>
         )}
@@ -1440,7 +1450,7 @@ function ThreadHeader({ thread }: { thread: ThreadState }) {
 // (copy + relative timestamp). Readable width, preserved line breaks.
 function InstructionMessage({ job }: { job: JobRecord }) {
   return (
-    <ChatMessage sender="user">
+    <ChatMessage speaker="user">
       <ChatMessageBubble
         metadata={<MessageMeta copyText={job.instruction} copyLabel="Copy instruction" timestamp={job.created_at} />}
       >
@@ -1454,24 +1464,24 @@ function DiffSummary({ diff }: { diff: DiffRecord }) {
   const [showPatch, setShowPatch] = useState(false);
   return (
     <div className="space-y-2">
-      <ul className="text-xs text-muted-foreground space-y-1">
+      <ul className="text-xs text-ink-2 space-y-1">
         {diff.files_changed.length === 0 && <li>No files changed.</li>}
         {diff.files_changed.map((f) => (
           <li key={f} className="flex items-center gap-1.5 font-mono">
-            <span className="h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
+            <span className="h-1 w-1 rounded-full bg-ink-3/50 shrink-0" />
             {f}
           </li>
         ))}
       </ul>
       {diff.patch && (
         <div className="flex items-center gap-3">
-          <button
+          <Button variant="quiet" size="sm"
             type="button"
             onClick={() => setShowPatch((v) => !v)}
-            className="text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+            className="text-xs font-medium text-ink underline underline-offset-2 hover:text-ink/80"
           >
             {showPatch ? "Hide patch" : "View patch"}
-          </button>
+          </Button>
           <CopyButton text={diff.patch} label="Copy patch" />
         </div>
       )}
@@ -1479,10 +1489,8 @@ function DiffSummary({ diff }: { diff: DiffRecord }) {
         <CodeBlock
           language="diff"
           code={diff.patch}
-          width="100%"
+          className="w-full"
           maxHeight={256}
-          isCollapsible
-          collapsibleThreshold={1}
         />
       )}
     </div>
@@ -1544,28 +1552,28 @@ function BetaRunReview({
 
   const diffBlock = <div className="mt-3 rounded-xl border p-4 space-y-3">
     <p className="text-sm font-semibold">Proposed changes</p>
-    {diff ? <DiffSummary diff={diff} /> : <p className="text-xs text-muted-foreground">Loading the proposed diff…</p>}
+    {diff ? <DiffSummary diff={diff} /> : <p className="text-xs text-ink-2">Loading the proposed diff…</p>}
   </div>;
 
   if (job.status === "approved") return <>
     {diffBlock}
-    <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-muted-foreground">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red-600">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null || disabled}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>
+    <div className="mt-3 rounded-xl border p-4"><p className="text-sm font-semibold">Run approved</p><p className="mt-1 text-xs text-ink-2">Approved intelligence is recorded independently of publishing.</p>{error && <p className="mt-2 text-xs text-red">{error}</p>}<Button size="sm" className="mt-3" onClick={publish} disabled={pending !== null || disabled}>{pending === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Publish pull request</Button></div>
   </>;
   if (job.status !== "awaiting_approval") return null;
   return <>
     {diffBlock}
-    <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+    <div className="mt-3 rounded-xl border border-line bg-orange-tint p-4">
       <h3 className="text-sm font-semibold">Proposed intelligence</h3>
-      <p className="mt-1 text-xs text-muted-foreground">Nothing becomes approved intelligence until you select it and approve the run.</p>
-      {proposalState === "loading" ? <p className="mt-3 text-xs">Loading proposals…</p> : proposalState === "loaded" && proposals.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">No intelligence was proposed. You can still approve the run.</p> : proposalState === "loaded" ? <ul className="mt-3 space-y-3">{proposals.map((item) => <li key={item.id} className="flex items-start gap-2">
-        <input aria-label={`Select proposal ${item.id}`} type="checkbox" checked={choices[item.id]?.selected ?? false} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: event.target.checked, content: current[item.id]?.content ?? item.content } }))} />
-        <div className="flex-1"><Textarea aria-label={`Edit proposal ${item.id}`} value={choices[item.id]?.content ?? item.content} disabled={!choices[item.id]?.selected} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: current[item.id]?.selected ?? true, content: event.target.value } }))} className="min-h-16 text-xs" /><p className="mt-1 text-xs text-muted-foreground">{item.kind}</p></div>
+      <p className="mt-1 text-xs text-ink-2">Nothing becomes approved intelligence until you select it and approve the run.</p>
+      {proposalState === "loading" ? <p className="mt-3 text-xs">Loading proposals…</p> : proposalState === "loaded" && proposals.length === 0 ? <p className="mt-3 text-xs text-ink-2">No intelligence was proposed. You can still approve the run.</p> : proposalState === "loaded" ? <ul className="mt-3 space-y-3">{proposals.map((item) => <li key={item.id} className="flex items-start gap-2">
+        <Input variant="plain" className="size-4 shrink-0 accent-accent" aria-label={`Select proposal ${item.id}`} type="checkbox" checked={choices[item.id]?.selected ?? false} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: event.target.checked, content: current[item.id]?.content ?? item.content } }))} />
+        <div className="flex-1"><Textarea aria-label={`Edit proposal ${item.id}`} value={choices[item.id]?.content ?? item.content} disabled={!choices[item.id]?.selected} onChange={(event) => setChoices((current) => ({ ...current, [item.id]: { selected: current[item.id]?.selected ?? true, content: event.target.value } }))} className="min-h-16 text-xs" /><p className="mt-1 text-xs text-ink-2">{item.kind}</p></div>
       </li>)}</ul> : null}
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-      {proposalState === "error" && <Button size="sm" variant="outline" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
+      {error && <p className="mt-2 text-xs text-red">{error}</p>}
+      {proposalState === "error" && <Button size="sm" variant="secondary" className="mt-3" onClick={() => { setError(null); setProposalState("loading"); setProposalAttempt((value) => value + 1); }}>Retry</Button>}
       <div className="mt-3 flex items-center gap-2 flex-wrap">
         <Button size="sm" onClick={approve} disabled={pending !== null || proposalState !== "loaded" || disabled}>{pending === "approve" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Approve run</Button>
-        <Button size="sm" variant="outline" onClick={reject} disabled={pending !== null || disabled}>{pending === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Reject</Button>
+        <Button size="sm" variant="secondary" onClick={reject} disabled={pending !== null || disabled}>{pending === "reject" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Reject</Button>
       </div>
     </div>
   </>;
@@ -1586,10 +1594,10 @@ function RunCompleteMessage({ job, diff, logs }: { job: JobRecord; diff: DiffRec
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
-        <CircleCheck className="h-4 w-4 text-emerald-600 shrink-0" />
-        <p className="text-sm font-semibold text-foreground">Run complete</p>
+        <CircleCheck className="h-4 w-4 text-green shrink-0" />
+        <p className="text-sm font-semibold text-ink">Run complete</p>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6">
+      <p className="text-sm text-ink-2 leading-relaxed pl-6">
         {diff && diff.files_changed.length > 0
           ? `${diff.files_changed.length} file${diff.files_changed.length === 1 ? "" : "s"} changed on branch ${job.branch ?? job.base_branch}.`
           : "The run finished successfully."}
@@ -1599,7 +1607,7 @@ function RunCompleteMessage({ job, diff, logs }: { job: JobRecord; diff: DiffRec
           href={prUrl}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 pl-6 text-xs font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+          className="inline-flex items-center gap-1 pl-6 text-xs font-medium text-ink underline underline-offset-2 hover:text-ink/80"
         >
           View pull request <ExternalLink className="h-3 w-3" />
         </a>
@@ -1624,22 +1632,22 @@ function FailedMessage({ job }: { job: JobRecord }) {
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
-        <CircleX className="h-4 w-4 text-red-500 shrink-0" />
-        <p className="text-sm font-semibold text-red-600">Attempt stopped</p>
+        <CircleX className="h-4 w-4 text-red shrink-0" />
+        <p className="text-sm font-semibold text-red">Attempt stopped</p>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6 break-words">{summary}</p>
+      <p className="text-sm text-ink-2 leading-relaxed pl-6 break-words">{summary}</p>
       {details && (
         <div className="pl-6">
-          <button
+          <Button variant="quiet" size="sm"
             type="button"
             onClick={() => setShowDetails((v) => !v)}
-            className="text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            className="text-xs font-medium text-ink-2 underline underline-offset-2 hover:text-ink"
           >
             {showDetails ? "Hide technical details" : "Show technical details"}
-          </button>
+          </Button>
           {showDetails && (
             <div className="mt-2">
-              <CodeBlock language="plaintext" code={details} width="100%" maxHeight={224} isWrapped />
+              <CodeBlock language="plaintext" code={details} className="w-full" maxHeight={224} wrap />
             </div>
           )}
         </div>
@@ -1657,10 +1665,10 @@ function TerminalMessage({ title, description }: { title: string; description: s
   return (
     <div className="py-4 space-y-1.5">
       <div className="flex items-center gap-2">
-        <CircleX className="h-4 w-4 text-muted-foreground shrink-0" />
-        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <CircleX className="h-4 w-4 text-ink-2 shrink-0" />
+        <p className="text-sm font-semibold text-ink">{title}</p>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed pl-6">{description}</p>
+      <p className="text-sm text-ink-2 leading-relaxed pl-6">{description}</p>
     </div>
   );
 }
@@ -1710,15 +1718,15 @@ function CancelRunControl({
     <div className="pt-3 flex items-center gap-2 flex-wrap">
       <Button
         size="sm"
-        variant="outline"
+        variant="secondary"
         disabled={pending || disabled}
         onClick={cancel}
-        className="h-8 gap-1.5 rounded-lg text-muted-foreground"
+        className="h-8 gap-1.5 rounded-control text-ink-2"
       >
         {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
         Cancel run
       </Button>
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-red">{error}</p>}
     </div>
   );
 }
@@ -1789,10 +1797,10 @@ function RunActions({
     <div className="mt-3">
       <Button
         size="sm"
-        variant="outline"
+        variant="secondary"
         disabled={pending}
         onClick={onRetry}
-        className="h-8 gap-1.5 rounded-lg"
+        className="h-8 gap-1.5 rounded-control"
       >
         {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
         {retry ? "Retry run" : "Run again"}
@@ -1834,17 +1842,17 @@ function ConversationTurn({
   onRetry: () => void;
 }) {
   return (
-    <div className="border-b border-border pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
+    <div className="border-b border-line pb-5 mb-5 last:border-b-0 last:mb-0 last:pb-1">
       {totalAttempts > 1 && (
         <ChatSystemMessage>
           <AttemptSummaryLine job={run.job} attemptNumber={attemptNumber} />
         </ChatSystemMessage>
       )}
       <InstructionMessage job={run.job} />
-      <ChatMessage sender="assistant" avatar={<Avatar name="Genesis" size="md" />}>
-        <ChatMessageBubble variant="ghost">
+      <ChatMessage speaker="assistant">
+        <ChatReply label="Genesis" className="mt-3">
           <RunExecution run={run} onStatusChange={onStatusChange} />
-        </ChatMessageBubble>
+        </ChatReply>
       </ChatMessage>
       {isTip && isTerminalStatus(run.job.status) && (
         <RunActions job={run.job} pending={retryPending} onRetry={onRetry} />
@@ -1861,17 +1869,17 @@ function EarlierAttemptsSummary({ collapsedJobs, expanded, onToggle }: { collaps
   if (collapsedJobs.length === 0) return null;
   if (expanded) {
     return (
-      <button type="button" onClick={onToggle} className="mb-3 text-xs text-muted-foreground underline underline-offset-2">
+      <Button variant="quiet" size="sm" type="button" onClick={onToggle} className="mb-3 text-xs text-ink-2 underline underline-offset-2">
         Hide earlier attempts
-      </button>
+      </Button>
     );
   }
   return (
-    <p className="mb-3 text-xs text-muted-foreground">
+    <p className="mb-3 text-xs text-ink-2">
       {summarizeCollapsedAttempts(collapsedJobs)}{" "}
-      <button type="button" onClick={onToggle} className="underline underline-offset-2">
+      <Button variant="quiet" size="sm" type="button" onClick={onToggle} className="underline underline-offset-2">
         Show attempts
-      </button>
+      </Button>
     </p>
   );
 }
@@ -1899,7 +1907,7 @@ function RunThread({
         expanded={attemptsExpanded}
         onToggle={() => setAttemptsExpanded((v) => !v)}
       />
-      <ChatMessageList density="balanced">
+      <ChatMessageList spacing="comfortable">
         {visible.map(({ run, attemptNumber }) => (
           <ConversationTurn
             key={run.job.id}
@@ -2000,35 +2008,21 @@ function FollowUpComposer({
     }
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void submit();
-    }
-  };
-
   return (
     <div className="w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6">
-      {error && <p className="mb-2 text-xs text-red-600" role="alert">{error}</p>}
-      {/*
-        Deliberately overflow-VISIBLE (not overflow-hidden) so the non-portal
-        model Combobox's dropdown can extend past the card's bottom edge —
-        same reasoning as NewRunComposer. Rounded corners are preserved
-        explicitly on the top (textarea) and bottom (footer row) children
-        instead of being clipped by the card.
-      */}
-      <div className="rounded-2xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring/30">
-        <Textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={submitting}
-          placeholder="Send a follow-up… (Enter to send, Shift+Enter for a new line)"
-          aria-label="Follow-up message"
-          className="min-h-16 resize-none border-none shadow-none rounded-t-2xl rounded-b-none px-4 py-3 text-sm focus-visible:ring-0 disabled:opacity-60"
-        />
-        <Divider orientation="horizontal" />
-        <div className="flex items-center justify-between gap-2 rounded-b-2xl px-3 py-2">
+      {error && <p id="follow-up-error" className="mb-2 text-xs text-red" role="alert">{error}</p>}
+      <ChatComposer
+        value={text}
+        onValueChange={setText}
+        onSubmit={() => void submit()}
+        label="Follow-up message"
+        placeholder="Send a follow-up… (Enter to send, Shift+Enter for a new line)"
+        submitLabel="Send follow-up"
+        loading={submitting}
+        submitDisabled={!canSubmit}
+        textareaProps={{ className: "min-h-16", "aria-describedby": error ? "follow-up-error" : undefined }}
+        className="overflow-visible"
+        modelPicker={
           <div className="min-w-0 w-40">
             <Combobox
               ariaLabel="Follow-up model"
@@ -2040,26 +2034,11 @@ function FollowUpComposer({
               searchPlaceholder="Search models…"
               emptyText="No matching models."
               disabled={submitting}
-              className="h-8 rounded-lg bg-card px-2.5 text-xs"
+              className="h-8 rounded-control bg-surface px-2.5 text-xs"
             />
           </div>
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={!canSubmit}
-            aria-label="Send follow-up"
-            title="Send follow-up"
-            className={cn(
-              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
-              "bg-primary text-primary-foreground hover:bg-primary/90",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-              "disabled:opacity-40 disabled:pointer-events-none"
-            )}
-          >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Reply className="h-4 w-4" />}
-          </button>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }
@@ -2080,8 +2059,8 @@ function ActivityPanel({ run, receiptState, onRetryReceipt }: { run: RunState; r
 function SummaryItem({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
   return (
     <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("text-foreground", emphasize ? "text-base font-semibold" : "text-sm font-medium")}>
+      <p className="text-xs text-ink-2">{label}</p>
+      <p className={cn("text-ink", emphasize ? "text-base font-semibold" : "text-sm font-medium")}>
         {value}
       </p>
     </div>
@@ -2103,75 +2082,75 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
   return (
     <div className="flex-1 overflow-y-auto">
       {/* HEADER */}
-      <Section padding={4} dividers={["bottom"]}>
+      <section className="border-b border-line p-4">
         <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Run receipt</p>
-          <p className="text-sm font-semibold text-foreground line-clamp-2">{receipt.task}</p>
-          <p className="text-xs text-muted-foreground font-mono">{receipt.repository}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">Run receipt</p>
+          <p className="text-sm font-semibold text-ink line-clamp-2">{receipt.task}</p>
+          <p className="text-xs text-ink-2 font-mono">{receipt.repository}</p>
           <div className="flex items-center gap-1.5 pt-1">
             {sections.header.failed ? (
-              <CircleX className="h-3.5 w-3.5 text-red-400" />
+              <CircleX className="h-3.5 w-3.5 text-red" />
             ) : (
-              <CircleCheck className="h-3.5 w-3.5 text-emerald-400" />
+              <CircleCheck className="h-3.5 w-3.5 text-green" />
             )}
-            <span className={cn("text-sm font-semibold", sections.header.failed ? "text-red-400" : "text-emerald-400")}>
+            <span className={cn("text-sm font-semibold", sections.header.failed ? "text-red" : "text-green")}>
               {sections.header.title}
-              {sections.header.qualifier && <span className="font-normal text-muted-foreground"> · {sections.header.qualifier}</span>}
+              {sections.header.qualifier && <span className="font-normal text-ink-2"> · {sections.header.qualifier}</span>}
             </span>
           </div>
-          {sections.header.description && <p className="text-sm text-foreground leading-relaxed">{sections.header.description}</p>}
+          {sections.header.description && <p className="text-sm text-ink leading-relaxed">{sections.header.description}</p>}
         </div>
-      </Section>
+      </section>
 
       {/* CHANGES */}
-      <Section padding={4} dividers={["bottom"]}>
+      <section className="border-b border-line p-4">
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Changes</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">Changes</p>
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             <SummaryItem label="Files changed" value={String(sections.changes.filesChanged.length)} />
             <SummaryItem label="Model" value={sections.agent.model} />
           </div>
           {sections.changes.filesChanged.length > 0 && (
-            <ul className="text-xs text-muted-foreground space-y-1 font-mono">
+            <ul className="text-xs text-ink-2 space-y-1 font-mono">
               {sections.changes.filesChanged.map((f) => (
                 <li key={f}>{f}</li>
               ))}
             </ul>
           )}
         </div>
-      </Section>
+      </section>
 
       {/* VERIFICATION */}
-      <Section padding={4} dividers={["bottom"]}>
+      <section className="border-b border-line p-4">
         <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Verification</p>
-          <p className="text-sm text-foreground">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">Verification</p>
+          <p className="text-sm text-ink">
             Output validation{" "}
             {sections.verification.outputValidation === "passed" ? "passed" : sections.verification.outputValidation === "failed" ? "failed" : "unavailable"}
           </p>
           {sections.verification.checks.map((check) => (
-            <p key={check.name} className={cn("text-sm", check.passed === false ? "text-amber-400 font-medium" : "text-foreground")}>
+            <p key={check.name} className={cn("text-sm", check.passed === false ? "text-orange font-medium" : "text-ink")}>
               {check.name} · <span>{formatCheckStatus(check.status)}</span>
             </p>
           ))}
         </div>
-      </Section>
+      </section>
 
       {/* AGENT */}
-      <Section padding={4} dividers={["bottom"]}>
+      <section className="border-b border-line p-4">
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Agent</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">Agent</p>
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             <SummaryItem label="Tokens" value={sections.agent.tokensSummary} emphasize />
             <SummaryItem label="Provider cost" value={sections.agent.cost.label} />
           </div>
         </div>
-      </Section>
+      </section>
 
       {/* REPOSITORY INTELLIGENCE */}
-      <Section padding={4} dividers={["bottom"]}>
+      <section className="border-b border-line p-4">
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Repository intelligence</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">Repository intelligence</p>
           <div className="grid grid-cols-1 gap-y-3">
             <SummaryItem label="Previous intelligence" value={sections.intelligence.selected.label} />
             <SummaryItem label="Delivered intelligence" value={sections.intelligence.delivered.label} />
@@ -2184,13 +2163,13 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
                 <li key={item.memory_id} className="text-xs">
                   <div className="flex flex-wrap gap-2">
                     <span className="rounded-full border px-2 py-0.5 font-medium">Selected by GNSIS</span>
-                    <span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-emerald-400" : "text-muted-foreground")}>
+                    <span className={cn("rounded-full border px-2 py-0.5", item.delivered ? "text-green" : "text-ink-2")}>
                       {item.delivered ? "Delivered to model request" : "Delivery not attested"}
                     </span>
                   </div>
                   {item.content != null && <p className="mt-2 text-sm">{item.content}</p>}
-                  {item.kind != null && <p className="mt-1 text-muted-foreground">{item.kind}</p>}
-                  <p className="mt-1 text-muted-foreground">
+                  {item.kind != null && <p className="mt-1 text-ink-2">{item.kind}</p>}
+                  <p className="mt-1 text-ink-2">
                     {[
                       item.source_model && `Source model: ${item.source_model}`,
                       item.approved_by && `Approved by ${item.approved_by}`,
@@ -2208,19 +2187,19 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
             </ul>
           )}
         </div>
-      </Section>
+      </section>
 
       {/* PUBLICATION */}
-      <Section padding={4} dividers={["bottom"]}>
+      <section className="border-b border-line p-4">
         <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Publication</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">Publication</p>
           {sections.publication.phase === "pre_approval" && (
-            <p className="text-sm text-foreground">Review and approve the proposed change</p>
+            <p className="text-sm text-ink">Review and approve the proposed change</p>
           )}
-          {sections.publication.phase === "approved_not_published" && <p className="text-sm text-foreground">Approved</p>}
+          {sections.publication.phase === "approved_not_published" && <p className="text-sm text-ink">Approved</p>}
           {sections.publication.phase === "published" && (
             <>
-              <p className="text-sm text-foreground">Pull request published</p>
+              <p className="text-sm text-ink">Pull request published</p>
               {sections.publication.pullRequest && (
                 <a
                   href={sections.publication.pullRequest.url}
@@ -2234,7 +2213,7 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
             </>
           )}
         </div>
-      </Section>
+      </section>
 
       {/* TECHNICAL EVIDENCE */}
       <details className="border-b px-4 py-4 text-xs">
@@ -2257,13 +2236,13 @@ function ReceiptPanel({ receipt, job }: { receipt: RunReceipt; job: JobRecord })
         </div>
         {sections.technical.failureDetails != null && (
           <div className="mt-3">
-            <p className="mb-1 text-xs font-semibold text-muted-foreground">Failure details</p>
+            <p className="mb-1 text-xs font-semibold text-ink-2">Failure details</p>
             <CodeBlock
               language="json"
               code={JSON.stringify(sections.technical.failureDetails, null, 2)}
-              width="100%"
+              className="w-full"
               maxHeight={224}
-              isWrapped
+              wrap
             />
           </div>
         )}
@@ -2306,49 +2285,49 @@ function RunPanelHeader({
 
   return (
     <div className="h-14 flex items-center px-1.5">
-      <Toolbar
-        label="Run panel"
-        startContent={
+      <nav aria-label="Run panel" className="flex w-full items-center justify-between gap-2">
           <div className="flex items-center gap-0.5">
-            <button
+            <Button variant="quiet" size="sm"
               type="button"
               onClick={() => onTabChange("activity")}
+              aria-pressed={tab === "activity"}
               className={cn(
                 "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150 relative",
                 tab === "activity"
-                  ? "bg-black/[0.04] text-foreground"
-                  : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
+                  ? "bg-hover text-ink"
+                  : "text-ink-2 hover:bg-hover hover:text-ink"
               )}
             >
               Activity
               {hasActivity && tab !== "activity" && (
-                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
+                <span aria-label="New activity" className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-accent" />
               )}
-            </button>
+            </Button>
             {receiptEnabled ? (
-              <button
+              <Button variant="quiet" size="sm"
                 type="button"
                 onClick={() => onTabChange("receipt")}
+                aria-pressed={tab === "receipt"}
                 className={cn(
                   "h-7 px-2.5 rounded-md text-xs font-semibold transition-colors duration-150",
                   tab === "receipt"
-                    ? "bg-black/[0.04] text-foreground"
-                    : "text-muted-foreground hover:bg-black/[0.03] hover:text-foreground"
+                    ? "bg-hover text-ink"
+                    : "text-ink-2 hover:bg-hover hover:text-ink"
                 )}
               >
                 Receipt
-              </button>
+              </Button>
             ) : (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
+                    <Button variant="quiet" size="sm"
                       type="button"
                       disabled
-                      className="h-7 px-2.5 rounded-md text-xs font-semibold text-muted-foreground/40 cursor-not-allowed"
+                      className="h-7 px-2.5 rounded-md text-xs font-semibold text-ink-2/40 cursor-not-allowed"
                     >
                       Receipt
-                    </button>
+                    </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs">
                     Available once a result is ready for review
@@ -2357,9 +2336,8 @@ function RunPanelHeader({
               </TooltipProvider>
             )}
           </div>
-        }
-        endContent={collapseToggle}
-      />
+        {collapseToggle}
+      </nav>
     </div>
   );
 }
@@ -2369,7 +2347,7 @@ function CollapsedRunPanel({ job }: { job?: JobRecord }) {
 
   return (
     <div className="flex flex-col items-center py-4 gap-3">
-      <ActivityGlyph className="h-4 w-4 text-muted-foreground/70" />
+      <ActivityGlyph className="h-4 w-4 text-ink-2/70" />
       <StatusIndicator status={status} />
     </div>
   );
@@ -2396,12 +2374,10 @@ function RunPanelRegion({
   collapsed,
   onToggle,
   view,
-  width,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   view: WorkspaceView;
-  width: number;
 }) {
   const location = useLocation();
   const hasThread = view.kind === "thread";
@@ -2500,12 +2476,8 @@ function RunPanelRegion({
 
   return (
     <aside
-      style={{ width: collapsed ? 48 : width }}
-      className={cn(
-        "relative flex flex-col h-full shrink-0 bg-muted/60",
-        collapsed && "transition-[width] duration-200 ease-in-out",
-        "overflow-hidden"
-      )}
+      aria-label="Run details"
+      className="relative flex h-full w-full min-w-0 shrink-0 flex-col overflow-hidden bg-surface"
     >
       <RunPanelHeader
         collapsed={collapsed}
@@ -2519,9 +2491,9 @@ function RunPanelRegion({
       <Divider orientation="horizontal" />
 
       {collapsed ? (
-        <div className="flex-1 cursor-pointer" onClick={onToggle}>
+        <Button variant="quiet" className="h-auto flex-1 rounded-none p-0 items-start" onClick={onToggle} aria-label="Expand run details">
           <CollapsedRunPanel job={selectedRun?.job} />
-        </div>
+        </Button>
       ) : !hasThread ? (
         tab === "activity" ? (
           <EmptyState
@@ -2545,7 +2517,7 @@ function RunPanelRegion({
           {receiptState.kind === "loaded" && receiptState.runId === receiptRunId ? (
             <ReceiptPanel receipt={receiptState.receipt} job={selectedRun.job} />
           ) : (receiptState.kind === "error" || receiptState.kind === "unavailable") && receiptState.runId === receiptRunId ? (
-            <div className="p-4"><EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description="The run outcome is known, but its detailed receipt could not be loaded." /><Button variant="outline" size="sm" className="mx-auto flex" onClick={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }}>Retry receipt</Button></div>
+            <div className="p-4"><EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={receiptState.kind === "error" ? "Receipt request failed" : "Receipt unavailable"} description="The run outcome is known, but its detailed receipt could not be loaded." /><Button variant="secondary" size="sm" className="mx-auto flex" onClick={() => { setReceiptState({ kind: "idle" }); setReceiptAttempt((value) => value + 1); }}>Retry receipt</Button></div>
           ) : (
             <EmptyState icon={<Loader2 className="h-8 w-8 animate-spin" />} title="Loading receipt" description="Fetching the canonical receipt for this run…" />
           )}
@@ -2576,7 +2548,7 @@ function RunsFilterSelect({
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger size="sm" className="h-8 text-xs w-auto gap-1.5">
         <SelectValue>
-          <span className="text-muted-foreground">{label}:</span>{" "}
+          <span className="text-ink-2">{label}:</span>{" "}
           <span>{value === "all" ? "All" : labelFor(value)}</span>
         </SelectValue>
       </SelectTrigger>
@@ -2612,38 +2584,38 @@ function RunsTable({
 }) {
   return (
     <>
-      <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground", columns)}>
+      <div className={cn("hidden md:grid gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-2", columns)}>
         {headers.map((label, i) => (
           <span key={label} className={i === headers.length - 1 ? "text-right" : undefined}>{label}</span>
         ))}
       </div>
 
-      <div className="hidden md:block border-t border-border">
+      <div className="hidden md:block border-t border-line">
         {runs.length === 0 ? (
           <div className="px-3 py-8 text-center">
-            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+            <p className="text-sm text-ink-2">{emptyMessage}</p>
           </div>
         ) : (
           runs.map((run) => (
-            <button
+            <Button variant="quiet" size="sm"
               key={run.id}
               type="button"
               onClick={() => onSelectRun(run.id)}
               className={cn(
-                "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-border last:border-b-0",
-                "hover:bg-black/[0.03] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                "w-full grid items-center gap-3 px-3 py-2.5 text-left border-b border-line last:border-b-0",
+                "hover:bg-hover transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                 columns
               )}
             >
-              <span className="text-sm text-foreground truncate">
+              <span className="text-sm text-ink truncate">
                 {run.title}
-                {run.attemptCount > 1 && <span className="ml-1.5 text-xs text-muted-foreground">· {run.attemptCount} attempts</span>}
+                {run.attemptCount > 1 && <span className="ml-1.5 text-xs text-ink-2">· {run.attemptCount} attempts</span>}
               </span>
-              <span className="text-xs font-mono text-muted-foreground truncate">{run.repo}</span>
-              <span className="text-xs text-muted-foreground truncate">{run.model}</span>
+              <span className="text-xs font-mono text-ink-2 truncate">{run.repo}</span>
+              <span className="text-xs text-ink-2 truncate">{run.model}</span>
               <span className="text-xs"><StatusLabel stage={run.status} /></span>
-              <span className="text-xs text-muted-foreground/70 text-right">{timeAgo(run.updatedAt)}</span>
-            </button>
+              <span className="text-xs text-ink-2/70 text-right">{timeAgo(run.updatedAt)}</span>
+            </Button>
           ))
         )}
       </div>
@@ -2651,21 +2623,21 @@ function RunsTable({
       <div className="md:hidden space-y-2 mt-2">
         {runs.length === 0 ? (
           <div className="py-8 text-center">
-            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+            <p className="text-sm text-ink-2">{emptyMessage}</p>
           </div>
         ) : (
           runs.map((run) => (
-            <button
+            <Button variant="quiet" size="sm"
               key={run.id}
               type="button"
               onClick={() => onSelectRun(run.id)}
-              className="w-full rounded-lg border border-border bg-card p-3 text-left space-y-1.5 hover:bg-black/[0.02] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="w-full rounded-control border border-line bg-surface p-3 text-left space-y-1.5 hover:bg-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <div className="flex items-center justify-between">
-                <span className="text-sm text-foreground font-semibold truncate">{run.title}</span>
-                <span className="text-xs text-muted-foreground/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
+                <span className="text-sm text-ink font-semibold truncate">{run.title}</span>
+                <span className="text-xs text-ink-2/70 shrink-0 ml-2">{timeAgo(run.updatedAt)}</span>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-ink-2">
                 <span className="font-mono">{run.repo}</span>
                 <span>·</span>
                 <span>{run.model}</span>
@@ -2679,7 +2651,7 @@ function RunsTable({
               <div className="flex items-center justify-between text-xs">
                 <StatusLabel stage={run.status} />
               </div>
-            </button>
+            </Button>
           ))
         )}
       </div>
@@ -2708,8 +2680,8 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
   return (
     <div className="w-full px-4 md:px-8 py-8 md:py-10">
       <div className="mb-6">
-        <h1 className="text-lg font-semibold tracking-tight text-foreground">Runs</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Search, filter, and review previous executions.</p>
+        <h1 className="text-lg font-semibold tracking-tight text-ink">Runs</h1>
+        <p className="text-sm text-ink-2 mt-0.5">Search, filter, and review previous executions.</p>
       </div>
 
       <div className="relative mb-3">
@@ -2726,7 +2698,7 @@ function RunsView({ runs, onSelectRun }: { runs: RecentRun[]; onSelectRun: (id: 
         <RunsFilterSelect label="Repository" value={repoFilter} onChange={setRepoFilter} options={repoOptions} />
       </div>
 
-      <p className="text-xs text-muted-foreground mb-2">
+      <p className="text-xs text-ink-2 mb-2">
         {filtered.length} {filtered.length === 1 ? "run" : "runs"}
       </p>
 
@@ -2749,20 +2721,20 @@ function GitHubOnboardingCard({ hasRuns, onNewRun }: { hasRuns: boolean; onNewRu
   if (hasRuns) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-5 mb-8">
+    <div className="rounded-xl border border-line bg-surface p-5 mb-8">
       <div className="flex items-start gap-3">
         <div className="shrink-0 mt-0.5">
-          <CirclePlus className="h-5 w-5 text-muted-foreground/60" />
+          <CirclePlus className="h-5 w-5 text-ink-2/60" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground">Start your first run</p>
-          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+          <p className="text-sm font-semibold text-ink">Start your first run</p>
+          <p className="text-xs text-ink-2 leading-relaxed mt-0.5">
             Describe a task and point GNSIS at a repository to get started.
           </p>
           <Button
             size="sm"
             onClick={onNewRun}
-            className="h-8 mt-3 gap-1.5 rounded-lg text-xs"
+            className="h-8 mt-3 gap-1.5 rounded-control text-xs"
           >
             New run
           </Button>
@@ -2811,12 +2783,12 @@ function DashboardView({
       {/* Header */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Run activity across your repositories.</p>
+          <h1 className="text-lg font-semibold tracking-tight text-ink">Dashboard</h1>
+          <p className="text-sm text-ink-2 mt-0.5">Run activity across your repositories.</p>
         </div>
         <Button
           onClick={onNewRun}
-          className="h-8 shrink-0 gap-1.5 rounded-lg text-xs px-3"
+          className="h-8 shrink-0 gap-1.5 rounded-control text-xs px-3"
         >
           <CirclePlus className="h-3.5 w-3.5" />
           <span className="hidden md:inline">New run</span>
@@ -2828,59 +2800,59 @@ function DashboardView({
 
       {/* Run counts (real) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="rounded-xl border border-line bg-surface p-5 space-y-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
             Total runs
           </span>
-          <p className="text-2xl font-bold text-foreground">{counts.total}</p>
+          <p className="text-2xl font-bold text-ink">{counts.total}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="rounded-xl border border-line bg-surface p-5 space-y-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
             In progress
           </span>
-          <p className="text-2xl font-bold text-foreground">{counts.active}</p>
+          <p className="text-2xl font-bold text-ink">{counts.active}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 space-y-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="rounded-xl border border-line bg-surface p-5 space-y-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
             Completed
           </span>
-          <p className="text-2xl font-bold text-foreground">{counts.complete}</p>
+          <p className="text-2xl font-bold text-ink">{counts.complete}</p>
         </div>
       </div>
 
       {/* Prepaid balance (real — from GET /v1/balances) */}
       {balances ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="rounded-xl border border-line bg-surface p-5 space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
               Available
             </span>
             <p
               className={cn(
                 "text-2xl font-bold",
-                Number(balances.available) < 5 ? "text-amber-600" : "text-foreground"
+                Number(balances.available) < 5 ? "text-orange" : "text-ink"
               )}
             >
               {usd(balances.available)}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="rounded-xl border border-line bg-surface p-5 space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
               On hold
             </span>
-            <p className="text-2xl font-bold text-foreground">{usd(balances.reserved)}</p>
+            <p className="text-2xl font-bold text-ink">{usd(balances.reserved)}</p>
           </div>
-          <div className="rounded-xl border border-border bg-card p-5 space-y-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="rounded-xl border border-line bg-surface p-5 space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
               Balance
             </span>
-            <p className="text-2xl font-bold text-foreground">{usd(balances.balance)}</p>
+            <p className="text-2xl font-bold text-ink">{usd(balances.balance)}</p>
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-border p-5 mb-8">
-          <p className="text-sm font-semibold text-foreground">Prepaid balance</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
+        <div className="rounded-xl border border-dashed border-line p-5 mb-8">
+          <p className="text-sm font-semibold text-ink">Prepaid balance</p>
+          <p className="text-xs text-ink-2 mt-0.5">
             Your available balance appears here once the workspace is reachable.
           </p>
         </div>
@@ -2888,7 +2860,7 @@ function DashboardView({
 
       {/* Recent runs (real) */}
       <div>
-        <p className="text-sm font-semibold text-foreground mb-2">Recent runs</p>
+        <p className="text-sm font-semibold text-ink mb-2">Recent runs</p>
         <RunsTable
           runs={runs}
           onSelectRun={onSelectRun}
@@ -2931,7 +2903,7 @@ function WorkspaceRegion({
   onBillingBack: () => void;
 }) {
   return (
-    <main className="flex-1 h-full bg-background overflow-y-auto min-w-0 flex flex-col">
+    <main className="flex-1 h-full bg-canvas overflow-y-auto min-w-0 flex flex-col">
       {view.kind === "composer" && (
         <div className="flex-1 flex items-center justify-center px-4 md:px-8">
           <NewRunComposer onSubmit={onSubmit} />
@@ -2939,7 +2911,7 @@ function WorkspaceRegion({
       )}
 
       {view.kind === "thread" && (
-        <>
+        <ChatPanel aria-label="Run conversation" className="h-full flex-1 overflow-visible rounded-none bg-canvas shadow-none">
           <div className="flex-1 overflow-y-auto">
             <RunThread
               key={view.threadKey}
@@ -2953,7 +2925,7 @@ function WorkspaceRegion({
             currentModel={activeRun(view.thread).job.model}
             onSubmit={onFollowUp}
           />
-        </>
+        </ChatPanel>
       )}
 
       {view.kind === "thread-loading" && (
@@ -3098,10 +3070,35 @@ function GNSISWorkspacePreview() {
   const [runPanelCollapsed, setRunPanelCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
-  // Drag-to-resize width for the expanded run panel. Independent of
-  // runPanelCollapsed, which still drives the separate 48px icon-rail state
-  // (collapsing to size 0 isn't this panel's UX — it keeps an icon rail).
-  const runPanel = useResizable({ defaultSize: 400, minSizePx: 320, maxSizePx: 560 });
+  const runPanelRef = useRef<ImperativePanelHandle>(null);
+  const panelContainerRef = useRef<HTMLDivElement>(null);
+  const [panelContainerWidth, setPanelContainerWidth] = useState(1200);
+
+  // v2 constraints are percentages. Observe the space *after* the sidebar,
+  // subtract the 1px handle and convert pixel bounds rather than passing px
+  // to the library. On narrow desktops leave room for the workspace; mobile
+  // still uses the existing drawer instead of an inline run panel.
+  useEffect(() => {
+    const container = panelContainerRef.current;
+    if (!container) return;
+    const measure = () => {
+      const width = container.getBoundingClientRect().width - 1;
+      if (width > 0) setPanelContainerWidth(width);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  const railSize = 48 / panelContainerWidth * 100;
+  const runPanelMin = Math.min(320, panelContainerWidth * 0.55) / panelContainerWidth * 100;
+  const runPanelMax = Math.min(560, panelContainerWidth * 0.7) / panelContainerWidth * 100;
+  const runPanelDefault = Math.min(400 / panelContainerWidth * 100, runPanelMax);
 
   const { route, runId: routeRunId } = routeFromPathname(location.pathname);
   const activeNav = navIdFromRoute(route);
@@ -3112,7 +3109,12 @@ function GNSISWorkspacePreview() {
   const runs = groupJobsIntoThreadRows(jobs);
 
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
-  const toggleRunPanel = () => setRunPanelCollapsed((v) => !v);
+  const toggleRunPanel = () => {
+    const panel = runPanelRef.current;
+    if (!panel) return;
+    if (panel.isCollapsed()) panel.expand();
+    else panel.collapse();
+  };
 
   const refreshJobs = useCallback(async () => {
     if (!isApiConfigured()) return;
@@ -3399,7 +3401,7 @@ function GNSISWorkspacePreview() {
 
   return (
     <AppShellContext.Provider value={{ sidebarCollapsed, runPanelCollapsed, toggleSidebar, toggleRunPanel }}>
-      <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans relative">
+      <div className="flex h-screen w-full bg-canvas text-ink overflow-hidden font-sans relative">
         {/* Desktop sidebar */}
         <div className="hidden md:block shrink-0 h-full z-20 transition-all duration-200 ease-in-out" style={{ width: sidebarCollapsed ? 68 : 250 }}>
           <SidebarRegion
@@ -3423,7 +3425,7 @@ function GNSISWorkspacePreview() {
 
         {/* Mobile sidebar drawer */}
         <div className={cn("md:hidden fixed inset-y-0 left-0 z-40 w-[260px] h-full transition-transform duration-200 ease-in-out", mobileSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
-          <div className="h-full bg-muted shadow-xl">
+          <div className="h-full bg-inset shadow-xl">
             <SidebarRegion
               collapsed={false}
               onToggle={() => setMobileSidebarOpen(false)}
@@ -3445,37 +3447,39 @@ function GNSISWorkspacePreview() {
         </div>
 
         {/* Mobile top bar */}
-        <div className="md:hidden absolute top-0 left-0 right-0 h-12 z-10 bg-background/90 backdrop-blur-sm border-b border-border flex items-center px-3 gap-2">
-          <button
+        <div className="md:hidden absolute top-0 left-0 right-0 h-12 z-10 bg-canvas/90 backdrop-blur-sm border-b border-line flex items-center px-3 gap-2">
+          <Button variant="quiet" size="sm"
             type="button"
             onClick={() => setMobileSidebarOpen(true)}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="inline-flex items-center justify-center h-8 w-8 rounded-control text-ink-2 hover:text-ink hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             aria-label="Open menu"
           >
             <Menu className="h-4 w-4" />
-          </button>
+          </Button>
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="flex items-center justify-center h-5 w-5 rounded bg-neutral-900 text-white shrink-0">
+            <div className="flex items-center justify-center h-5 w-5 rounded bg-ink text-canvas shrink-0">
               <Terminal className="h-3 w-3" />
             </div>
-            <span className="text-sm font-bold tracking-tight text-foreground truncate">
+            <span className="text-sm font-bold tracking-tight text-ink truncate">
               GNSIS
             </span>
           </div>
           {view.kind === "thread" && (
-            <button
+            <Button variant="quiet" size="sm"
               type="button"
               onClick={() => setMobilePanelOpen(true)}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="inline-flex items-center justify-center h-8 w-8 rounded-control text-ink-2 hover:text-ink hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               aria-label="Open activity panel"
             >
               <ActivityGlyph className="h-4 w-4" />
-            </button>
+            </Button>
           )}
         </div>
 
-        {/* Main workspace */}
-        <div className="flex-1 min-w-0 h-full pt-12 md:pt-0">
+        {/* One mounted workspace, with the v2 panel/handle hidden on mobile. */}
+        <div ref={panelContainerRef} className="flex-1 min-w-0 h-full">
+        <ResizablePanelGroup direction="horizontal" id="workspace-panels" keyboardResizeBy={2}>
+        <ResizablePanel id="workspace" order={1} minSize={30} defaultSize={showRightPanel ? 100 - runPanelDefault : 100} className="min-w-0 h-full pt-12 md:pt-0">
           <WorkspaceRegion
             view={view}
             runs={runs}
@@ -3489,59 +3493,53 @@ function GNSISWorkspacePreview() {
             onSettingsBack={navigateBackOrHome}
             onBillingBack={navigateBackOrHome}
           />
-        </div>
+        </ResizablePanel>
 
-        {/* Desktop right panel */}
         {showRightPanel && (
           <>
-            <div className="hidden md:block">
-              {runPanelCollapsed ? (
-                <Divider orientation="vertical" />
-              ) : (
-                <ResizeHandle
-                  direction="horizontal"
-                  isReversed
-                  hasDivider
-                  label="Resize run panel"
-                  resizable={runPanel.props}
-                />
-              )}
-            </div>
-            <div
-              className={cn(
-                "hidden md:block shrink-0 h-full z-20",
-                runPanelCollapsed && "transition-all duration-200 ease-in-out"
-              )}
-              style={{ width: runPanelCollapsed ? 48 : runPanel.size }}
+            <ResizableHandle id="run-panel-resize" aria-label="Resize run panel" className="hidden md:flex" />
+            <ResizablePanel
+              id="run-details"
+              order={2}
+              ref={runPanelRef}
+              collapsible
+              collapsedSize={railSize}
+              minSize={runPanelMin}
+              maxSize={runPanelMax}
+              defaultSize={runPanelCollapsed ? railSize : runPanelDefault}
+              onCollapse={() => setRunPanelCollapsed(true)}
+              onExpand={() => setRunPanelCollapsed(false)}
+              className="hidden md:block h-full min-w-0 z-20"
             >
               <RunPanelRegion
                 collapsed={runPanelCollapsed}
                 onToggle={toggleRunPanel}
                 view={view}
-                width={runPanel.size}
               />
-            </div>
+            </ResizablePanel>
           </>
         )}
+        </ResizablePanelGroup>
+        </div>
 
         {/* Mobile bottom sheet */}
         {mobilePanelOpen && view.kind === "thread" && (
           <>
             <div className="md:hidden fixed inset-0 bg-black/30 z-40" onClick={() => setMobilePanelOpen(false)} />
-            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-muted rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
+            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-inset rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[70vh] flex flex-col">
               <div className="flex items-center justify-center py-2">
-                <div className="h-1 w-8 rounded-full bg-muted-foreground/30" />
+                <div className="h-1 w-8 rounded-full bg-ink-3/30" />
               </div>
               <div className="flex items-center justify-between px-4 pb-2">
-                <span className="text-xs font-semibold text-foreground">Activity</span>
-                <button
+                <span className="text-xs font-semibold text-ink">Activity</span>
+                <Button variant="quiet" size="sm"
                   type="button"
                   onClick={() => setMobilePanelOpen(false)}
-                  className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="inline-flex items-center justify-center h-7 w-7 rounded-control text-ink-2 hover:text-ink hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   aria-label="Close activity panel"
                 >
                   <X className="h-4 w-4" />
-                </button>
+                </Button>
               </div>
               <Divider orientation="horizontal" />
               <div className="flex-1 overflow-y-auto pb-safe">

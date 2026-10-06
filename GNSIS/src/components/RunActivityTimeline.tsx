@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, ChevronDown, Circle, Copy, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Circle, Loader2 } from "lucide-react";
 import type { JobRecord, RunEvent } from "@/lib/api";
 import { normalizeActivityEvents } from "@/lib/activityStages";
 import { eventLabel } from "@/lib/timelineEvents";
+import { Button } from "@/components/ui/button";
+import { CodeBlock } from "@/components/ui/code-block";
 import { cn } from "@/lib/utils";
 
 export type ReceiptActivityState = "idle" | "loading" | "loaded" | "unavailable" | "error";
@@ -25,7 +27,6 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
   const rejected = run.status === "rejected";
   const cancelled = run.status === "cancelled";
   const reachedReady = activity.stages.some((stage) => stage.id === "ready");
-  const [copied, setCopied] = useState(false);
   const [techniqueOpen, setTechniqueOpen] = useState(false);
 
   const heading = rejected
@@ -37,12 +38,6 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
     : reachedReady
     ? "Ready for review"
     : "Working";
-
-  const copyTechnical = async () => {
-    if (!activity.failure?.technical || !navigator.clipboard?.writeText) return;
-    await navigator.clipboard.writeText(JSON.stringify(activity.failure.technical, null, 2));
-    setCopied(true);
-  };
 
   return (
     <section className="px-4 py-3" aria-label="Run activity">
@@ -101,13 +96,7 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
           {activity.failure.technical && (
             <details className="text-xs">
               <summary className="cursor-pointer font-medium">Technical details</summary>
-              <pre className="mt-2 max-h-48 overflow-auto rounded bg-neutral-950 p-3 text-neutral-100 whitespace-pre-wrap">
-                {JSON.stringify(activity.failure.technical, null, 2)}
-              </pre>
-              <button type="button" onClick={copyTechnical} aria-label="Copy technical details" className="mt-1 inline-flex items-center gap-1 underline">
-                <Copy className="h-3 w-3" />
-                {copied ? "Copied" : "Copy technical details"}
-              </button>
+              <CodeBlock className="mt-2" variant="Code" code={JSON.stringify(activity.failure.technical, null, 2)} language="json" filename="technical-details.json" maxHeight={192} copyLabel="Copy technical details" labels={{ copy: "Copy technical details" }} />
             </details>
           )}
         </div>
@@ -138,9 +127,9 @@ export function RunActivityTimeline({ run, events, loading, polling, reconnectin
           <p className="font-medium">Receipt unavailable</p>
           <p className="text-muted-foreground">The run outcome is known, but its detailed receipt could not be loaded.</p>
           {onRetryReceipt && (
-            <button type="button" onClick={onRetryReceipt} className="mt-1 underline">
+            <Button variant="quiet" size="sm" type="button" onClick={onRetryReceipt} className="mt-1 underline">
               Retry receipt
-            </button>
+            </Button>
           )}
         </div>
       )}
