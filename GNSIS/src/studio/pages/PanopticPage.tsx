@@ -537,7 +537,7 @@ export default function PanopticPage() {
   return (
     <div className="relative overflow-x-clip">
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[700px] bg-[radial-gradient(60%_60%_at_80%_10%,rgba(96,165,250,0.16),transparent_70%)]" />
-      <StudioNav source="panoptic:nav" />
+      <StudioNav />
       <div className="relative mx-auto max-w-6xl px-5 sm:px-8 lg:grid lg:grid-cols-[160px_minmax(0,1fr)] lg:gap-16">
         <SectionNav active={active} />
         <main className="min-w-0">

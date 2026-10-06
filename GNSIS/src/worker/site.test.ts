@@ -105,6 +105,9 @@ describe("gnsis.studio worker", () => {
     const alias = await get("/welcome");
     expect(alias.status).toBe(301);
     expect(alias.headers.get("Location")).toBe("https://gnsis.studio/");
+    const developers = await get("/developers");
+    expect(developers.status).toBe(301);
+    expect(developers.headers.get("Location")).toBe("https://gnsis.studio/developers/panoptic");
   });
 
   it("serves real assets and falls back to the bundle for app routes", async () => {

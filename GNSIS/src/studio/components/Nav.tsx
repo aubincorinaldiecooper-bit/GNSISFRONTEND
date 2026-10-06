@@ -1,18 +1,15 @@
 import { useState } from "react";
-import { motion, useMotionValueEvent, useScroll } from "motion/react";
+import { useMotionValueEvent, useScroll } from "motion/react";
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { PATHS } from "@/panoptic/config";
-import { studioHomePath } from "../config";
-import { useEarlyAccess } from "../earlyAccess";
+import { STUDIO_PATHS, studioHomePath } from "../config";
 import { buttonArrow, studioButton } from "../ui/variants";
-import { DevelopersMenu } from "./DevelopersMenu";
 import { ModelsMenu } from "./ModelsMenu";
 
-/** The studio header: wordmark, model/developer menus, the Panoptic app, and Get started. */
-export function StudioNav({ source }: { source: string }) {
-  const { open } = useEarlyAccess();
+/** The studio header: wordmark, Models menu, Developers, and the Try Panoptic button. */
+export function StudioNav() {
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 8));
@@ -36,24 +33,15 @@ export function StudioNav({ source }: { source: string }) {
           </Link>
           <nav aria-label="Primary" className="flex items-center gap-0 sm:gap-0.5">
             <ModelsMenu />
-            <DevelopersMenu />
-            <Link to={PATHS.videoSearch} className={cn(studioButton({ variant: "quiet", size: "sm" }), "px-2 sm:px-3.5")}>
-              Panoptic
-            </Link>
-            <Link to={PATHS.webSteering} className={cn(studioButton({ variant: "quiet", size: "sm" }), "hidden sm:inline-flex")}>
-              Use cases
+            <Link to={STUDIO_PATHS.developers} className={cn(studioButton({ variant: "quiet", size: "sm" }), "px-2 sm:px-3.5")}>
+              Developers
             </Link>
           </nav>
         </div>
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.96 }}
-          onClick={() => open(source)}
-          className={cn(studioButton({ variant: "primary", size: "sm" }), "hidden sm:inline-flex")}
-        >
-          Get started
+        <Link to={PATHS.videoSearch} className={cn(studioButton({ variant: "primary", size: "sm" }), "px-3 sm:px-3.5")}>
+          Try Panoptic
           <ArrowRight aria-hidden className={buttonArrow} />
-        </motion.button>
+        </Link>
       </div>
     </header>
   );

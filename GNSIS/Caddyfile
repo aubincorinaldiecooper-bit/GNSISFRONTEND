@@ -52,6 +52,8 @@
 
 	redir /welcome / permanent
 	redir /home / permanent
+	redir /developers /developers/panoptic permanent
+	redir /developers/ /developers/panoptic permanent
 
 	# Only the sockets reach the runtime, which is where a GPU is genuinely
 	# needed. The model now starts when somebody starts a session, not when they

@@ -12,7 +12,7 @@ export function StudioFooter() {
         <nav aria-label="Footer" className="flex items-center gap-5">
           <Link to={studioHomePath()} className={linkClass}>Lab</Link>
           <Link to={STUDIO_PATHS.models} className={linkClass}>Models</Link>
-          <Link to={STUDIO_PATHS.developersPanoptic} className={linkClass}>Developers</Link>
+          <Link to={STUDIO_PATHS.developers} className={linkClass}>Developers</Link>
           <Link to={PATHS.privacy} className={linkClass}>Privacy</Link>
           <Link to={PATHS.terms} className={linkClass}>Terms</Link>
         </nav>

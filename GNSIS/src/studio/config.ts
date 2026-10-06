@@ -7,6 +7,7 @@ import type { ModelId } from "./models";
 export const STUDIO_PATHS = {
   home: "/lab",
   models: "/models",
+  developers: "/developers",
   panoptic: "/models/panoptic",
   developersPanoptic: "/developers/panoptic",
   developersGnsis01: "/developers/gnsis-01",

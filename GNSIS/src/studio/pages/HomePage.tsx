@@ -338,7 +338,7 @@ export default function HomePage() {
   return (
     <div className="relative overflow-x-clip">
       <PresenceField />
-      <StudioNav source="lab:nav" />
+      <StudioNav />
       <main className="relative mx-auto max-w-6xl px-5 sm:px-8">
         <Hero />
         <Mission />

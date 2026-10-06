@@ -159,6 +159,10 @@ export async function handleRequest(request: Request, env: SiteEnv): Promise<Res
     return Response.redirect(new URL("/", url).toString(), 301);
   }
 
+  if (path === "/developers" || path === "/developers/") {
+    return Response.redirect(new URL("/developers/panoptic", url).toString(), 301);
+  }
+
   if (path.endsWith(".html") && PAGES.has(path.slice(0, -".html".length))) {
     const target = new URL(path.slice(0, -".html".length), url);
     target.search = url.search;
