@@ -45,7 +45,7 @@
 	# dormant: served, but kept out of search engines. The bundle also adds
 	# noindex metadata where appropriate; this header covers non-JS crawlers.
 	@dormant {
-		path /video-search /video-search/ /use-cases/agentic-web-steering /use-cases/agentic-web-steering/ /privacy /privacy/ /terms /terms/ /models /models/ /models/panoptic /models/panoptic/ /lab /lab/ /developers/panoptic /developers/panoptic/ /developers/gnsis-01 /developers/gnsis-01/
+		path /video-search /video-search/ /use-cases/agentic-web-steering /use-cases/agentic-web-steering/ /privacy /privacy/ /terms /terms/ /models /models/ /models/panoptic /models/panoptic/ /lab /lab/ /developers/panoptic /developers/panoptic/
 		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "live"`
 	}
 	header @dormant X-Robots-Tag "noindex, nofollow"
@@ -54,6 +54,9 @@
 	redir /home / permanent
 	redir /developers /developers/panoptic permanent
 	redir /developers/ /developers/panoptic permanent
+	redir /developers/gnsis-01 /developers/panoptic permanent
+	redir /developers/gnsis-01/ /developers/panoptic permanent
+	redir /developers/gnsis-01.html /developers/panoptic permanent
 
 	# Only the sockets reach the runtime, which is where a GPU is genuinely
 	# needed. The model now starts when somebody starts a session, not when they
@@ -108,11 +111,11 @@
 	}
 	rewrite @studiohome /lab.html
 
-	@panopticslash path_regexp slashed ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms|/models|/models/panoptic|/lab|/developers/panoptic|/developers/gnsis-01)/$
+	@panopticslash path_regexp slashed ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms|/models|/models/panoptic|/lab|/developers/panoptic)/$
 	rewrite @panopticslash {re.slashed.1}.html
 
 	# The copies are how a page is served, not addresses of their own.
-	@panoptichtml path_regexp html ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms|/models|/models/panoptic|/lab|/developers/panoptic|/developers/gnsis-01)\.html$
+	@panoptichtml path_regexp html ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms|/models|/models/panoptic|/lab|/developers/panoptic)\.html$
 	redir @panoptichtml {re.html.1} permanent
 
 	# Everything else is the React bundle: /login and the control plane under

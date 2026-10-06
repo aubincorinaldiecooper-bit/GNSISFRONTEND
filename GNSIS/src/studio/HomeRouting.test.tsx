@@ -36,7 +36,7 @@ function renderAt(path: string) {
           />
           <Route path={STUDIO_PATHS.models} element={<p>Models page</p>} />
           <Route path={STUDIO_PATHS.developersPanoptic} element={<DevelopersPage modelId="panoptic" />} />
-          <Route path={STUDIO_PATHS.developersGnsis01} element={<DevelopersPage modelId="gnsis-01" />} />
+          <Route path={STUDIO_PATHS.developersGnsis01} element={<Navigate to={STUDIO_PATHS.developersPanoptic} replace />} />
         </Route>
         <Route path="*" element={<p>Not found</p>} />
       </Routes>
@@ -78,9 +78,10 @@ describe("Studio home routing", () => {
     expect(screen.getByRole("heading", { name: "Build with Panoptic." })).toBeInTheDocument();
   });
 
-  it("renders the GNSIS 1.0 developer page at its stable route", () => {
+  it("sends the hidden GNSIS 1.0 developer route to Panoptic", () => {
     window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "live" };
     renderAt(STUDIO_PATHS.developersGnsis01);
-    expect(screen.getByRole("heading", { name: "Build with GNSIS 1.0." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Build with Panoptic." })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Developer pages" })).not.toBeInTheDocument();
   });
 });

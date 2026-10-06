@@ -9,7 +9,7 @@ import { DEVELOPERS_GNSIS01_META, DEVELOPERS_PANOPTIC_META } from "@/panoptic/pa
 import { usePageMeta } from "@/panoptic/usePageMeta";
 import { developerPath } from "../config";
 import { developerPageData, type DeveloperFeature } from "../developers";
-import type { ModelId } from "../models";
+import { LISTED_MODELS, type ModelId } from "../models";
 import { useEarlyAccess } from "../earlyAccess";
 import { StudioFooter } from "../components/Footer";
 import { StudioNav } from "../components/Nav";
@@ -101,11 +101,12 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
       <StudioNav />
       <main className="relative mx-auto max-w-6xl px-5 sm:px-8">
         <section aria-labelledby="developers-title" className="pb-16 pt-10 sm:pb-20 sm:pt-16">
+          {LISTED_MODELS.length > 1 && (
           <nav
             aria-label="Developer pages"
             className="inline-flex rounded-full bg-inset p-1 shadow-hairline"
           >
-            {(["panoptic", "gnsis-01"] as const).map((id) => {
+            {LISTED_MODELS.map(({ id }) => {
               const model = developerPageData(id).model;
               const current = id === modelId;
               return (
@@ -128,6 +129,7 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
               );
             })}
           </nav>
+          )}
 
           <div className="mt-14 max-w-3xl sm:mt-20">
             <Eyebrow>{content.eyebrow}</Eyebrow>

@@ -39,7 +39,7 @@
         if (panoptic) document.documentElement.setAttribute("data-surface", "panoptic");
         // The GNSIS Studio pages use their light surface (src/studio/surface.css),
         // including the stable lab route and the configured home page.
-        if (/^\/(lab|models(\/panoptic)?|developers\/(panoptic|gnsis-01))$/.test(path) ||
+        if (/^\/(lab|models(\/panoptic)?|developers\/panoptic)$/.test(path) ||
           (path === "/" && config.VITE_HOME_EXPERIENCE === "studio")) {
           document.documentElement.setAttribute("data-surface", "studio");
           document.documentElement.classList.remove("dark");

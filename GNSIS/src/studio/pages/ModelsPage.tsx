@@ -9,7 +9,7 @@ import { StudioNav } from "../components/Nav";
 import { StudioFooter } from "../components/Footer";
 import { Gnsis01Preview, PanopticPreview } from "../components/Previews";
 import { Eyebrow, RiseLines } from "../components/Reveal";
-import { MODELS, type StudioModel } from "../models";
+import { LISTED_MODELS, type StudioModel } from "../models";
 import { buttonArrow, studioButton } from "../ui/variants";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
@@ -85,7 +85,7 @@ export default function ModelsPage() {
             <Eyebrow>Models</Eyebrow>
           </motion.div>
           <h1 id="models-title" className="mt-5 text-[48px] font-light leading-[1.02] tracking-[-0.04em] text-ink sm:text-[76px]">
-            <RiseLines lines={["Two models.", "Different strengths."]} delay={0.05} />
+            <RiseLines lines={["Our releases."]} delay={0.05} />
           </h1>
           <motion.p
             initial={{ opacity: 0, y: 10 }}
@@ -93,11 +93,11 @@ export default function ModelsPage() {
             transition={{ duration: 0.8, delay: 0.35, ease: EASE }}
             className="mt-7 max-w-xl text-[18px] leading-relaxed text-ink-2"
           >
-            GNSIS combines real-time perception and general intelligence to see, understand and act on the web.
+            Models from the GNSIS lab. Panoptic, our first release, gives agents real-time visual perception of the web.
           </motion.p>
         </section>
         <section aria-label="Models" className="grid gap-5 pb-28 md:grid-cols-2">
-          {MODELS.map((model, index) => (
+          {LISTED_MODELS.map((model, index) => (
             <ModelCard key={model.id} model={model} index={index} />
           ))}
         </section>

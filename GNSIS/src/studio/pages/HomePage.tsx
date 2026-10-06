@@ -12,7 +12,7 @@ import { ModelGlyph } from "../components/Glyphs";
 import { ModelLink } from "../components/ModelLink";
 import { StudioNav } from "../components/Nav";
 import { Eyebrow, RevealSection, RiseLines } from "../components/Reveal";
-import { MODELS } from "../models";
+import { LISTED_MODELS } from "../models";
 import LanyardBadge from "../ui/LanyardBadge";
 import { buttonArrow, studioButton } from "../ui/variants";
 
@@ -276,7 +276,7 @@ function Releases() {
             </Link>
           </div>
           <ul className="mt-10 divide-y divide-line border-y border-line">
-            {MODELS.map((model) => (
+            {LISTED_MODELS.map((model) => (
               <li key={model.id}>
                 <ModelLink
                   model={model}

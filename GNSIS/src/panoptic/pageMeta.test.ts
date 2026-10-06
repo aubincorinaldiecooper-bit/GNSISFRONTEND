@@ -67,9 +67,9 @@ describe("each Panoptic page's own HTML", () => {
     expect(STUDIO_PAGES).toContain(LAB_META);
   });
 
-  it("includes both developer pages' static metadata", () => {
+  it("keeps GNSIS 1.0 developer metadata out of the generated pages", () => {
     expect(MODELS_META.description).toBe(
-      "Two models, different strengths: Panoptic for real-time visual perception of the web, GNSIS 1.0 for open-ended tasks.",
+      "Models from the GNSIS lab. Panoptic, our first release, gives agents real-time visual perception of the web.",
     );
     expect(DEVELOPERS_PANOPTIC_META).toEqual({
       path: "/developers/panoptic",
@@ -85,6 +85,6 @@ describe("each Panoptic page's own HTML", () => {
       description: "Hand GNSIS 1.0 a task through the API and follow it to the finish. Request developer access.",
     });
     expect(STUDIO_PAGES).toContain(DEVELOPERS_PANOPTIC_META);
-    expect(STUDIO_PAGES).toContain(DEVELOPERS_GNSIS01_META);
+    expect(STUDIO_PAGES).not.toContain(DEVELOPERS_GNSIS01_META);
   });
 });
