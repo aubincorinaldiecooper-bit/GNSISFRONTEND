@@ -12,6 +12,7 @@ const FILES: Record<string, string> = {
   "/developers/panoptic.html": "developers panoptic page",
   "/assets/app.js": "console.log(1)",
   "/live/qr.svg": "<svg></svg>",
+  "/llms.txt": "# GNSIS",
 };
 
 function makeEnv(overrides: Partial<SiteEnv> = {}): SiteEnv {
@@ -42,6 +43,12 @@ describe("gnsis.studio worker", () => {
     const response = await get("/health");
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
+  });
+
+  it("serves llms.txt as a file, not the app shell", async () => {
+    const response = await get("/llms.txt");
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("# GNSIS");
   });
 
   it("serves only allowlisted public config in /env.js, uncached", async () => {
