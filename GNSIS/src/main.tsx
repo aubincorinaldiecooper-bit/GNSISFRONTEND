@@ -79,6 +79,7 @@ createRoot(document.getElementById('root')!).render(
           />
           <Route path={STUDIO_PATHS.models} element={<ModelsPage />} />
           <Route path={STUDIO_PATHS.panoptic} element={<PanopticModelPage />} />
+          <Route path={STUDIO_PATHS.developers} element={<Navigate to={STUDIO_PATHS.developersPanoptic} replace />} />
           <Route path={STUDIO_PATHS.developersPanoptic} element={<DevelopersPage modelId="panoptic" />} />
           <Route path={STUDIO_PATHS.developersGnsis01} element={<DevelopersPage modelId="gnsis-01" />} />
         </Route>

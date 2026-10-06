@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import StudioSite from "./Site";
 import DevelopersPage from "./pages/DevelopersPage";
+import { PATHS } from "@/panoptic/config";
 import { STUDIO_PATHS } from "./config";
 
 afterEach(() => {
@@ -51,13 +52,12 @@ describe("developer access request", () => {
     });
   });
 
-  it("keeps the ordinary Get started form unchanged", async () => {
-    const user = userEvent.setup();
+  it("links the header to Developers and the Panoptic video search", () => {
     renderPanoptic();
 
-    await user.click(screen.getByRole("button", { name: /Get started/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Get early access" });
-    expect(within(dialog).getByRole("textbox", { name: "Work email" })).toBeInTheDocument();
-    expect(within(dialog).queryByRole("textbox", { name: "What will you build?" })).not.toBeInTheDocument();
+    const header = within(screen.getByRole("banner"));
+    expect(header.getByRole("link", { name: "Developers" })).toHaveAttribute("href", STUDIO_PATHS.developers);
+    expect(header.getByRole("link", { name: /Try Panoptic/ })).toHaveAttribute("href", PATHS.videoSearch);
+    expect(header.queryByRole("button", { name: /Get started/ })).not.toBeInTheDocument();
   });
 });

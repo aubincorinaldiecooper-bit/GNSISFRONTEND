@@ -46,7 +46,7 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
 
   return (
     <div className="relative overflow-x-clip">
-      <StudioNav source={`developers-${modelId}`} />
+      <StudioNav />
       <main className="relative mx-auto max-w-6xl px-5 sm:px-8">
         <section aria-labelledby="developers-title" className="pb-16 pt-10 sm:pb-20 sm:pt-16">
           <nav

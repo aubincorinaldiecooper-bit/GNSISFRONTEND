@@ -78,7 +78,7 @@ export default function ModelsPage() {
   return (
     <div className="relative overflow-x-clip">
       <AmbientGlow />
-      <StudioNav source="models:nav" />
+      <StudioNav />
       <main className="relative mx-auto max-w-6xl px-5 sm:px-8">
         <section aria-labelledby="models-title" className="pb-14 pt-16 sm:pb-20 sm:pt-28">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
