@@ -15,6 +15,7 @@
     "@astryxdesign/core": "^0.1.9",
     "@astryxdesign/theme-neutral": "^0.1.9",
     "@fontsource/inter-tight": "^5.3.0",
+    "@fontsource/newsreader": "^5.3.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-select": "^2.2.6",

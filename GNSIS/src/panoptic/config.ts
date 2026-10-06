@@ -1,9 +1,8 @@
 // Where the Panoptic pages live, and whether they are public yet.
 //
-// Today gnsis.studio/ is the live page and these pages are dormant: reachable
-// by address, linked from nowhere outside themselves, and marked noindex. The
-// operator's GNSIS_HOME_EXPERIENCE=video-search makes the landing the home
-// page; nothing in here has to change for that.
+// The home experience is the live page by default; operators may instead make
+// the Panoptic landing or Studio home. Panoptic pages are noindex only while
+// the live page is the home experience.
 
 import { homeExperience } from "@/lib/env";
 
@@ -14,14 +13,14 @@ export const PATHS = {
   terms: "/terms",
 } as const;
 
-/** True while the landing is not the home page. */
+/** True while Panoptic pages should stay out of search results. */
 export function isDormant(): boolean {
-  return homeExperience() !== "video-search";
+  return homeExperience() === "live";
 }
 
-/** The landing's current address: the home page once switched on. */
+/** The landing's address: home only in Panoptic mode, otherwise its stable path. */
 export function landingPath(): string {
-  return isDormant() ? PATHS.videoSearch : "/";
+  return homeExperience() === "video-search" ? "/" : PATHS.videoSearch;
 }
 
 /** Which page a form was opened from, for the `source` recorded with it. */

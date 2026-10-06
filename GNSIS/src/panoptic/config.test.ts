@@ -18,4 +18,10 @@ describe("where the landing lives", () => {
     expect(isDormant()).toBe(false);
     expect(landingPath()).toBe("/");
   });
+
+  it("stays dormant outside live mode while keeping its stable path in studio mode", () => {
+    window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "studio" };
+    expect(isDormant()).toBe(false);
+    expect(landingPath()).toBe(PATHS.videoSearch);
+  });
 });

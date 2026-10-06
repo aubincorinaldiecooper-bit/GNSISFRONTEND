@@ -108,6 +108,17 @@ if the logo changes, re-export it from the master SVG; never redraw it. The
 live page's title and preview (`/`, `/live`) belong to GNSISBACKEND, like the
 rest of that page.
 
+## Scoped exception: the GNSIS Studio pages
+
+`src/studio/` (the public `/models` and `/models/panoptic` pages) is also
+**exempt from the Astryx rules above**, by the owner's decision: these pages
+are built with shadcn-style Radix primitives, Motion microinteractions and
+Tailwind, in the visual language of Beautiful UI
+(https://github.com/slev12397/beautiful-ui, MIT). Its tokens live in
+`src/studio/surface.css`, scoped to `html[data-surface="studio"]`; the pieces
+adapted from it are in `src/studio/ui/` with its licence beside them. Keep new
+studio UI in that idiom rather than mixing Astryx into it.
+
 Everything else in this repository — `/login`, the control plane under
 `/admin`, and any new interface written here — follows the Astryx rules above
 without exception.

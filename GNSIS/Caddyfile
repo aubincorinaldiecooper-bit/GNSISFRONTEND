@@ -27,26 +27,26 @@
 	# measured at gnsis.studio as two requests held 125 seconds each before the
 	# browser gave up.
 	#
-	# "/" is the live page unless GNSIS_HOME_EXPERIENCE=video-search, which
-	# gives "/" to the React bundle's Panoptic landing instead. /live is the
-	# live page either way: printed QR codes and shared links point there.
-	# docker-entrypoint.sh has already reduced the variable to one of the two
-	# values; Caddy substitutes it once, when it reads this file.
+	# "/" is the live page by default, the Panoptic landing for
+	# GNSIS_HOME_EXPERIENCE=video-search, or the GNSIS lab for "studio".
+	# /live remains the live page in every mode: printed QR codes and shared
+	# links point there. docker-entrypoint.sh validates the mode before Caddy
+	# reads this file.
 	@livepage path /live
 	rewrite @livepage /live.html
 
 	@livehome {
 		path /
-		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "video-search"`
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "live"`
 	}
 	rewrite @livehome /live.html
 
-	# While the live page is the home page, the Panoptic pages are dormant:
-	# served, but kept out of search engines. The bundle also adds a noindex
-	# tag once it runs; this header covers crawlers that never run it.
+	# While the live page is the home page, the Panoptic and Studio pages are
+	# dormant: served, but kept out of search engines. The bundle also adds
+	# noindex metadata where appropriate; this header covers non-JS crawlers.
 	@dormant {
-		path /video-search /video-search/ /use-cases/agentic-web-steering /use-cases/agentic-web-steering/ /privacy /privacy/ /terms /terms/
-		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "video-search"`
+		path /video-search /video-search/ /use-cases/agentic-web-steering /use-cases/agentic-web-steering/ /privacy /privacy/ /terms /terms/ /models /models/ /models/panoptic /models/panoptic/ /lab /lab/ /developers/panoptic /developers/panoptic/ /developers/gnsis-01 /developers/gnsis-01/
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "live"`
 	}
 	header @dormant X-Robots-Tag "noindex, nofollow"
 
@@ -88,22 +88,29 @@
 		}
 	}
 
-	# Each Panoptic page has its own copy of index.html, written at build time
+	# Each Panoptic and studio page has its own copy of index.html, written at build time
 	# with that page's title and link preview (src/panoptic/pageMeta.ts): the
 	# apps that draw link previews read the file without running the bundle.
-	# "/" gets the landing's copy when the landing is the home page, and a
-	# trailing slash gets the same copy as the address without one.
+	# In Panoptic mode, "/" gets the landing's copy. Studio mode has its own
+	# home rewrite below; a trailing slash gets the same copy as the address
+	# without one.
 	@searchhome {
 		path /
 		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "video-search"`
 	}
 	rewrite @searchhome /video-search.html
 
-	@panopticslash path_regexp slashed ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms)/$
+	@studiohome {
+		path /
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "studio"`
+	}
+	rewrite @studiohome /lab.html
+
+	@panopticslash path_regexp slashed ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms|/models|/models/panoptic|/lab|/developers/panoptic|/developers/gnsis-01)/$
 	rewrite @panopticslash {re.slashed.1}.html
 
 	# The copies are how a page is served, not addresses of their own.
-	@panoptichtml path_regexp html ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms)\.html$
+	@panoptichtml path_regexp html ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms|/models|/models/panoptic|/lab|/developers/panoptic|/developers/gnsis-01)\.html$
 	redir @panoptichtml {re.html.1} permanent
 
 	# Everything else is the React bundle: /login and the control plane under

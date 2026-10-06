@@ -1,0 +1,173 @@
+/*
+ * The GNSIS Studio ground: the shadcn/ui colour variables, light and warm,
+ * for /models and the model pages. index.html marks those addresses with
+ * data-surface="studio" before first paint (and drops the console's "dark"
+ * class), so these win over the console's :root and .dark values.
+ */
+
+html[data-surface="studio"] {
+  --background: 40 23% 98%;
+  --foreground: 30 8% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 30 8% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 30 8% 9%;
+  --primary: 30 8% 9%;
+  --primary-foreground: 40 23% 98%;
+  --secondary: 35 14% 95%;
+  --secondary-foreground: 30 8% 12%;
+  --muted: 35 14% 95%;
+  --muted-foreground: 30 4% 42%;
+  --accent: 35 14% 94%;
+  --accent-foreground: 30 8% 12%;
+  --border: 30 9% 89%;
+  --input: 30 9% 85%;
+  --ring: 221 83% 53%;
+  --radius: 0.875rem;
+  color-scheme: light;
+}
+
+html[data-surface="studio"],
+html[data-surface="studio"] body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/*
+ * Beautiful UI's design tokens (MIT, © 2026 Shane Levine; see
+ * src/studio/ui/LICENSE-beautiful-ui.txt): cool near-white page, white cards,
+ * hairline borders, layered low-opacity shadows, one blue accent. Its
+ * accent/green/orange/red are named signal/ok/warm here so they do not
+ * collide with shadcn's `accent` or Tailwind's colour palettes.
+ */
+html[data-surface="studio"] {
+  --page: oklch(0.985 0.002 286.376);
+  --canvas: oklch(0.961 0.002 247.84);
+  --surface: oklch(1 0 0);
+  --inset: oklch(0.979 0.002 247.839);
+  --hover: oklch(0.97 0.002 247.839);
+  --hover-2: oklch(0.945 0.003 247.86);
+
+  --ink: oklch(0.247 0.006 258.361);
+  --ink-2: oklch(0.49 0.01 264.477);
+  --ink-3: oklch(0.66 0.009 264.505);
+
+  --line: oklch(0.932 0.004 264.542);
+  --line-strong: oklch(0.895 0.006 258.326);
+  --field: oklch(0.975 0.001 286.375);
+
+  --signal: oklch(0.6 0.205 258);
+  --signal-ink: oklch(0.52 0.19 259);
+  --signal-tint: oklch(0.962 0.02 252.878);
+  --ok: oklch(0.58 0.155 150.883);
+  --ok-tint: oklch(0.958 0.03 159.118);
+  --warm: oklch(0.66 0.179 49.902);
+  --warm-tint: oklch(0.964 0.025 67.581);
+
+  --shadow-xs: 0 1px 2px oklch(0.25 0.01 260 / 0.06);
+  --shadow-sm: 0 1px 1px oklch(0.25 0.01 260 / 0.03), 0 2px 4px oklch(0.25 0.01 260 / 0.035),
+    0 6px 14px oklch(0.25 0.01 260 / 0.04);
+  --shadow-md: 0 2px 4px oklch(0.25 0.01 260 / 0.035), 0 8px 16px oklch(0.25 0.01 260 / 0.05),
+    0 18px 36px oklch(0.25 0.01 260 / 0.05);
+  --shadow-lg: 0 4px 8px oklch(0.25 0.01 260 / 0.04), 0 14px 28px oklch(0.25 0.01 260 / 0.07),
+    0 30px 60px oklch(0.25 0.01 260 / 0.08);
+
+  --shadow-hairline: 0 0 0 1px var(--line);
+  --shadow-btn: 0 0 0 1px var(--line-strong), var(--shadow-xs);
+  --shadow-card: 0 0 0 1px var(--line), var(--shadow-sm);
+  --shadow-raised: 0 0 0 1px var(--line), var(--shadow-md);
+  --shadow-overlay: 0 0 0 1px var(--line), var(--shadow-lg);
+  --shadow-inset-field: inset 0 1px 2px oklch(0 0 0 / 0.06), 0 0 0 1px var(--line-strong);
+}
+
+html[data-surface="studio"],
+html[data-surface="studio"] body {
+  background: var(--page);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html[data-surface="studio"] ::selection {
+  background: var(--signal-tint);
+  color: var(--ink);
+}
+
+html[data-surface="studio"] :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+html[data-surface="studio"] p {
+  text-wrap: pretty;
+}
+
+.bui-stream-tail {
+  filter: blur(1.6px);
+  -webkit-mask-image: linear-gradient(to right, oklch(0 0 0) 20%, oklch(0 0 0 / 0.2));
+  mask-image: linear-gradient(to right, oklch(0 0 0) 20%, oklch(0 0 0 / 0.2));
+}
+
+.bui-stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 1.5px;
+  border-radius: 1px;
+  background: var(--ink);
+  vertical-align: text-bottom;
+  animation: bui-caret-blink 1s step-end infinite;
+}
+
+.bui-stream-caret.is-streaming {
+  animation: none;
+}
+
+@keyframes bui-shimmer {
+  from { background-position: 150% center; }
+  to { background-position: -50% center; }
+}
+
+@keyframes bui-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bui-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes bui-pop-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes bui-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes bui-ping {
+  75%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes bui-caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-surface="studio"] *,
+  html[data-surface="studio"] *::before,
+  html[data-surface="studio"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .bui-stream-tail {
+    filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}

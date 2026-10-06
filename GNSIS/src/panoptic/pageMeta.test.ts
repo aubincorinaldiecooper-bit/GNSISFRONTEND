@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { PANOPTIC_PAGES, PREVIEW_IMAGE, SITE_ORIGIN, withPageMeta } from "./pageMeta";
+import {
+  DEVELOPERS_GNSIS01_META,
+  DEVELOPERS_PANOPTIC_META,
+  LAB_META,
+  MODELS_META,
+  PANOPTIC_PAGES,
+  PREVIEW_IMAGE,
+  SITE_ORIGIN,
+  STUDIO_PAGES,
+  withPageMeta,
+} from "./pageMeta";
 
 const INDEX = `<head>
     <meta charset="UTF-8" />
@@ -44,5 +54,37 @@ describe("each Panoptic page's own HTML", () => {
       "/terms",
     ]);
     for (const page of PANOPTIC_PAGES) expect(`/${page.file}`).toBe(`${page.path}.html`);
+  });
+
+  it("includes the Studio lab's static page metadata", () => {
+    expect(LAB_META).toEqual({
+      path: "/lab",
+      file: "lab.html",
+      title: "GNSIS — an AI research lab in Toronto",
+      description:
+        "GNSIS is a research lab building AI that sees, listens and remembers in real time, so it can work alongside people, not just answer them.",
+    });
+    expect(STUDIO_PAGES).toContain(LAB_META);
+  });
+
+  it("includes both developer pages' static metadata", () => {
+    expect(MODELS_META.description).toBe(
+      "Two models, different strengths: Panoptic for real-time visual perception of the web, GNSIS 1.0 for open-ended tasks.",
+    );
+    expect(DEVELOPERS_PANOPTIC_META).toEqual({
+      path: "/developers/panoptic",
+      file: "developers/panoptic.html",
+      title: "Panoptic for developers — GNSIS",
+      description:
+        "Give your agent a live view of the screen. Request developer access to the Panoptic API, SDKs and MCP server.",
+    });
+    expect(DEVELOPERS_GNSIS01_META).toEqual({
+      path: "/developers/gnsis-01",
+      file: "developers/gnsis-01.html",
+      title: "GNSIS 1.0 for developers — GNSIS",
+      description: "Hand GNSIS 1.0 a task through the API and follow it to the finish. Request developer access.",
+    });
+    expect(STUDIO_PAGES).toContain(DEVELOPERS_PANOPTIC_META);
+    expect(STUDIO_PAGES).toContain(DEVELOPERS_GNSIS01_META);
   });
 });
