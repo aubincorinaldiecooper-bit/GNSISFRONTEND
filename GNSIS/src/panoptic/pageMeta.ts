@@ -18,7 +18,7 @@ export const PREVIEW_IMAGE = {
 } as const;
 
 export interface PageMeta {
-  /** The page's address (the landing's dormant one). */
+  /** The page's stable public address. */
   path: string;
   /** The HTML file the build writes for it; Caddy serves it for `path`. */
   file: string;
@@ -57,6 +57,57 @@ export const TERMS_META: PageMeta = {
 };
 
 export const PANOPTIC_PAGES: readonly PageMeta[] = [LANDING_META, WEB_STEERING_META, PRIVACY_META, TERMS_META];
+
+// The GNSIS Studio pages (src/studio).
+export const MODELS_META: PageMeta = {
+  path: "/models",
+  file: "models.html",
+  title: "Models — GNSIS",
+  description:
+    "Two models, different strengths: Panoptic for real-time visual perception of the web, GNSIS 1.0 for open-ended tasks.",
+};
+
+export const PANOPTIC_MODEL_META: PageMeta = {
+  path: "/models/panoptic",
+  file: "models/panoptic.html",
+  title: "Panoptic — persistent vision for agents",
+  description:
+    "Agents lose sight of the page between actions. Panoptic keeps watching, so your agent always knows what’s on screen.",
+};
+
+export const DEVELOPERS_PANOPTIC_META: PageMeta = {
+  path: "/developers/panoptic",
+  file: "developers/panoptic.html",
+  title: "Panoptic for developers — GNSIS",
+  description:
+    "Give your agent a live view of the screen. Request developer access to the Panoptic API, SDKs and MCP server.",
+};
+
+export const DEVELOPERS_GNSIS01_META: PageMeta = {
+  path: "/developers/gnsis-01",
+  file: "developers/gnsis-01.html",
+  title: "GNSIS 1.0 for developers — GNSIS",
+  description: "Hand GNSIS 1.0 a task through the API and follow it to the finish. Request developer access.",
+};
+
+export const LAB_META: PageMeta = {
+  path: "/lab",
+  file: "lab.html",
+  title: "GNSIS — an AI research lab in Toronto",
+  description:
+    "GNSIS is a research lab building AI that sees, listens and remembers in real time, so it can work alongside people, not just answer them.",
+};
+
+export const STUDIO_PAGES: readonly PageMeta[] = [
+  LAB_META,
+  MODELS_META,
+  PANOPTIC_MODEL_META,
+  DEVELOPERS_PANOPTIC_META,
+  DEVELOPERS_GNSIS01_META,
+];
+
+/** Every page the build writes its own HTML copy for. */
+export const SITE_PAGES: readonly PageMeta[] = [...PANOPTIC_PAGES, ...STUDIO_PAGES];
 
 const START = "<!-- page-meta -->";
 const END = "<!-- /page-meta -->";

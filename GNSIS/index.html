@@ -27,10 +27,9 @@
          the time the app reads it. Overwritten at container startup; a no-op
          empty object in local/non-container builds. -->
     <script src="/env.js"></script>
-    <!-- The Panoptic pages are light and the console is dark. Mark a Panoptic
-         page before the stylesheet paints, so it never flashes dark first; the
-         colour itself comes from src/panoptic/tokens.css. Keep the paths in
-         step with src/panoptic/config.ts. -->
+    <!-- Panoptic and Studio pages are light and the console is dark. Mark
+         public pages before the stylesheet paints, so they never flash dark
+         first; the colours come from their respective surfaces. -->
     <script>
       (function () {
         var path = location.pathname.replace(/\/+$/, "") || "/";
@@ -38,6 +37,13 @@
         var panoptic = /^\/(video-search|use-cases\/agentic-web-steering|privacy|terms)$/.test(path) ||
           (path === "/" && config.VITE_HOME_EXPERIENCE === "video-search");
         if (panoptic) document.documentElement.setAttribute("data-surface", "panoptic");
+        // The GNSIS Studio pages use their light surface (src/studio/surface.css),
+        // including the stable lab route and the configured home page.
+        if (/^\/(lab|models(\/panoptic)?|developers\/(panoptic|gnsis-01))$/.test(path) ||
+          (path === "/" && config.VITE_HOME_EXPERIENCE === "studio")) {
+          document.documentElement.setAttribute("data-surface", "studio");
+          document.documentElement.classList.remove("dark");
+        }
       })();
     </script>
   </head>

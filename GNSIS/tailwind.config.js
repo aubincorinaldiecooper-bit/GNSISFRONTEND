@@ -5,6 +5,18 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // GNSIS Studio (src/studio): Beautiful UI's tokens, values in src/studio/surface.css.
+        page: "var(--page)",
+        canvas: "var(--canvas)",
+        surface: "var(--surface)",
+        inset: "var(--inset)",
+        hover: { DEFAULT: "var(--hover)", 2: "var(--hover-2)" },
+        ink: { DEFAULT: "var(--ink)", 2: "var(--ink-2)", 3: "var(--ink-3)" },
+        line: { DEFAULT: "var(--line)", strong: "var(--line-strong)" },
+        field: "var(--field)",
+        signal: { DEFAULT: "var(--signal)", ink: "var(--signal-ink)", tint: "var(--signal-tint)" },
+        ok: { DEFAULT: "var(--ok)", tint: "var(--ok-tint)" },
+        warm: { DEFAULT: "var(--warm)", tint: "var(--warm-tint)" },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -75,9 +87,27 @@ module.exports = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
         xs: "calc(var(--radius) - 6px)",
+        chip: "6px",
+        control: "8px",
+        card: "10px",
+        window: "14px",
+      },
+      fontFamily: {
+        studio: ['"Inter Tight"', "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ['"Newsreader"', "Georgia", "serif"],
+      },
+      transitionTimingFunction: {
+        "out-strong": "cubic-bezier(0.23, 1, 0.32, 1)",
+        "in-out-strong": "cubic-bezier(0.77, 0, 0.175, 1)",
       },
       boxShadow: {
         xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        hairline: "var(--shadow-hairline)",
+        btn: "var(--shadow-btn)",
+        card: "var(--shadow-card)",
+        raised: "var(--shadow-raised)",
+        overlay: "var(--shadow-overlay)",
+        "inset-field": "var(--shadow-inset-field)",
       },
       keyframes: {
         "accordion-down": {

@@ -25,14 +25,15 @@ set -eu
 ENV_JS="/usr/share/caddy/env.js"
 
 # What gnsis.studio/ shows. "live" (the default) is the live session page;
-# "video-search" is the Panoptic landing, with the live page still at /live.
+# "video-search" is the Panoptic landing; "studio" is the GNSIS lab. The live
+# page remains available at /live in every mode.
 # Caddy reads the normalised value below when it parses its config, and the
 # browser gets the same value as VITE_HOME_EXPERIENCE. An unknown value keeps
 # the live page and says so, rather than taking the front door down.
 case "${GNSIS_HOME_EXPERIENCE:-live}" in
-  live | video-search) ;;
+  live | video-search | studio) ;;
   *)
-    echo "GNSIS_HOME_EXPERIENCE must be 'live' or 'video-search'; got an unknown value, serving 'live'." >&2
+    echo "GNSIS_HOME_EXPERIENCE must be 'live', 'video-search' or 'studio'; got an unknown value, serving 'live'." >&2
     GNSIS_HOME_EXPERIENCE=live
     ;;
 esac

@@ -10,7 +10,7 @@ export default function PrivacyPage() {
     <LegalPage
       page="privacy"
       title="Privacy"
-      updated="28 September 2026"
+      updated="5 October 2026"
       meta={PRIVACY_META}
     >
       <p>
@@ -21,7 +21,7 @@ export default function PrivacyPage() {
       <h2>What we collect</h2>
       <ul>
         <li>
-          <strong>Early access:</strong> your email address and, if you typed one into the Panoptic bar, your task, kept exactly as you wrote it.
+          <strong>Early access:</strong> your email address and, if you typed one into the Panoptic bar, your task, kept exactly as you wrote it. If you request developer access, also what you told us you plan to build, kept the same way.
         </li>
         <li>
           <strong>Contact:</strong> your email address and your message.
@@ -42,6 +42,7 @@ export default function PrivacyPage() {
 
       <h2>Why we keep it</h2>
       <ul>
+        <li>To review developer access requests and send you an API key.</li>
         <li>To let you know when you can try Panoptic, and to start you off with the task you gave us.</li>
         <li>To answer your message.</li>
       </ul>
