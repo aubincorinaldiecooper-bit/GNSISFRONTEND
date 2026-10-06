@@ -15,7 +15,7 @@ import { PATHS } from './panoptic/config'
 // The Panoptic pages load as their own chunk, only when one is visited.
 const panoptic = () => import('./panoptic/pages')
 const PanopticSite = lazy(() => panoptic().then((m) => ({ default: m.PanopticSite })))
-const LandingPage = lazy(() => panoptic().then((m) => ({ default: m.LandingPage })))
+const MomentsPage = lazy(() => panoptic().then((m) => ({ default: m.MomentsPage })))
 const WebSteeringPage = lazy(() => panoptic().then((m) => ({ default: m.WebSteeringPage })))
 const PrivacyPage = lazy(() => panoptic().then((m) => ({ default: m.PrivacyPage })))
 const TermsPage = lazy(() => panoptic().then((m) => ({ default: m.TermsPage })))
@@ -40,10 +40,10 @@ createRoot(document.getElementById('root')!).render(
             </Suspense>
           }
         >
-          {videoSearchIsHome && <Route index element={<LandingPage />} />}
+          {videoSearchIsHome && <Route index element={<MomentsPage />} />}
           <Route
             path={PATHS.videoSearch}
-            element={videoSearchIsHome ? <Navigate to="/" replace /> : <LandingPage />}
+            element={videoSearchIsHome ? <Navigate to="/" replace /> : <MomentsPage />}
           />
           <Route path={PATHS.webSteering} element={<WebSteeringPage />} />
           <Route path={PATHS.privacy} element={<PrivacyPage />} />
