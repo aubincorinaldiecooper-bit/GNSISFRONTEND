@@ -2,7 +2,7 @@
 // disable, with a one-time secret reveal. No LiteLLM `sk-` keys, no budgets, no
 // master-key assumptions — everything is derived from the /v1/virtual-keys API.
 
-import { useState } from "react";
+import { useId, useRef, useState, type RefObject } from "react";
 import { KeyRound, Plus, RefreshCw, Ban, AlertTriangle, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ function shortDate(iso: string): string {
 }
 
 const statusStyles: Record<VirtualKey["status"], string> = {
-  active: "text-emerald-400 bg-emerald-500/10",
+  active: "text-green bg-green-tint",
   disabled: "text-muted-foreground bg-muted",
   rotated: "text-muted-foreground bg-muted",
 };
@@ -39,7 +39,7 @@ function ModeBadge({ mode }: { mode: VirtualKeyMode }) {
     <span
       className={
         "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase " +
-        (mode === "test" ? "bg-blue-500/10 text-blue-400" : "bg-foreground text-background")
+        (mode === "test" ? "bg-accent-tint text-accent" : "bg-foreground text-background")
       }
     >
       {mode}
@@ -52,12 +52,16 @@ function CreateKeyDialog({
   onOpenChange,
   onCreate,
   creating,
+  returnFocus,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onCreate: (name: string, mode: VirtualKeyMode) => Promise<void>;
   creating: boolean;
+  returnFocus: RefObject<HTMLButtonElement | null>;
 }) {
+  const nameId = useId();
+  const pending = useRef(false);
   const [name, setName] = useState("");
   const [mode, setMode] = useState<VirtualKeyMode>("test");
   const [error, setError] = useState<string | null>(null);
@@ -69,13 +73,16 @@ function CreateKeyDialog({
   };
 
   const submit = async () => {
-    if (!name.trim() || creating) return;
+    if (!name.trim() || creating || pending.current) return;
+    pending.current = true;
     setError(null);
     try {
       await onCreate(name.trim(), mode);
       reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the key.");
+    } finally {
+      pending.current = false;
     }
   };
 
@@ -89,7 +96,9 @@ function CreateKeyDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-sm" onCloseAutoFocus={(event) => {
+        if (returnFocus.current?.isConnected) { event.preventDefault(); returnFocus.current.focus(); }
+      }}>
         <DialogHeader>
           <DialogTitle className="text-base">Create API key</DialogTitle>
           <DialogDescription className="leading-relaxed">
@@ -98,57 +107,53 @@ function CreateKeyDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <form onSubmit={(event) => { event.preventDefault(); void submit(); }} aria-busy={creating}>
         <div className="space-y-3 py-2">
           <div>
-            <label className="mb-1.5 block text-xs text-muted-foreground">Name</label>
-            <Input
+            <label htmlFor={nameId} className="mb-1.5 block text-xs text-ink-2">Name</label>
+            <Input id={nameId}
+              aria-invalid={!!error}
+              aria-describedby={error ? `${nameId}-error` : undefined}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Production app"
               className="h-9"
               disabled={creating}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs text-muted-foreground">Mode</label>
-            <div className="flex gap-2">
+            <p className="mb-1.5 text-xs text-ink-2">Mode</p>
+            <div className="flex gap-2" role="group" aria-label="Key mode">
               {(["test", "live"] as VirtualKeyMode[]).map((m) => (
-                <button
+                <Button variant={mode === m ? "primary" : "secondary"} aria-pressed={mode === m}
                   key={m}
                   type="button"
                   disabled={creating}
                   onClick={() => setMode(m)}
-                  className={
-                    "flex-1 rounded-lg border px-3 py-2 text-sm capitalize transition-colors " +
-                    (mode === m
-                      ? "border-foreground/20 bg-black/[0.04] font-semibold text-foreground"
-                      : "border-border text-muted-foreground hover:bg-black/[0.03]")
-                  }
+                  className="flex-1 capitalize"
                 >
                   {m}
                   <span className="ml-1 font-mono text-[10px] text-muted-foreground">
                     gns_{m}_
                   </span>
-                </button>
+                </Button>
               ))}
             </div>
           </div>
         </div>
 
         {error && (
-          <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2">
+          <div id={`${nameId}-error`} role="alert" className="flex items-start gap-2 rounded-control border border-red/20 bg-red-tint px-3 py-2">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
             <span className="text-xs text-red-400">{error}</span>
           </div>
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
+          <Button variant="secondary" onClick={() => { reset(); onOpenChange(false); }} disabled={creating}>
             Cancel
           </Button>
-          <Button
-            onClick={submit}
+          <Button variant="primary" type="submit"
             disabled={creating || !name.trim()}
             className="gap-1.5"
           >
@@ -156,6 +161,7 @@ function CreateKeyDialog({
             Create key
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -165,6 +171,7 @@ export default function ApiKeysSection() {
   const configured = isApiConfigured();
   const { keys, loading, error, creating, mutatingId, create, rotate, disable } = useVirtualKeys();
   const [createOpen, setCreateOpen] = useState(false);
+  const createButton = useRef<HTMLButtonElement>(null);
   const [revealId, setRevealId] = useState<string | null>(null);
 
   const onCreate = async (name: string, mode: VirtualKeyMode) => {
@@ -172,6 +179,8 @@ export default function ApiKeysSection() {
     if (res) {
       setCreateOpen(false);
       setRevealId(res.virtual_key.id);
+    } else {
+      throw new Error("Could not create the key. Please try again.");
     }
   };
 
@@ -189,6 +198,7 @@ export default function ApiKeysSection() {
             size="sm"
             variant="outline"
             className="h-8 gap-1.5 rounded-lg text-xs"
+            ref={createButton}
             onClick={() => setCreateOpen(true)}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -268,7 +278,7 @@ export default function ApiKeysSection() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => onRotate(k.id)}
+                        onClick={() => { void onRotate(k.id).catch(() => { /* Hook displays the API error. */ }); }}
                         disabled={busy}
                         className="h-7 gap-1 text-xs"
                       >
@@ -282,7 +292,7 @@ export default function ApiKeysSection() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => disable(k.id)}
+                        onClick={() => { void disable(k.id).catch(() => { /* Hook displays the API error. */ }); }}
                         disabled={busy}
                         className="h-7 gap-1 text-xs text-red-600 hover:text-red-700"
                       >
@@ -304,6 +314,7 @@ export default function ApiKeysSection() {
       )}
 
       <CreateKeyDialog
+        returnFocus={createButton}
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreate={onCreate}

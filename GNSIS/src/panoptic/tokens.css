@@ -1,13 +1,7 @@
-/*
- * The Panoptic design tokens, in one place (the handoff's values; see
- * AGENTS.md, "Scoped exception: the Panoptic pages").
- *
- * index.css imports this file, so it arrives with the first stylesheet, before
- * the Panoptic pages' own chunk. That lets the page ground be painted light as
- * soon as index.html marks a Panoptic address (data-surface="panoptic"),
- * without writing the colour down a second time.
- */
-
+/* Panoptic's supplied decorative palette, type and handoff geometry remain
+ * scoped to artwork/layout. React controls use the shared Beautiful foundation
+ * directly, never this decorative palette. Loaded before the page chunk so the
+ * warm background is ready on first paint. */
 html[data-surface="panoptic"],
 .pn {
   --pn-bg: #f0eeed;
@@ -32,7 +26,6 @@ html[data-surface="panoptic"],
   --pn-gutter: 38px;
   --pn-shadow-phone: 0 40px 80px rgba(0, 0, 0, 0.22);
 }
-
 html[data-surface="panoptic"],
 html[data-surface="panoptic"] body {
   background: var(--pn-bg);

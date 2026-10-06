@@ -1,4 +1,4 @@
-// The frame every Panoptic page renders in: the design's fonts and
+// The frame every Panoptic page renders in: handoff decorative typography and
 // stylesheet, the light ground, reduced-motion handling, and the two forms.
 // Loaded on its own (see main.tsx), so the console never downloads it and it
 // never waits on the console's session check or theme.
@@ -6,6 +6,7 @@
 import "@fontsource/inter-tight/400.css";
 import "@fontsource/inter-tight/600.css";
 import "@fontsource/inter-tight/700.css";
+import { UIThemeProvider } from "@/components/ui/theme";
 import "./panoptic.css";
 
 import { MotionConfig } from "motion/react";
@@ -36,12 +37,12 @@ export default function PanopticSite() {
   useLightSurface();
   useScrollToTopOnNavigate();
   return (
-    <MotionConfig reducedMotion="user">
-      <div className="pn">
+    <UIThemeProvider theme="light"><MotionConfig reducedMotion="user">
+      <div className="pn light">
         <DialogsProvider>
           <Outlet />
         </DialogsProvider>
       </div>
-    </MotionConfig>
+    </MotionConfig></UIThemeProvider>
   );
 }

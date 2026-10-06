@@ -197,6 +197,18 @@ async function handleRequest(
   }
 
   if (
+    req.method === "GET" &&
+    url.pathname === "/api/accounts/options"
+  ) {
+    res.setHeader("Cache-Control", "no-store");
+    sendJson(res, 200, {
+      google: Boolean(env.googleClientId && env.googleClientSecret),
+      email: Boolean(env.resendApiKey && env.authEmailFrom),
+    });
+    return;
+  }
+
+  if (
     req.method === "POST" &&
     url.pathname ===
       "/internal/github/verify-installation"

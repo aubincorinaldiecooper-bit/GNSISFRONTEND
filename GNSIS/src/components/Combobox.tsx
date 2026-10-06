@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export interface ComboboxOption {
@@ -58,6 +60,8 @@ export function Combobox({
   const [alignRight, setAlignRight] = useState(false);
   const [menuMaxWidth, setMenuMaxWidth] = useState<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listId = useId();
 
   const selected = options.find((o) => o.value === value) ?? null;
 
@@ -86,8 +90,10 @@ export function Combobox({
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        e.preventDefault();
         e.stopPropagation();
         setOpen(false);
+        triggerRef.current?.focus();
       }
     }
     document.addEventListener("keydown", onKey);
@@ -116,8 +122,19 @@ export function Combobox({
   }, [open]);
 
   return (
-    <div className="relative w-full min-w-0" ref={rootRef}>
-      <button
+    <div className="relative w-full min-w-0" ref={rootRef} onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    }}>
+      <Button variant="secondary"
+        ref={triggerRef}
+        aria-controls={open ? listId : undefined}
+        aria-haspopup="listbox"
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
         type="button"
         role="combobox"
         aria-expanded={open}
@@ -125,7 +142,7 @@ export function Combobox({
         disabled={disabled || loading}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed",
+          "h-9 w-full min-w-0 rounded-control px-3",
           className,
         )}
       >
@@ -135,13 +152,13 @@ export function Combobox({
         <span className={cn("min-w-0 flex-1 truncate text-left", !selected && "text-muted-foreground")}>
           {loading ? "Loading…" : selected ? selected.label : placeholder}
         </span>
-        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-      </button>
+        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+      </Button>
 
       {open && !loading && (
         <div
           className={cn(
-            "absolute z-50 mt-1 min-w-full w-max rounded-md border border-border bg-popover shadow-md",
+            "absolute z-50 mt-1 min-w-full w-max rounded-card bg-surface text-ink shadow-overlay",
             alignRight ? "right-0" : "left-0",
           )}
           style={{
@@ -150,22 +167,36 @@ export function Combobox({
             maxWidth:
               menuMaxWidth !== null ? `${menuMaxWidth}px` : "min(24rem, calc(100vw - 1rem))",
           }}
-          role="listbox"
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
+              event.preventDefault();
+              return;
+            }
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            if ((event.key === "Home" || event.key === "End") && event.target instanceof HTMLInputElement) return;
+            const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'));
+            if (!items.length) return;
+            event.preventDefault();
+            const index = items.indexOf(document.activeElement as HTMLButtonElement);
+            const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+              : event.key === "ArrowDown" ? (index + 1) % items.length : (index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length);
+            items[next].focus();
+          }}
         >
-          <input
+          <Input
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={searchPlaceholder}
             aria-label={searchPlaceholder}
-            className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none"
+            className="rounded-b-none"
           />
-          <div className="max-h-56 overflow-auto py-1">
+          <div className="max-h-56 overflow-auto py-1" role="listbox" id={listId} aria-label={`${ariaLabel} options`}>
             {filtered.length === 0 ? (
               <div className="px-3 py-2 text-xs text-muted-foreground">{emptyText}</div>
             ) : (
               filtered.map((o) => (
-                <button
+                <Button variant="quiet"
                   key={o.value}
                   type="button"
                   role="option"
@@ -174,15 +205,16 @@ export function Combobox({
                     onChange(o.value);
                     setOpen(false);
                     setQuery("");
+                    triggerRef.current?.focus();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent"
+                  className="w-full justify-start rounded-chip px-3 py-1.5 text-left text-sm focus-visible:bg-hover"
                 >
-                  <Check className={cn("h-4 w-4 shrink-0", value === o.value ? "opacity-100" : "opacity-0")} />
+                  <Check aria-hidden="true" className={cn("h-4 w-4 shrink-0", value === o.value ? "opacity-100" : "opacity-0")} />
                   <span className="min-w-0 flex-1 truncate">{o.label}</span>
                   {o.hint ? (
                     <span className="ml-2 shrink-0 text-xs text-muted-foreground">{o.hint}</span>
                   ) : null}
-                </button>
+                </Button>
               ))
             )}
           </div>

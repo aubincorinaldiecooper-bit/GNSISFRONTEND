@@ -14,8 +14,8 @@ import {
 } from "react";
 
 import { authClient, type SessionUser } from "./authClient";
-import { clearBackendToken, onUnauthorized } from "./authToken";
-import { clearAllSecrets } from "./keySecrets";
+import { onUnauthorized } from "./authToken";
+import { mapSessionUser, signOutIdentity } from "./identity";
 import { ApiError, getMe, type MePayload } from "./api";
 import { isAuthConfigured } from "./env";
 
@@ -43,19 +43,6 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-function mapUser(raw: unknown): SessionUser | null {
-  if (!raw || typeof raw !== "object") return null;
-  const u = raw as Record<string, unknown>;
-  if (typeof u.id !== "string") return null;
-  return {
-    id: u.id,
-    email: (u.email as string | undefined) ?? null,
-    name: (u.name as string | undefined) ?? null,
-    image: (u.image as string | undefined) ?? null,
-    githubLogin: (u.githubLogin as string | undefined) ?? null,
-  };
-}
-
 export function SessionProvider({ children }: { children: ReactNode }) {
   const authConfigured = isAuthConfigured();
   // Better Auth's session hook. When auth isn't configured the client still
@@ -64,7 +51,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const rawSession = sessionQuery.data as { user?: unknown } | null;
   const isPending = sessionQuery.isPending;
 
-  const authUser = useMemo(() => mapUser(rawSession?.user), [rawSession]);
+  const authUser = useMemo(() => mapSessionUser(rawSession?.user), [rawSession]);
   const status: AuthStatus = isPending ? "loading" : authUser ? "authenticated" : "unauthenticated";
 
   const [me, setMe] = useState<MePayload | null>(null);
@@ -108,27 +95,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    // Wipe every client-held secret + token BEFORE the network round-trip, so
-    // nothing lingers even if sign-out is slow or fails. clearBackendToken also
-    // cancels any in-flight token exchange.
-    clearAllSecrets();
-    clearBackendToken();
     setMe(null);
     setBackendState("idle");
     try {
-      await authClient.signOut();
+      await signOutIdentity();
     } catch {
       // A failed remote sign-out (network / CORS from Better Auth's fetch) must
       // still resolve: local secrets + token are already cleared, and the sole
       // caller invokes `void signOut()` without a rejection handler, so throwing
       // here would surface as an unhandled promise rejection.
-    } finally {
-      // Re-clear once the session is actually invalidated: a token could have
-      // been minted in the brief window between the first clear and the cookie
-      // dying, when it was still valid. This guarantees it can't be reused by the
-      // next user in this tab.
-      clearBackendToken();
-      clearAllSecrets();
     }
   }, []);
 

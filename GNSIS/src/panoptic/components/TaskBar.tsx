@@ -2,11 +2,14 @@
 // as typed (see taskFlow.ts for where it goes).
 
 import { motion } from "motion/react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useRef, useState, type FormEvent, type MouseEvent } from "react";
 
 import { useMotionPrefs } from "../motion";
 import { ArrowIcon, SearchIcon } from "./Icons";
 
+const AnimatedButton = motion.create(Button);
 export const TASK_MAX_LENGTH = 2000;
 
 export function TaskBar({ onSubmit }: { onSubmit: (task: string, input: HTMLInputElement | null) => void }) {
@@ -35,7 +38,8 @@ export function TaskBar({ onSubmit }: { onSubmit: (task: string, input: HTMLInpu
   return (
     <motion.form role="search" className="pn-taskbar" onSubmit={submit} onMouseDown={focusInput} whileHover="hover">
       <SearchIcon className="pn-taskbar-icon" />
-      <input
+      <Input
+        variant="plain"
         ref={input}
         name="task"
         type="text"
@@ -47,9 +51,9 @@ export function TaskBar({ onSubmit }: { onSubmit: (task: string, input: HTMLInpu
         value={task}
         onChange={(event) => setTask(event.target.value)}
       />
-      <motion.button type="submit" className="pn-taskbar-go" aria-label="Ask" whileTap={m.tap} transition={m.spring}>
+      <AnimatedButton variant="primary" size="icon" type="submit" className="pn-taskbar-go" aria-label="Ask" whileTap={m.tap} transition={m.spring}>
         <ArrowIcon size={24} strokeWidth={1.7} variants={{ hover: { x: m.nudge } }} transition={m.quick} />
-      </motion.button>
+      </AnimatedButton>
     </motion.form>
   );
 }

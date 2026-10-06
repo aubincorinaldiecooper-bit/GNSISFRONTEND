@@ -1,6 +1,7 @@
 // Every Panoptic page ends here. The link columns list only what exists:
 // Video search, Vision, Research and News stay off until they are real.
 
+import { Button } from "@/components/ui/button";
 import { Link } from "react-router";
 
 import { PATHS, type PageId } from "../config";
@@ -35,14 +36,14 @@ export function Footer({ page }: { page: PageId }) {
               </p>
               <ul aria-labelledby="pn-foot-company">
                 <li>
-                  <button
+                  <Button variant="quiet"
                     type="button"
-                    className="pn-linkbutton"
+                    className="px-0 py-0 underline-offset-4 hover:underline"
                     aria-haspopup="dialog"
                     onClick={(event) => openContact(`${page}:footer`, event.currentTarget)}
                   >
                     Contact
-                  </button>
+                  </Button>
                 </li>
               </ul>
             </div>
