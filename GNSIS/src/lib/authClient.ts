@@ -5,12 +5,14 @@
 // server secret — only the session cookie and the short-lived JWT.
 
 import { createAuthClient } from "better-auth/react";
+import { magicLinkClient } from "better-auth/client/plugins";
 
 import { authBaseUrl } from "./env";
 
 export const authClient = createAuthClient({
   baseURL: authBaseUrl() || undefined,
   fetchOptions: { credentials: "include" },
+  plugins: [magicLinkClient()],
 });
 
 export interface SessionUser {

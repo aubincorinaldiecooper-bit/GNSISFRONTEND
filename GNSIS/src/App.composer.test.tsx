@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 
@@ -139,6 +139,60 @@ beforeEach(() => {
 });
 
 describe("NewRunComposer", () => {
+  it("uses the controlled Beautiful composer, trims submission and preserves drafts on errors", async () => {
+    const user = userEvent.setup();
+    apiMocks.createJobMock.mockRejectedValue(new Error("offline"));
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent("main"));
+    const box = screen.getByRole("textbox", { name: "Run instruction" });
+    expect(box.closest("form")).toHaveAttribute("data-slot", "chat-composer");
+    await user.type(box, "  Keep my instruction  ");
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Failed to start the run.");
+    expect(box).toHaveValue("  Keep my instruction  ");
+    expect(apiMocks.createJobMock).toHaveBeenCalledWith({ repository_id: "repo-alpha", instruction: "Keep my instruction", base_branch: "main", model: "anthropic/claude-opus-4.8" });
+  });
+
+  it("does not launch on IME, held Enter, or Shift+Enter", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent("main"));
+    const box = screen.getByRole("textbox", { name: "Run instruction" });
+    await user.type(box, "line one{Shift>}{Enter}{/Shift}line two");
+    expect(box).toHaveValue("line one\nline two");
+    fireEvent.compositionStart(box);
+    fireEvent.keyDown(box, { key: "Enter" });
+    fireEvent.compositionEnd(box);
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(box, { key: "Enter", keyCode: 229 });
+    fireEvent.keyDown(box, { key: "Enter", repeat: true });
+    expect(apiMocks.createJobMock).not.toHaveBeenCalled();
+    // Ctrl+Enter remains a valid shortcut as well as the shared Enter action.
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps the draft and disables textarea and Start actions while a launch is pending", async () => {
+    const user = userEvent.setup();
+    let reject!: (reason: Error) => void;
+    apiMocks.createJobMock.mockReturnValue(new Promise((_, rejectRequest) => { reject = rejectRequest; }));
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent("main"));
+    const box = screen.getByRole("textbox", { name: "Run instruction" });
+    await user.type(box, "Pending instruction");
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    expect(box).toBeDisabled();
+    expect(box).toHaveValue("Pending instruction");
+    expect(screen.getByRole("button", { name: "Start run" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+    fireEvent.submit(box.closest("form")!);
+    expect(apiMocks.createJobMock).toHaveBeenCalledTimes(1);
+    reject(new Error("offline"));
+    await screen.findByRole("alert");
+    expect(box).toBeEnabled();
+    expect(box).toHaveValue("Pending instruction");
+  });
+
   it("requests repositories without any enable-only filter — GitHub access is the permission", async () => {
     renderApp();
     await waitFor(() =>
@@ -211,7 +265,7 @@ describe("NewRunComposer", () => {
     // The picker doesn't show "gpt-4" or similar hallucinated models.
     expect(screen.queryByRole("option", { name: /gpt-4/i })).not.toBeInTheDocument();
 
-    const search = within(screen.getByRole("listbox")).getByRole("textbox");
+    const search = within(screen.getByRole("listbox").parentElement as HTMLElement).getByRole("textbox");
     await user.clear(search);
     await user.type(search, "anthropic");
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
@@ -257,7 +311,7 @@ describe("NewRunComposer", () => {
     expect(screen.queryByText("Default")).not.toBeInTheDocument();
     expect(screen.queryByText("openai")).not.toBeInTheDocument();
 
-    const search = within(screen.getByRole("listbox")).getByRole("textbox");
+    const search = within(screen.getByRole("listbox").parentElement as HTMLElement).getByRole("textbox");
     await user.type(search, "openai");
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["GPT-5.6 Sol"]);
     expect(screen.queryByText("openai")).not.toBeInTheDocument();
@@ -394,7 +448,7 @@ describe("NewRunComposer", () => {
 
     // A typed query that matches nothing yields "No matching repositories."
     // and offers no option to commit.
-    const search = within(screen.getByRole("listbox")).getByRole("textbox");
+    const search = within(screen.getByRole("listbox").parentElement as HTMLElement).getByRole("textbox");
     await user.type(search, "someone/private-repo-i-typed");
 
     expect(screen.getByText("No matching repositories.")).toBeInTheDocument();
@@ -442,7 +496,8 @@ describe("NewRunComposer layout contract", () => {
 
     await user.click(await screen.findByRole("combobox", { name: "Repository" }));
     const listbox = screen.getByRole("listbox");
-    expect(within(listbox).getByRole("textbox")).toBeInTheDocument();
+    expect(within(listbox.parentElement as HTMLElement).getByRole("textbox")).toBeInTheDocument();
+    expect(within(listbox).queryByRole("textbox")).toBeNull();
     // Both mocked repositories are listed in full (option name also carries the
     // "Private"/visibility hint, so match on the repo name substring).
     expect(within(listbox).getByRole("option", { name: /owner\/alpha/ })).toBeInTheDocument();
@@ -455,7 +510,8 @@ describe("NewRunComposer layout contract", () => {
 
     await user.click(await screen.findByRole("combobox", { name: "Model" }));
     const listbox = screen.getByRole("listbox");
-    expect(within(listbox).getByRole("textbox")).toBeInTheDocument();
+    expect(within(listbox.parentElement as HTMLElement).getByRole("textbox")).toBeInTheDocument();
+    expect(within(listbox).queryByRole("textbox")).toBeNull();
     expect(within(listbox).getByRole("option", { name: /Claude Opus 4.8/ })).toBeInTheDocument();
     expect(within(listbox).getByRole("option", { name: /Claude Sonnet 5/ })).toBeInTheDocument();
     expect(within(listbox).getByRole("option", { name: /GPT-5.6 Sol/ })).toBeInTheDocument();

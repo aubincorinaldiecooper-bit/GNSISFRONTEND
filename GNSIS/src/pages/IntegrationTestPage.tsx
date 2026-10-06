@@ -502,9 +502,9 @@ function UsageSection({ success }: { success: GatewaySuccess | null }) {
             <span className="inline-flex items-center gap-1.5 font-mono">
               {success.requestId}
               {success.requestId && (
-                <button type="button" onClick={() => copyId(success.requestId!)} aria-label="Copy request id">
+                <Button variant="quiet" size="icon" className="size-7" type="button" onClick={() => copyId(success.requestId!)} aria-label="Copy request id">
                   <Copy className="h-3 w-3" />
-                </button>
+                </Button>
               )}
               {copied && <span className="text-emerald-400">copied</span>}
             </span>
@@ -580,14 +580,14 @@ export default function IntegrationTestPage({ onBack }: { onBack?: () => void })
       <div className="mb-6">
         <div className="mb-1 flex items-center gap-2">
           {onBack && (
-            <button
+            <Button variant="quiet" size="icon"
               type="button"
               onClick={onBack}
-              className="text-muted-foreground hover:text-foreground md:hidden"
+              className="md:hidden"
               aria-label="Back"
             >
               <ArrowLeft className="h-4 w-4" />
-            </button>
+            </Button>
           )}
           <h1 className="text-lg font-semibold tracking-tight text-foreground">Integration test</h1>
         </div>

@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Github, Loader2, Terminal } from "lucide-react";
 import { Navigate, useLocation, useSearchParams } from "react-router";
 
+import { UIThemeProvider } from "@/components/ui/theme";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 import { isApiConfigured, isAuthConfigured } from "@/lib/env";
@@ -74,10 +75,10 @@ export default function LoginPage() {
     status === "authenticated" && (backendState === "unauthorized" || backendState === "unavailable");
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-background px-4">
+    <UIThemeProvider theme="light"><div className="light flex min-h-screen w-full items-center justify-center bg-canvas px-4 font-sans text-ink">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-neutral-900 text-white">
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-card bg-ink text-canvas">
             <Terminal className="h-5 w-5" />
           </div>
           <h1 className="text-lg font-bold tracking-tight text-foreground">GNSIS</h1>
@@ -86,7 +87,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div className="rounded-window bg-surface p-6 shadow-card">
           {status === "loading" ? (
             <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -94,9 +95,9 @@ export default function LoginPage() {
             </div>
           ) : backendFailed ? (
             <div className="space-y-3">
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-                <p className="text-xs leading-relaxed text-amber-300">
+              <div className="flex items-start gap-2 rounded-control border border-orange/20 bg-orange-tint px-3 py-2.5">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange" />
+                <p className="text-xs leading-relaxed text-ink">
                   You're signed in, but the GNSIS backend didn't accept the session
                   {backendState === "unavailable" ? " (it may be unreachable right now)" : ""}.
                 </p>
@@ -111,6 +112,7 @@ export default function LoginPage() {
           ) : (
             <div className="space-y-3">
               <Button
+                variant="primary"
                 onClick={startSignIn}
                 disabled={redirecting || !authConfigured}
                 className="w-full gap-2"
@@ -129,7 +131,7 @@ export default function LoginPage() {
               </Button>
 
               {error && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2">
+                <div role="alert" className="flex items-start gap-2 rounded-control border border-red/20 bg-red-tint px-3 py-2">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
                   <span className="text-xs text-red-400">{error}</span>
                 </div>
@@ -154,6 +156,6 @@ export default function LoginPage() {
           separately through the GNSIS GitHub App.
         </p>
       </div>
-    </div>
+    </div></UIThemeProvider>
   );
 }

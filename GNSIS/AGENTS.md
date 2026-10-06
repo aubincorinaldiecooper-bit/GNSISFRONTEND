@@ -2,113 +2,105 @@
 
 Project-specific guidance for AI coding agents.
 
-<!-- ASTRYX:START -->
-Astryx v0.1.9 · 153 components
-CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
+## One shared React UI system
 
-SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
-  import "@astryxdesign/core/reset.css";
-  import "@astryxdesign/core/astryx.css";
+All repository-owned React surfaces use Beautiful UI (MIT, pinned upstream
+44a274e598395ab61e7c96c26fda2758780253b7) + Lucide + Tailwind v4 and the
+source-derived shared primitives in `src/components/ui/`. This
+includes `/login`, the authenticated control plane under `/admin`, every
+page in `src/panoptic/`, and new interfaces. There are no page-specific
+control-library exemptions.
 
-WORKFLOW — discover, don't guess. Before writing UI:
-1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
-2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
-3. `astryx component <Name>` — props + examples for every component you use.
+- Inspect the existing shared primitives before adding a control. Buttons,
+  inputs, textareas, dialogs, menus, selects, tooltips, avatars, chat and code
+  views belong in `src/components/ui/`; reuse them across surfaces.
+- Use Radix for established interaction patterns such as dialog focus traps,
+  dismissal, menus and selection. Do not reimplement those behaviors or copy
+  another design system's components/APIs.
+- Use accessible semantic HTML for layout: headers, navigation, sections,
+  lists, forms and meaningful labels. Ordinary `div`/`span` containers are
+  fine where no semantic element fits; do not wrap every layout element in
+  an unnecessary component.
+- Read upstream README, registry and source, not a gallery screenshot. Beautiful
+  UI is a copy-paste library; its registry happens to use the shadcn installer
+  format, but that is not permission to substitute generic shadcn styling.
+  Do not install Astryx, Central/commercial icons, iconoir or demo analytics.
+- Use the official foundation in `src/styles/beautiful-foundation.css`, imported
+  once in `src/index.css`. Tailwind is CSS-first v4; do not restore v3 directives,
+  @config or plugin loaders. Migration utility names alias Beautiful tokens;
+  they are not a second palette. Colors are full oklch: never hsl(var(--accent)).
+- The console uses `.dark` and `UIThemeProvider theme="dark"`; Radix portals
+  carry that same scope. Public decorative `--pn-*` brand tokens may remain,
+  but every React control uses Beautiful tokens, tight radii and shadows.
+- Prefer canonical Button variants primary/secondary/ghost/accent/success/quiet
+  and sizes xs/sm/md. Legacy default/outline/destructive/link/plain and
+  default/icon/lg/plain sizes are migration compatibility in one implementation,
+  not a second unthemed control system. Input/Textarea `plain` is geometry-only.
+- Use `lucide-react` for all UI glyphs and utility icons. Give icon-only
+  buttons an accessible name; hide decorative icons from assistive tech.
+  Brand logos and supplied artwork remain unchanged, not redrawn as icons.
+  Replace utility hand SVGs and simple-icons with Lucide. TikTok has no Lucide
+  logo: use generic Video plus the readable platform name, not a fake official mark.
+- Use the controlled shared `ChatComposer` for multiline message entry:
+  Enter sends, Shift+Enter inserts a newline, and IME composition cannot
+  submit. Submission/loading/error state and success-only clearing remain
+  the caller's responsibility. Never silently discard a failed draft.
+- Console resizing uses `react-resizable-panels` pinned to stable `2.1.9`
+  through `src/components/ui/resizable.tsx`, not a custom drag/resize hook.
+- Preserve reduced-motion behavior, keyboard operation, form labels,
+  readable/copyable code and existing behavior tests. Do not weaken tests to
+  conceal a migration regression. No real backend/AI integration should be
+  invented for demo-only experiences.
 
-RULES:
-- No <div> — components do all layout/spacing. Full page → AppShell; sidebar nav → SideNav.
-- Frame first: pick the shell (AppShell / Layout+LayoutPanel) and budget regions in px BEFORE writing content (`astryx docs layout`).
-- Dense data = rows (Table, List/Item) edge-to-edge — never Card-wrapped list items. Card = dashboard widgets, galleries, settings groups only.
-- Status → StatusDot/Token; Badge only for counts and enumerated states, never decoration.
-- Custom styling: component props first; else Tailwind utilities backed by tokens (bg-surface, text-primary, rounded-lg) via tailwind-theme.css. No raw hex/px.
-- Tokens for every value (`astryx docs tokens`). Brand/accent via `astryx theme` — never override --color-* in :root.
-- SELF-CHECK before you finish: re-read the file and replace any style={{…}}, raw <div>/<span> layout, imported .css/@apply, or hardcoded/arbitrary value (e.g. bg-[#fff], p-[13px]) with the component or a token-backed utility. If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
+## Protected vendored live surface
 
-MORE CLI:
-  search "<query>"   find any component / hook / doc / template / block
-  component --list   153 components by category
-  template --list    page + block recipes
-  docs <topic>       color, elevation, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
-  swizzle <Name>     eject component source for deep customization
-  upgrade --apply    run after any @astryxdesign/core bump
-<!-- ASTRYX:END -->
+Do not edit `public/live.html`, `public/assets/live.css`,
+`public/assets/live.js`, `public/assets/mic-worklet.js` or anything under
+`public/assets/live/` here. They are a byte-for-byte copy of the GNSIS
+runtime's live page from GNSISBACKEND
+`runtime/minicpm_ft/mcpmft/infer/static/`, not repository-owned React UI.
 
-<!-- The block above is generated by the Astryx CLI and is rewritten in place.
-     Anything below it is ours and survives a regeneration. -->
+The same non-React files must run both in the unbundled FastAPI runtime and
+on this domain. The owner's instruction is to use the existing page, not
+reimplement it; its colours, typography, radii and motion follow GNSIS Brand
+Guidelines v2, cited in `live.css`. Changes belong upstream in the runtime.
+Refresh this copy wholesale using the command in `public/README.md`; local
+edits would silently diverge it from the page the runtime serves.
 
-## Scoped exception: the vendored live surface
+## Public surfaces, routing, privacy and branding
 
-`public/live.html`, `public/assets/live.css`, `public/assets/live.js`,
-`public/assets/mic-worklet.js` and everything under `public/assets/live/` are
-**exempt from the Astryx rules above.** They use raw `<div>` layout, a
-hand-written stylesheet and literal hex and pixel values, and that is correct
-here.
+`src/panoptic/` contains the Video Search landing (`/video-search`, or `/`
+when `GNSIS_HOME_EXPERIENCE=video-search`), agentic web steering
+(`/use-cases/agentic-web-steering`), `/privacy` and `/terms`. These public
+pages render outside the console's session and dark scope (see `main.tsx`),
+but use the same shared React primitives. They are dormant, unlinked and
+noindex until Video Search is the home experience. With the default `live`
+home experience, Caddy serves the runtime live page at `/`; this React
+bundle does not serve that home page.
 
-They are not UI written for this repository. They are a byte-for-byte copy of
-the GNSIS runtime's own live page, from GNSISBACKEND
-`runtime/minicpm_ft/mcpmft/infer/static/`. Three things follow from that, and
-each of them rules out rebuilding the page in Astryx:
+Preserve Panoptic content, footage/copy/CC/scrub behavior, decorative geometry,
+warm backgrounds and supplied branding. React controls are not exempt from the
+shared Beautiful UI system. Panoptic's decorative typography remains Helvetica
+Neue falling back to self-hosted Inter Tight. Its named `--pn-*` brand tokens are in
+`src/panoptic/tokens.css`; public styles remain scoped, not leaked into the
+console. Public motion comes from `motion` (Motion for React), remains small,
+and is switched off under reduced motion.
 
-1. **The same file has to run in two places.** The runtime serves this page
-   itself, from a FastAPI app with no bundler and no React. Astryx components
-   are React, so an Astryx version could not be served by the runtime at all —
-   the page would fork, and the copy people actually scan into would be
-   whichever one happened to be newer.
-2. **Rebuilding it means reimplementing it.** The owner's instruction was to
-   use the page that already exists, not to make another one that resembles it.
-   A reimplementation is a different page wearing the same words.
-3. **It already has a design system — a different one.** Its colours, type,
-   radii and motion come from the GNSIS Brand Guidelines v2, cited by page
-   number in `live.css`. Those values are the specification, not arbitrary
-   literals, and Astryx tokens do not express them.
+Public forms post to the auth service (`auth-service/src/intake.ts`), which
+stores early-access sign-ups and contact messages in separate tables.
+`/privacy` describes exactly what those forms and pages collect: update it
+alongside any change to collection. Keep the public surface separate from
+operator sign-in and the authenticated control plane.
 
-So the rule for these files is the opposite of the rules above: **do not edit
-them here at all.** A change to the live surface belongs upstream in the
-runtime; this copy is then refreshed wholesale, by the command in
-`public/README.md`. Editing the copy in place is what would actually cause
-harm, by silently diverging the page the runtime serves from the page this
-domain serves.
+Each public page's title and link preview are defined once in
+`src/panoptic/pageMeta.ts`. Preview clients read served HTML without running
+the bundle, so `panopticPageHtml` in `vite.config.ts` writes each page its own
+`index.html` with the metadata block swapped in, and the Caddyfile serves
+that copy at the page's address. The console's title and preview stay in
+`index.html`.
 
-## Scoped exception: the Panoptic pages
-
-`src/panoptic/` — the Video Search landing (`/video-search`, or `/` when
-`GNSIS_HOME_EXPERIENCE=video-search`; a dark phone-app page styled by
-`src/panoptic/moments/moments.css`), agentic web steering
-(`/use-cases/agentic-web-steering`), `/privacy` and `/terms` — is also
-**exempt from the Astryx rules above.** It has its own stylesheet
-(`src/panoptic/panoptic.css`), raw `<div>` layout inside its drawings, and the
-Panoptic colours, type and pixel values as literals, named once as `--pn-*`
-tokens in `src/panoptic/tokens.css`.
-
-The reason is the same as for the live surface: these pages already have a
-design system, and it is a different one. The owner's Panoptic design handoff
-fixes the type (Helvetica Neue, falling back to Inter Tight, self-hosted), the
-warm off-white and black palette, the pill shapes and every size, and asked
-for the desktop pages to be pixel-faithful to it. Astryx tokens do not express
-those values, and Astryx components would not produce those pages.
-
-What the exception does not cover: anything outside `src/panoptic/`. The pages
-render outside the console's Astryx theme and session (see `main.tsx`), and
-the console must not borrow their styles. Motion there comes from `motion`
-(Motion for React), kept small, and switched off under reduced motion.
-
-Their forms post to the auth service (`auth-service/src/intake.ts`), which
-stores early-access sign-ups and contact messages in their own tables.
-`/privacy` describes exactly what those forms and pages collect: change it in
-the same pull request as any change to what they collect.
-
-Each page's title and link preview are written once, in
-`src/panoptic/pageMeta.ts`. The apps that draw link previews read the served
-HTML without running the bundle, so the build writes each page its own copy
-of `index.html` with that page's block swapped in (`panopticPageHtml` in
-`vite.config.ts`), and the Caddyfile serves the copy at the page's address.
-The console's own title and preview stay in `index.html`. The preview picture,
-`public/og/genesis-preview.png`, is the owner's horizontal genesis lockup
-placed unaltered on Paper (#F7F6F2), as the genesis logo guidelines require:
-if the logo changes, re-export it from the master SVG; never redraw it. The
-live page's title and preview (`/`, `/live`) belong to GNSISBACKEND, like the
-rest of that page.
-
-Everything else in this repository — `/login`, the control plane under
-`/admin`, and any new interface written here — follows the Astryx rules above
-without exception.
+`public/og/genesis-preview.png` is the owner's horizontal genesis lockup
+placed unaltered on Paper (#F7F6F2), as the genesis logo guidelines require.
+If the logo changes, re-export it from the master SVG; never redraw it.
+The live page's title and preview (`/`, `/live`) belong to GNSISBACKEND, like
+the rest of that page. Existing brand artwork assets must remain unchanged.

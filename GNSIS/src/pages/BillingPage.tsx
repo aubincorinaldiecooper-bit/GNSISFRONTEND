@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Wallet, AlertTriangle, ChevronRight, Loader2, Info } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 import {
   ApiError,
@@ -41,7 +42,7 @@ type LoadState =
 
 function BalanceCard({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-card p-5">
+    <div className="space-y-2 rounded-card bg-surface p-5 shadow-card">
       <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
@@ -80,14 +81,14 @@ export default function BillingPage({ onBack }: { onBack?: () => void }) {
     <div className="mx-auto w-full max-w-3xl px-4 py-8 md:px-8 md:py-10">
       <div className="mb-6 flex items-center gap-2">
         {onBack && (
-          <button
+          <Button variant="quiet" size="icon"
             type="button"
             onClick={onBack}
-            className="rounded text-muted-foreground hover:text-foreground md:hidden"
+            className="md:hidden"
             aria-label="Back"
           >
             <ChevronRight className="h-4 w-4 rotate-180" />
-          </button>
+          </Button>
         )}
         <div>
           <h1 className="text-lg font-semibold tracking-tight text-foreground">Billing</h1>

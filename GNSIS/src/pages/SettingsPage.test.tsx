@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 
@@ -39,6 +39,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import SettingsPage from "@/pages/SettingsPage";
+import { clearAllSecrets } from "@/lib/keySecrets";
 
 function repo(overrides: Record<string, unknown> = {}) {
   return {
@@ -65,6 +66,7 @@ function renderSettings() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearAllSecrets();
   listRepositories.mockResolvedValue([]);
   listKeys.mockResolvedValue({ items: [] });
 });
@@ -147,5 +149,63 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Disable" }));
 
     await waitFor(() => expect(screen.queryByText("Production")).not.toBeInTheDocument());
+  });
+
+  it("keeps a failed create draft and mode, then clears only after a successful retry", async () => {
+    const user = userEvent.setup();
+    createKey.mockRejectedValueOnce(new Error("Key service unavailable"));
+    renderSettings();
+    const trigger = screen.getByRole("button", { name: "Create key" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Create API key" });
+    const name = within(dialog).getByRole("textbox", { name: "Name" });
+    await user.type(name, "Production app");
+    await user.click(within(dialog).getByRole("button", { name: /Live/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Create key" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Key service unavailable");
+    expect(name).toHaveValue("Production app");
+    expect(within(dialog).getByRole("button", { name: /Live/i })).toHaveAttribute("aria-pressed", "true");
+    const key = { id: "created", key_prefix: "gns_live_example", mode: "live", name: "Production app", status: "active", created_at: "2026-01-01T00:00:00Z" };
+    createKey.mockResolvedValueOnce({ virtual_key: key, key: "gns_live_fixture_only" });
+    listKeys.mockResolvedValueOnce({ items: [key] });
+    await user.click(within(dialog).getByRole("button", { name: "Create key" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(createKey).toHaveBeenLastCalledWith({ name: "Production app", mode: "live" });
+    expect(screen.queryByText("gns_live_fixture_only")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reveal secret" }));
+    expect(screen.getByText("gns_live_fixture_only")).toBeInTheDocument();
+    await user.click(trigger);
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("");
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: /Test/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("guards repeated pending form submissions and restores focus on Escape", async () => {
+    const user = userEvent.setup();
+    let reject!: (reason: Error) => void;
+    createKey.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    renderSettings();
+    const trigger = screen.getByRole("button", { name: "Create key" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Create API key" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Pending{Enter}");
+    const form = dialog.querySelector("form")!;
+    expect(form).toHaveAttribute("aria-busy", "true");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(createKey).toHaveBeenCalledTimes(1);
+    await act(async () => reject(new Error("Try again")));
+    expect(form).toHaveAttribute("aria-busy", "false");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("exposes the appearance choice as a pressed shared control", async () => {
+    renderSettings();
+    const dark = screen.getByRole("button", { name: "Dark" });
+    await userEvent.click(dark);
+    expect(dark).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "false");
   });
 });

@@ -40,4 +40,18 @@ describe("SecretReveal (one-time reveal)", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("gns_test_abcdefgh"));
     expect(await screen.findByText("Copied")).toBeInTheDocument();
   });
+
+  it("does not claim clipboard success on rejection, and exposes toggle state", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("Clipboard blocked"));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    rememberSecret("vk1", "gns_test_fixture_only");
+    render(<SecretReveal keyId="vk1" />);
+    expect(screen.getByLabelText("Reveal secret")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByLabelText("Reveal secret"));
+    expect(screen.getByLabelText("Hide secret")).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Copied")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+  });
 });

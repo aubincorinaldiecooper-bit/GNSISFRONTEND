@@ -1,6 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Radix scrolls the active option into view; jsdom has no layout API for this.
+const originalScrollIntoView = Element.prototype.scrollIntoView;
+beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
+afterAll(() => {
+  if (originalScrollIntoView) Element.prototype.scrollIntoView = originalScrollIntoView;
+  else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+});
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), repos: vi.fn() }));
 vi.mock("@/lib/api", () => ({
@@ -13,7 +21,7 @@ describe("IntelligencePage", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.repos.mockResolvedValue([{ id: "repo", full_name: "acme/repo" }]); });
   it("shows loading then the empty state", async () => {
     let resolve!: (value: unknown) => void; mocks.list.mockReturnValue(new Promise((done) => { resolve = done; }));
-    render(<IntelligencePage />); await screen.findByRole("option", { name: "acme/repo" }); expect(await screen.findByText(/Loading intelligence/)).toBeInTheDocument();
+    render(<IntelligencePage />); expect(await screen.findByRole("combobox", { name: "Intelligence repository" })).toHaveTextContent("acme/repo"); expect(await screen.findByText(/Loading intelligence/)).toBeInTheDocument();
     resolve([]); expect(await screen.findByText("No approved intelligence yet.")).toBeInTheDocument();
   });
   it("renders only authoritative populated provenance", async () => {
@@ -33,7 +41,7 @@ describe("IntelligencePage", () => {
     render(<IntelligencePage />);
     expect(await screen.findByText("Repositories could not be loaded.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Retry/ }));
-    expect(await screen.findByRole("option", { name: "acme/second" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Intelligence repository" })).toHaveTextContent("acme/second");
     expect(mocks.list).toHaveBeenCalledWith("repo-2");
   });
   it("settles intentionally when repository discovery returns no repositories", async () => {
@@ -48,7 +56,10 @@ describe("IntelligencePage", () => {
     mocks.list.mockResolvedValueOnce([{ id: "old", content: "Only repository one", type: null }]).mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
     render(<IntelligencePage />);
     expect(await screen.findByText("Only repository one")).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Intelligence repository" }), "two");
+    screen.getByRole("combobox", { name: "Intelligence repository" }).focus();
+    await userEvent.keyboard("{Enter}");
+    (await screen.findByRole("option", { name: "acme/two" })).focus();
+    await userEvent.keyboard("{Enter}");
     expect(screen.queryByText("Only repository one")).not.toBeInTheDocument();
     expect(screen.getByText("Loading intelligence…")).toBeInTheDocument();
     resolveSecond([]);
