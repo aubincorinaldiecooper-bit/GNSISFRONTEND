@@ -25,6 +25,7 @@ function makeEnv(overrides: Partial<SiteEnv> = {}): SiteEnv {
           : new Response(body, { status: 200 });
       },
     },
+    GNSIS_LIVE_ENABLED: "true",
     ...overrides,
   };
 }
@@ -142,5 +143,16 @@ describe("gnsis.studio worker", () => {
     expect(forwarded.headers.get("Modal-Secret")).toBe("secret");
     expect(forwarded.headers.get("X-Forwarded-Proto")).toBe("https");
     expect(forwarded.headers.get("X-Forwarded-Host")).toBe("gnsis.studio");
+  });
+
+  it("hides the live page and its sockets unless the live surface is enabled", async () => {
+    const env = makeEnv({ GNSIS_HOME_EXPERIENCE: "studio", GNSIS_LIVE_ENABLED: "false" });
+    for (const path of ["/live", "/live/", "/live.html"]) {
+      const res = await get(path, env);
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe("https://gnsis.studio/");
+    }
+    expect((await get("/ws/duplex", env)).status).toBe(404);
+    expect(await (await get("/", env)).text()).toBe("lab page");
   });
 });

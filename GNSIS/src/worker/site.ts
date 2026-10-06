@@ -9,6 +9,7 @@ export interface AssetsBinding {
 export interface SiteEnv {
   ASSETS: AssetsBinding;
   GNSIS_HOME_EXPERIENCE?: string;
+  GNSIS_LIVE_ENABLED?: string;
   GNSIS_LIVE_UPSTREAM?: string;
   GNSIS_EDGE_SECRET?: string;
   MODAL_PROXY_KEY?: string;
@@ -135,7 +136,15 @@ export async function handleRequest(request: Request, env: SiteEnv): Promise<Res
 
   if (path === "/health") return new Response("ok", { status: 200 });
 
-  if (path.startsWith("/ws/")) return proxySocket(request, url, env);
+  const liveEnabled = env.GNSIS_LIVE_ENABLED === "true";
+
+  if (path.startsWith("/ws/")) {
+    return liveEnabled ? proxySocket(request, url, env) : new Response("Not found", { status: 404 });
+  }
+
+  if (!liveEnabled && (path === "/live" || path === "/live/" || path === "/live.html")) {
+    return Response.redirect(new URL("/", url).toString(), 302);
+  }
 
   if (path === "/env.js") {
     return new Response(publicConfigScript(env), {

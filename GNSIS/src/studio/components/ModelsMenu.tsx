@@ -24,7 +24,7 @@ export function ModelsMenu() {
             title={model.name}
             subtitle={model.tagline}
             index={index}
-            {...(model.external ? { href: model.href } : { to: model.href })}
+            to={model.href}
           />
         </DropdownMenu.Item>
       ))}

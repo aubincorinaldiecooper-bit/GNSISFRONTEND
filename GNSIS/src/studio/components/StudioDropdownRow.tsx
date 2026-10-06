@@ -14,9 +14,7 @@ type CommonProps = {
   index: number;
 };
 
-type Props = CommonProps &
-  Omit<ComponentPropsWithoutRef<"a">, "href"> &
-  ({ to: string; href?: never } | { href: string; to?: never });
+type Props = CommonProps & Omit<ComponentPropsWithoutRef<"a">, "href"> & { to: string };
 
 const rowClass =
   "group relative z-10 flex items-center gap-3 rounded-control px-2.5 py-2.5 outline-none focus-visible:outline-none";
@@ -24,7 +22,7 @@ const rowArrow =
   "size-4 shrink-0 text-ink-3 opacity-0 -translate-x-1 transition-[opacity,transform] duration-200 ease-out-strong group-hover:opacity-100 group-hover:translate-x-0 group-data-[highlighted]:opacity-100 group-data-[highlighted]:translate-x-0";
 
 export const StudioDropdownRow = forwardRef<HTMLAnchorElement, Props>(function StudioDropdownRow(
-  { modelId, title, subtitle, index, to, href, ...rest },
+  { modelId, title, subtitle, index, to, ...rest },
   ref,
 ) {
   const content = (
@@ -46,17 +44,9 @@ export const StudioDropdownRow = forwardRef<HTMLAnchorElement, Props>(function S
     </motion.span>
   );
 
-  if (to !== undefined) {
-    return (
-      <Link ref={ref} to={to} {...rest} data-menu-row className={rowClass}>
-        {content}
-      </Link>
-    );
-  }
-
   return (
-    <a ref={ref} href={href} {...rest} data-menu-row className={rowClass}>
+    <Link ref={ref} to={to} {...rest} data-menu-row className={rowClass}>
       {content}
-    </a>
+    </Link>
   );
 });
