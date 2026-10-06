@@ -174,6 +174,7 @@ function Description({ live, children }: { live: boolean; children: ReactNode })
 
 const FAILURE_TEXT: Record<Exclude<IntakeResult, { ok: true }>["reason"], string> = {
   "invalid-email": "That email address doesn’t look complete.",
+  "github-required": "GitHub sign-in is required for developer access.",
   "too-many": "Too many tries from here. Please wait a few minutes and try again.",
   unavailable: "Sign-ups aren’t open right now. Please try again later.",
   failed: "That didn’t go through. Check your connection and try again.",

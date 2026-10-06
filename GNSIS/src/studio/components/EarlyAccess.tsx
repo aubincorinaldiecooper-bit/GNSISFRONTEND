@@ -5,7 +5,7 @@ import { ArrowRight, Check, X } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { PATHS } from "@/panoptic/config";
-import { looksLikeEmail, requestEarlyAccess, type IntakeResult } from "@/panoptic/intake";
+import { looksLikeEmail, requestDeveloperAccess, requestEarlyAccess, type IntakeResult } from "@/panoptic/intake";
 import { EarlyAccessContext } from "../earlyAccess";
 import { MODELS, type ModelId } from "../models";
 import { buttonArrow, studioButton } from "../ui/variants";
@@ -16,6 +16,7 @@ type Failure = Extract<IntakeResult, { ok: false }>["reason"];
 
 const FAILURE_COPY: Record<Failure, string> = {
   "invalid-email": "That email doesn’t look right. Check it and try again.",
+  "github-required": "Reconnect GitHub to send this developer request.",
   "too-many": "Too many tries just now. Give it a minute.",
   unavailable: "Sign-ups are closed for a moment. Please try again soon.",
   failed: "Something went wrong sending that. Please try again.",
@@ -26,12 +27,14 @@ export function EarlyAccessProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState("studio");
   const [developerModel, setDeveloperModel] = useState<ModelId>();
+  const [verifiedEmail, setVerifiedEmail] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const value = useMemo(
     () => ({
-      open: (from: string, model?: ModelId) => {
+      open: (from: string, model?: ModelId, identityEmail?: string) => {
         setSource(from);
         setDeveloperModel(model);
+        setVerifiedEmail(identityEmail);
         setAttempt((n) => n + 1);
         setOpen(true);
       },
@@ -68,6 +71,7 @@ export function EarlyAccessProvider({ children }: { children: ReactNode }) {
                       key={attempt}
                       source={source}
                       developerModel={developerModel}
+                      verifiedEmail={verifiedEmail}
                       onDone={() => setOpen(false)}
                     />
                     <Dialog.Close
@@ -90,13 +94,15 @@ export function EarlyAccessProvider({ children }: { children: ReactNode }) {
 function EarlyAccessForm({
   source,
   developerModel,
+  verifiedEmail,
   onDone,
 }: {
   source: string;
   developerModel?: ModelId;
+  verifiedEmail?: string;
   onDone: () => void;
 }) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(verifiedEmail ?? "");
   const [text, setText] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -111,7 +117,8 @@ function EarlyAccessForm({
     }
     setFailure(null);
     setState("sending");
-    const result = await requestEarlyAccess(
+    const submit = developerModel ? requestDeveloperAccess : requestEarlyAccess;
+    const result = await submit(
       email.trim(),
       developerModel && text.trim() !== "" ? text : null,
       source,
@@ -156,7 +163,7 @@ function EarlyAccessForm({
           : "We’re opening GNSIS to teams a few at a time. Leave your email and we’ll reach out."}
       </Dialog.Description>
       <label htmlFor="studio-email" className="mt-6 block text-[13px] font-medium text-ink">
-        Work email
+        {developerModel ? "GitHub email" : "Work email"}
       </label>
       <input
         id="studio-email"
@@ -165,11 +172,12 @@ function EarlyAccessForm({
         inputMode="email"
         autoFocus
         value={email}
+        readOnly={Boolean(developerModel && verifiedEmail)}
         onChange={(event) => setEmail(event.target.value)}
         aria-invalid={failure === "invalid-email"}
         aria-describedby={failure ? "studio-email-error" : undefined}
         placeholder="you@company.com"
-        className="mt-2 h-11 w-full rounded-control bg-field px-3.5 text-[15px] text-ink shadow-inset-field outline-none transition-shadow duration-150 placeholder:text-ink-3 focus:shadow-[0_0_0_1px_var(--signal),0_0_0_4px_var(--signal-tint)]"
+        className="mt-2 h-11 w-full rounded-control bg-field px-3.5 text-[15px] text-ink shadow-inset-field outline-none transition-shadow duration-150 placeholder:text-ink-3 read-only:text-ink-2 focus:shadow-[0_0_0_1px_var(--signal),0_0_0_4px_var(--signal-tint)]"
       />
       {developerModel && (
         <>

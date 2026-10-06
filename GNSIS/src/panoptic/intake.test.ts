@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { looksLikeEmail, requestEarlyAccess, sendContactMessage } from "./intake";
+import { looksLikeEmail, requestDeveloperAccess, requestEarlyAccess, sendContactMessage } from "./intake";
 
 afterEach(() => {
   delete window.__GNSIS_CONFIG__;
@@ -34,6 +34,17 @@ describe("sending the forms", () => {
     expect(await sendContactMessage("ada@example.com", "hi", "footer")).toEqual({ ok: false, reason: "unavailable" });
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("offline"))));
     expect(await sendContactMessage("ada@example.com", "hi", "footer")).toEqual({ ok: false, reason: "failed" });
+  });
+
+  it("uses the authenticated endpoint only for developer requests", async () => {
+    window.__GNSIS_CONFIG__ = { VITE_AUTH_URL: "https://auth.example.test" };
+    const fetchMock = stubFetch(201);
+    expect(await requestDeveloperAccess("ada@example.com", "a task", "developers-panoptic:hero")).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith("https://auth.example.test/api/intake/developer-access", expect.objectContaining({ credentials: "include" }));
+    expect(await requestEarlyAccess("ada@example.com", null, "developers-panoptic")).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith("https://auth.example.test/api/intake/early-access", expect.objectContaining({ credentials: "omit" }));
+    stubFetch(403);
+    expect(await requestDeveloperAccess("ada@example.com", null, "developers-panoptic:hero")).toEqual({ ok: false, reason: "github-required" });
   });
 
   it("does not pretend to send when there is nowhere to send to", async () => {

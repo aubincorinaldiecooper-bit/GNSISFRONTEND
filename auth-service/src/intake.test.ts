@@ -100,8 +100,8 @@ describe("Postgres store", () => {
 
     expect(query.mock.calls.filter(([sql]) => sql === SCHEMA_SQL)).toHaveLength(1);
     const [signupSql, signupValues] = query.mock.calls[1] as unknown as [string, unknown[]];
-    expect(signupSql).toMatch(/^INSERT INTO early_access_signups \(id, email, original_task, source\)/);
-    expect(signupValues.slice(1)).toEqual(["ada@example.com", "Find a flight", "video-search:hero"]);
+    expect(signupSql).toMatch(/^INSERT INTO early_access_signups \(id, email, original_task, source, auth_user_id, github_account_id\)/);
+    expect(signupValues.slice(1)).toEqual(["ada@example.com", "Find a flight", "video-search:hero", null, null]);
     const [contactSql, contactValues] = query.mock.calls[2] as unknown as [string, unknown[]];
     expect(contactSql).toMatch(/^INSERT INTO contact_messages \(id, email, message, source\)/);
     expect(contactValues.slice(1)).toEqual(["ada@example.com", "Hi", "footer"]);
@@ -174,6 +174,73 @@ describe("intake routes", () => {
       { email: "ada@example.com", originalTask: "Find me a flight to Montreal next Friday", source: "video-search:hero" },
     ]);
     expect(messages).toEqual([{ email: "ada@example.com", message: "Hello", source: "privacy:contact" }]);
+  });
+
+  it("requires and records a linked GitHub identity for developer access", async () => {
+    const { store, signups } = fakeStore();
+    const base = await start({
+      store,
+      authorizeDeveloper: async () => ({
+        ok: true,
+        email: "verified@github.example",
+        userId: "auth-user-1",
+        accountId: "github-account-1",
+      }),
+    });
+    const response = await post(base, "/api/intake/developer-access", {
+      email: "untrusted@example.com",
+      task: "A browser agent",
+      source: "developers-panoptic:hero",
+    });
+    expect(response.status).toBe(201);
+    expect(signups).toEqual([{
+      email: "verified@github.example",
+      originalTask: "A browser agent",
+      source: "developers-panoptic:hero",
+      githubIdentity: { userId: "auth-user-1", accountId: "github-account-1" },
+    }]);
+  });
+
+  it("refuses anonymous developer access even when the request claims a valid email", async () => {
+    const { store, signups } = fakeStore();
+    const base = await start({ store });
+    const response = await post(base, "/api/intake/early-access", {
+      email: "ada@example.com",
+      source: "developers-panoptic:hero",
+    });
+    expect(response.status).toBe(401);
+    expect(signups).toEqual([]);
+  });
+
+  it("refuses a consumer session without a linked GitHub account", async () => {
+    const { store, signups } = fakeStore();
+    const base = await start({ store, authorizeDeveloper: async () => ({ ok: false, status: 403 }) });
+    const response = await post(base, "/api/intake/developer-access", {
+      email: "ada@example.com",
+      source: "developers-gnsis-01:closing",
+    });
+    expect(response.status).toBe(403);
+    expect(signups).toEqual([]);
+  });
+
+  it("requires GitHub on the developer endpoint regardless of the source label", async () => {
+    const { store, signups } = fakeStore();
+    const base = await start({ store });
+    const response = await post(base, "/api/intake/developer-access", {
+      email: "ada@example.com", source: "video-search:nav",
+    });
+    expect(response.status).toBe(401);
+    expect(signups).toEqual([]);
+  });
+
+  it("keeps the general Get started form on developer pages public", async () => {
+    const { store, signups } = fakeStore();
+    const base = await start({ store });
+    const response = await post(base, "/api/intake/early-access", {
+      email: "ada@example.com", source: "developers-panoptic",
+    });
+    expect(response.status).toBe(201);
+    expect(signups[0]).toEqual({ email: "ada@example.com", originalTask: null, source: "developers-panoptic" });
   });
 
   it("refuses what it should, and stores none of it", async () => {

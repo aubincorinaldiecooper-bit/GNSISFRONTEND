@@ -7,7 +7,7 @@
 
 import http from "node:http";
 
-import { toNodeHandler } from "better-auth/node";
+import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 
 import { auth } from "./auth.js";
 import { assertProductionEnv, loadEnv } from "./env.js";
@@ -25,10 +25,46 @@ assertProductionEnv();
 
 const authHandler = toNodeHandler(auth);
 
+async function developerIdentity(req: http.IncomingMessage) {
+  const headers = fromNodeHeaders(req.headers);
+  const session = await auth.api.getSession({ headers });
+  if (!session) return { ok: false as const, status: 401 as const };
+  const accounts = await auth.api.listUserAccounts({ headers });
+  const github = accounts.find((account) => account.providerId === "github");
+  if (!github) return { ok: false as const, status: 403 as const };
+
+  const token = await auth.api.getAccessToken({
+    headers,
+    body: { providerId: "github", accountId: github.accountId },
+  });
+  const response = await fetch("https://api.github.com/user/emails", {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token.accessToken}`,
+      "User-Agent": "GNSIS",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) return { ok: false as const, status: 403 as const };
+  const emails = await response.json() as Array<{ email?: unknown; primary?: unknown; verified?: unknown }>;
+  const email = emails.find((entry) => entry.primary === true && entry.verified === true)?.email
+    ?? emails.find((entry) => entry.verified === true)?.email;
+  if (typeof email !== "string") return { ok: false as const, status: 403 as const };
+
+  return {
+    ok: true as const,
+    email,
+    userId: session.user.id,
+    accountId: github.accountId,
+  };
+}
+
 const intakeHandler = createIntakeHandler({
   store: env.authDatabaseUrl
     ? postgresIntakeStore(lazyPool(env.authDatabaseUrl))
     : null,
+  authorizeDeveloper: developerIdentity,
 });
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -205,6 +241,22 @@ async function handleRequest(
       google: Boolean(env.googleClientId && env.googleClientSecret),
       email: Boolean(env.resendApiKey && env.authEmailFrom),
     });
+    return;
+  }
+
+  if (
+    req.method === "GET" &&
+    url.pathname === "/api/accounts/developer-identity"
+  ) {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const identity = await developerIdentity(req);
+      sendJson(res, identity.ok ? 200 : identity.status, identity.ok
+        ? { email: identity.email }
+        : { detail: "GitHub sign-in is required" });
+    } catch {
+      sendJson(res, 403, { detail: "Reconnect GitHub before requesting developer access" });
+    }
     return;
   }
 

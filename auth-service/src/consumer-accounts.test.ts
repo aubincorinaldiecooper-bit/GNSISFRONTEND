@@ -97,6 +97,39 @@ describe("Panoptic consumer authentication", () => {
     expect(expired.headers.get("set-cookie")).toBeNull();
   });
 
+  it("keeps consumer sessions working without granting developer API tokens", async () => {
+    const { auth, requestLink } = await setup();
+    const verified = await auth.handler(new Request(await requestLink()));
+    const cookie = verified.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+    const headers = { Cookie: cookie };
+    const anonymousToken = await auth.handler(new Request(`${authOrigin}/api/auth/token`));
+    expect(anonymousToken.status).toBe(401);
+    const sessionResponse = await auth.handler(new Request(`${authOrigin}/api/auth/get-session`, { headers }));
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionResponse.headers.get("set-auth-jwt")).toBeNull();
+    const session = await sessionResponse.json() as { user: { id: string } };
+    const token = () => auth.handler(new Request(`${authOrigin}/api/auth/token`, { headers }));
+    expect((await token()).status).toBe(403);
+    const trailingSlash = await auth.handler(new Request(`${authOrigin}/api/auth/token/`, { headers }));
+    expect([403, 404]).toContain(trailingSlash.status);
+
+    const context = await auth.$context;
+    await context.internalAdapter.createAccount({
+      userId: session.user.id,
+      providerId: "google",
+      accountId: "test-google-account",
+    });
+    expect((await token()).status).toBe(403);
+    await context.internalAdapter.createAccount({
+      userId: session.user.id,
+      providerId: "github",
+      accountId: "test-github-account",
+    });
+    const developerToken = await token();
+    expect(developerToken.status).toBe(200);
+    expect(await developerToken.json()).toEqual({ token: expect.any(String) });
+  });
+
   it("propagates email-delivery failures instead of falsely reporting a sent link", async () => {
     const { post } = await setup();
     mail.send.mockResolvedValue({ data: null, error: { message: "provider rejected" } });

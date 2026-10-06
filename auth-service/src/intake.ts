@@ -1,19 +1,17 @@
 /**
- * The two public forms on the Panoptic pages of gnsis.studio:
+ * Public forms and reviewed developer requests on gnsis.studio:
  *
  *   POST /api/intake/early-access  { email, task?, source }
+ *   POST /api/intake/developer-access { email, task?, source }
  *   POST /api/intake/contact       { email, message, source }
  *
- * Each is written to its own table in this service's Postgres database
+ * These use the existing tables in this service's Postgres database
  * (early_access_signups, contact_messages), created on first use. Nothing
  * here touches Better Auth's tables or the live experience.
  *
- * These routes take no credentials, so everything is checked here: a JSON
- * body only (which also makes a browser on any other origin preflight, and
- * CORS refuses it), a size cap, field-by-field validation, and a per-client
- * rate limit. The task a visitor typed is stored exactly as sent, so it can be
- * handed back to them when their access opens. Submitted values are never
- * logged.
+ * Ordinary early-access and contact submissions take no credentials.
+ * Developer access requires a session with a linked GitHub account. The task a
+ * visitor typed is stored exactly as sent. Submitted values are never logged.
  */
 
 import { randomUUID } from "node:crypto";
@@ -37,6 +35,10 @@ export interface EarlyAccessSignup {
   email: string;
   originalTask: string | null;
   source: string;
+  githubIdentity?: {
+    userId: string;
+    accountId: string;
+  };
 }
 
 export interface ContactMessage {
@@ -186,8 +188,12 @@ CREATE TABLE IF NOT EXISTS early_access_signups (
   email text NOT NULL,
   original_task text,
   source text NOT NULL,
+  auth_user_id text,
+  github_account_id text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE early_access_signups ADD COLUMN IF NOT EXISTS auth_user_id text;
+ALTER TABLE early_access_signups ADD COLUMN IF NOT EXISTS github_account_id text;
 CREATE INDEX IF NOT EXISTS early_access_signups_email_idx
   ON early_access_signups (lower(email));
 CREATE TABLE IF NOT EXISTS contact_messages (
@@ -226,11 +232,11 @@ export function postgresIntakeStore(db: Queryable): IntakeStore {
   }
 
   return {
-    async addSignup({ email, originalTask, source }) {
+    async addSignup({ email, originalTask, source, githubIdentity }) {
       await ensureSchema();
       await db.query(
-        "INSERT INTO early_access_signups (id, email, original_task, source) VALUES ($1, $2, $3, $4)",
-        [randomUUID(), email, originalTask, source],
+        "INSERT INTO early_access_signups (id, email, original_task, source, auth_user_id, github_account_id) VALUES ($1, $2, $3, $4, $5, $6)",
+        [randomUUID(), email, originalTask, source, githubIdentity?.userId ?? null, githubIdentity?.accountId ?? null],
       );
     },
     async addContactMessage({ email, message, source }) {
@@ -317,17 +323,25 @@ export interface IntakeDeps {
   /** null when the service has no database configured. */
   store: IntakeStore | null;
   limiter?: RateLimiter;
+  authorizeDeveloper?: (req: http.IncomingMessage) => Promise<
+    | { ok: true; email: string; userId: string; accountId: string }
+    | { ok: false; status: 401 | 403 }
+  >;
+}
+
+function isDeveloperRequest(source: string): boolean {
+  return /^developers-[a-z0-9-]+:(hero|closing)$/.test(source);
 }
 
 /** Handles everything under /api/intake/. */
-export function createIntakeHandler({ store, limiter = new RateLimiter() }: IntakeDeps) {
+export function createIntakeHandler({ store, limiter = new RateLimiter(), authorizeDeveloper }: IntakeDeps) {
   return async function handleIntake(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     pathname: string,
   ): Promise<void> {
     const kind = pathname.slice(INTAKE_PREFIX.length);
-    if (kind !== "early-access" && kind !== "contact") {
+    if (kind !== "early-access" && kind !== "developer-access" && kind !== "contact") {
       send(res, 404, { detail: "not found" });
       return;
     }
@@ -353,7 +367,7 @@ export function createIntakeHandler({ store, limiter = new RateLimiter() }: Inta
       throw err;
     }
 
-    const parsed = kind === "early-access" ? parseEarlyAccess(body) : parseContact(body);
+    const parsed = kind === "contact" ? parseContact(body) : parseEarlyAccess(body);
     if (!parsed.ok) {
       send(res, 400, { detail: parsed.detail, field: parsed.field });
       return;
@@ -365,8 +379,27 @@ export function createIntakeHandler({ store, limiter = new RateLimiter() }: Inta
     }
 
     try {
-      if (kind === "early-access") {
-        await store.addSignup(parsed.value as EarlyAccessSignup);
+      if (kind !== "contact") {
+        let signup = parsed.value as EarlyAccessSignup;
+        if (kind === "developer-access" || isDeveloperRequest(signup.source)) {
+          const identity = authorizeDeveloper
+            ? await authorizeDeveloper(req)
+            : { ok: false as const, status: 401 as const };
+          if (!identity.ok) {
+            send(res, identity.status, {
+              detail: identity.status === 401
+                ? "sign in with GitHub before requesting developer access"
+                : "link a GitHub account before requesting developer access",
+            });
+            return;
+          }
+          signup = {
+            ...signup,
+            email: identity.email,
+            githubIdentity: { userId: identity.userId, accountId: identity.accountId },
+          };
+        }
+        await store.addSignup(signup);
       } else {
         await store.addContactMessage(parsed.value as ContactMessage);
       }

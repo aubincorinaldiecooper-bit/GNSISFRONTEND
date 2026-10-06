@@ -87,12 +87,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signInGitHub = useCallback(async (callbackPath = "/") => {
     const origin = window.location.origin;
-    await authClient.signIn.social({
-      provider: "github",
-      callbackURL: `${origin}${callbackPath}`,
-      errorCallbackURL: `${origin}/login?error=oauth`,
-    });
-  }, []);
+    const result = authUser
+      ? await authClient.linkSocial({ provider: "github", callbackURL: `${origin}${callbackPath}` })
+      : await authClient.signIn.social({
+          provider: "github",
+          callbackURL: `${origin}${callbackPath}`,
+          errorCallbackURL: `${origin}/login?error=oauth`,
+        });
+    if (result.error) throw new Error("GitHub sign-in failed");
+  }, [authUser]);
 
   const signOut = useCallback(async () => {
     setMe(null);

@@ -3,7 +3,7 @@ import type { ModelId } from "./models";
 
 export interface EarlyAccess {
   /** Opens the early-access form; `source` is recorded with the sign-up. */
-  open: (source: string, developerModel?: ModelId) => void;
+  open: (source: string, developerModel?: ModelId, verifiedEmail?: string) => void;
 }
 
 export const EarlyAccessContext = createContext<EarlyAccess | null>(null);

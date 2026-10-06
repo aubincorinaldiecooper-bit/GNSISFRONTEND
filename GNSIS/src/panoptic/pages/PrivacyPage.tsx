@@ -21,16 +21,16 @@ export default function PrivacyPage() {
       <h2>What we collect</h2>
       <ul>
         <li>
-          <strong>Accounts:</strong> when you sign in with Google or an email link, our existing GNSIS authentication service stores your email,
+          <strong>Accounts:</strong> when you sign in with Google or an email link, or connect GitHub for developer access, our existing GNSIS authentication service stores your email,
           name and avatar when provided, and your linked account. You can update your display name in Profile; that name is shared across GNSIS.
         </li>
         <li>
           <strong>Sessions:</strong> the authentication service uses a secure session cookie to keep you signed in, and stores session
-          timestamps, IP address and browser user-agent. Google sign-in is used for identity, not access to your files or email.
+          timestamps, IP address and browser user-agent. Google and GitHub are used for identity, not access to your files or email. Repository access is granted separately through the GNSIS GitHub App.
         </li>
         <li><strong>Sign-in email:</strong> if you request an email link, Resend receives your email address and the sign-in email to deliver it. Sign-in links expire after ten minutes and can be used once.</li>
         <li>
-          <strong>Early access:</strong> your email address and, if you typed one into the Panoptic bar, your task, kept exactly as you wrote it. If you request developer access, also what you told us you plan to build, kept the same way.
+          <strong>Early access:</strong> your email address and, if you typed one into the Panoptic bar, your task, kept exactly as you wrote it. If you request developer access, also what you told us you plan to build and the identifiers for your linked GitHub and GNSIS accounts. We use those identifiers only to tie the reviewed request to the correct developer account.
         </li>
         <li>
           <strong>Contact:</strong> your email address and your message.
