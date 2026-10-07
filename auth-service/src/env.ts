@@ -48,7 +48,7 @@ export function assertProductionEnv(source: NodeJS.ProcessEnv = process.env): vo
   if (missing.length > 0) {
     throw new Error(
       `Missing required production environment variables: ${missing.join(", ")}. ` +
-        "Set these in the Railway service's Variables tab before deploying.",
+        "Set these in the hosting platform's environment configuration before deploying.",
     );
   }
 }

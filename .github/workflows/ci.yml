@@ -39,6 +39,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build production auth image
+        run: docker build -t gnsis-auth:ci .
+
   frontend-container:
     name: Frontend container smoke test
     runs-on: ubuntu-latest
