@@ -65,22 +65,20 @@ describe("Panoptic accounts", () => {
     expect(document.querySelector('a[href*="admin"], a[href*="login"]')).toBeNull();
   });
 
-  it("uses the account image when available", async () => {
-    class LoadedImage extends EventTarget {
-      complete = true;
-      naturalWidth = 100;
-      set src(_src: string) { queueMicrotask(() => this.dispatchEvent(new Event("load"))); }
-    }
-    vi.stubGlobal("Image", LoadedImage);
+  it("does not present a linked provider image as the Panoptic profile photo", () => {
     session({ ...account, image: "https://avatars.example.test/ada.png" });
     mount();
-    const avatar = await waitFor(() => {
-      const image = document.querySelector('[data-slot="avatar-image"]');
-      expect(image).not.toBeNull();
-      return image;
-    });
-    expect(avatar).toHaveAttribute("src", "https://avatars.example.test/ada.png");
-    expect(avatar).toHaveAttribute("referrerpolicy", "no-referrer");
+    const trigger = screen.getByRole("button", { name: "Open your profile: Ada Lovelace" });
+    expect(trigger.querySelector('[data-slot="avatar-image"]')).toBeNull();
+    expect(trigger.querySelector('[data-slot="avatar-fallback"]')).toHaveTextContent("AL");
+  });
+
+  it("gives email-only users a provider-neutral fallback with no GitHub dependency", () => {
+    session({ id: "user-2", name: null, email: "new@example.com", image: null, githubLogin: null });
+    mount();
+    const trigger = screen.getByRole("button", { name: "Open your profile: new@example.com" });
+    expect(trigger.querySelector('[data-slot="avatar-image"]')).toBeNull();
+    expect(trigger.querySelector('[data-slot="avatar-fallback"]')).toHaveTextContent("N");
   });
 
   it("sends guests through Google OAuth and returns to Panoptic, not /admin", async () => {
