@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { ChevronDown, LogIn, LogOut, Mail, Settings, UserRound } from "lucide-react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -72,6 +72,11 @@ function AccountControl({
   const inFlight = useRef(false);
   const displayName = user?.name?.trim() || user?.githubLogin || user?.email || "Account";
   const initials = displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  // A Better Auth user can be linked to multiple identity providers. Its shared
+  // `user.image` can therefore come from an older provider (for example GitHub)
+  // even when this Panoptic session was created with Google or email. Until
+  // GNSIS owns an explicit profile-photo field, render provider-neutral initials
+  // instead of presenting a stale provider avatar as the current identity.
   const title = panel === "profile" ? "Your profile" : panel === "settings" ? "Playback settings" : panel === "signout" ? "Sign out" : "Sign in to Panoptic";
 
   useEffect(() => {
@@ -162,7 +167,6 @@ function AccountControl({
           <DropdownMenuTrigger asChild>
             <Button ref={trigger} variant="quiet" className="pv-account-trigger" aria-label={user ? `Open your profile: ${displayName}` : "Open your account"} disabled={pending} aria-busy={pending}>
               <Avatar aria-hidden="true">
-                {user?.image && <AvatarImage src={user.image} alt="" referrerPolicy="no-referrer" />}
                 <AvatarFallback>{user ? initials : <UserRound className="size-4" />}</AvatarFallback>
               </Avatar>
               <ChevronDown aria-hidden="true" className="size-3.5 text-ink-3" />
