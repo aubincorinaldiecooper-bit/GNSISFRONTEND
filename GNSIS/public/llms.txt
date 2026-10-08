@@ -15,13 +15,13 @@ Sessions end when the host closes them, or after 2 minutes with no frames and no
 
 ## Docs
 
-- [Panoptic service guide](https://raw.githubusercontent.com/aubincorinaldiecooper-bit/GNSISBACKEND/main/docs/smaller-gnsis-service.md): Trust boundary, REST lifecycle, commercial access, usage metering and the MCP adapter
-- [MCP adapter](https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND/blob/main/docs/smaller-gnsis-service.md#mcp-adapter): `panoptic-mcp` tools and setup for Claude Code, Codex and OpenClaw
+- [Panoptic service guide](https://docs.gnsis.studio/docs/panoptic/quickstart): Trust boundary, REST lifecycle, commercial access, usage metering and the MCP adapter
+- [MCP adapter](https://docs.gnsis.studio/docs/panoptic/mcp): `panoptic-mcp` tools and setup for Claude Code, Codex and OpenClaw
 
 ## SDKs
 
-- [Python SDK and MCP server](https://raw.githubusercontent.com/aubincorinaldiecooper-bit/GNSISBACKEND/main/sdks/python/README.md): `pip install "gnsis-visual-sdk[mcp] @ git+https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND.git#subdirectory=sdks/python"`, then run `panoptic-mcp`
-- [TypeScript SDK](https://raw.githubusercontent.com/aubincorinaldiecooper-bit/GNSISBACKEND/main/sdks/typescript/README.md): `@gnsis/visual-sdk` client for the same API
+- [Python SDK and MCP server](https://docs.gnsis.studio/docs/panoptic/python): `pip install "gnsis-visual-sdk[mcp] @ git+https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND.git#subdirectory=sdks/python"`, then run `panoptic-mcp`
+- [TypeScript SDK](https://docs.gnsis.studio/docs/panoptic/typescript): `@gnsis/visual-sdk` client for the same API
 
 ## MCP tools
 
@@ -38,3 +38,11 @@ Sessions end when the host closes them, or after 2 minutes with no frames and no
 
 - [Panoptic model page](https://gnsis.studio/models/panoptic): What Panoptic is for
 - [Privacy](https://gnsis.studio/privacy): What gnsis.studio collects
+
+## Canonical developer docs
+
+- [Developer portal](https://docs.gnsis.studio/docs)
+- [Interactive Panoptic HTTP API reference](https://docs.gnsis.studio/docs/api-reference)
+- [GNSIS 01 runs API](https://docs.gnsis.studio/docs/gnsis-01/runs)
+- [Documentation llms.txt](https://docs.gnsis.studio/llms.txt)
+- [Full machine-readable documentation](https://docs.gnsis.studio/llms-full.txt)
