@@ -41,7 +41,7 @@ describe("one shared Beautiful UI frontend system", () => {
   it("uses shared controls, chat and code in the console, and shared controls in the video surface", () => {
     const shared = {
       "src/App.tsx": ["button", "chat", "chat-composer"],
-      "src/panoptic/pages/MomentsPage.tsx": ["button", "input", "chat-composer", "dialog", "loading-state"],
+      "src/panoptic/pages/MomentsPage.tsx": ["button", "input", "dialog", "loading-state"],
     };
     for (const [path, names] of Object.entries(shared)) {
       const content = source(path);

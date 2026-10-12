@@ -7,7 +7,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties, KeyboardEvent, PointerEvent } from "react";
 import {
   DEFAULT_QUERY, currentMoment, formatTime, initialMomentsState,
-  masonryColumns, momentsReducer, originalUrl, swipeIntent, type MomentsAction,
+  momentsReducer, originalUrl, swipeIntent, type MomentsAction,
 } from "../moments/model";
 import {
   ArrowDown, ArrowUp, BatteryFull, Captions, CaptionsOff,
@@ -16,13 +16,13 @@ import {
   History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AspectRatio } from "@/components/motion/aspect-ratio";
 import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
-import { ChatComposer } from "@/components/ui/chat-composer";
+import { InfiniteMasonry } from "@/components/motion/infinite-masonry";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { UIThemeProvider } from "@/components/ui/theme";
-import { motion } from "motion/react";
 import { useMotionPrefs } from "../motion";
 import { LANDING_META } from "../pageMeta";
 import { usePageMeta } from "../usePageMeta";
@@ -150,7 +150,6 @@ export default function MomentsPage() {
   const [query, setQuery] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(true);
   const [recent, setRecent] = useState<string | null>(null);
-  const [nextQuery, setNextQuery] = useState("");
   const [captions, setCaptions] = useState(true);
   const [muted, setMuted] = useState(true);
   const [scrubKey, setScrubKey] = useState<string | null>(null);
@@ -273,7 +272,6 @@ export default function MomentsPage() {
   const runSearch = (text: string) => {
     setActivePreview(0);
     setQuery("");
-    setNextQuery("");
     setRecent(text);
     dispatch({ type: "search", query: text });
   };
@@ -622,18 +620,11 @@ export default function MomentsPage() {
                   <span>panoptic</span>
                 </Button>
                 {wide && (
-                  <ChatComposer
-                    className="pv-desktop-search"
-                    variant="pill"
-                    value={nextQuery}
-                    onValueChange={setNextQuery}
-                    onSubmit={runSearch}
-                    label="Search again"
-                    placeholder="Try 'how to replace spark plugs'"
-                    hideSubmit
-                    leading={<Search aria-hidden="true" />}
-                    textareaProps={{ rows: 1, autoComplete: "off", enterKeyHint: "search" }}
-                  />
+                  <Button variant="secondary" className="pv-header-search" onClick={() => setPaletteOpen(true)}>
+                    <Search aria-hidden="true" />
+                    Search videos
+                    <kbd aria-hidden="true">⌘K</kbd>
+                  </Button>
                 )}
                 {showing && accountMenu}
               </header>
@@ -648,56 +639,56 @@ export default function MomentsPage() {
               )}
               {wide ? (
                 <>
-                  <div className="pv-bento" data-count={state.list.length} role="group" aria-label="Matching video previews">
-                    {(() => {
-                      const placement = masonryColumns(state.list.map((item) => ratios[item.id] ?? DEFAULT_RATIO), columnCount);
-                      return Array.from({ length: columnCount }, (_, c) => (
-                        <div key={c} className="pv-masonry-col">
-                          {state.list.map((item, i) => placement[i] === c && (
-                            <motion.article
-                              key={item.id}
-                              className="pv-preview-card"
-                              style={{ "--pv-ratio": ratios[item.id] ?? DEFAULT_RATIO } as CSSProperties}
-                              initial={m.reduce ? false : { opacity: 0, y: 24 }}
-                              whileInView={{ opacity: 1, y: 0 }}
-                              viewport={{ once: true, amount: 0.2 }}
-                              transition={m.reduce ? { duration: 0 } : { duration: 0.5, delay: Math.min(i, 3) * 0.06, ease: [0.2, 0, 0, 1] }}
-                              onPointerEnter={() => setActivePreview(i)}
-                              onFocus={() => setActivePreview(i)}
-                            >
-                              <Button
-                                variant="quiet"
-                                className="pv-preview-open"
-                                aria-label={`Watch ${item.name} · ${item.platform} · ${item.handle}`}
-                                aria-haspopup="dialog"
-                                onClick={(e) => openPlayer(i, e.currentTarget)}
-                              >
-                                <span className="pv-preview-media">
-                                  <PreviewVideo
-                                    active={showing && !playerOpen && activePreview === i}
-                                    src={clipSrc(item.clip, "mp4")}
-                                    poster={clipSrc(item.clip, "jpg")}
-                                    aria-hidden="true"
-                                    onAspect={(ratio) => setRatios((r) => (r[item.id] === ratio ? r : { ...r, [item.id]: ratio }))}
-                                  />
-                                </span>
-                              </Button>
-                              <a
-                                className="pv-tile-caption"
-                                href={originalUrl(item, item.moments[0])}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                aria-label={`Open the original on ${item.platform}`}
-                              >
-                                <span className="pv-tile-name">{item.name}</span>
-                                <span className="pv-tile-origin"><PlatformIcon platform={item.platform} />{item.platform} · {item.handle}</span>
-                              </a>
-                            </motion.article>
-                          ))}
-                        </div>
-                      ));
-                    })()}
-                  </div>
+                  <InfiniteMasonry
+                    items={state.list}
+                    getItemKey={(item) => item.id}
+                    onLoadMore={() => {}}
+                    hasMore={false}
+                    minColumnWidth={240}
+                    maxColumns={4}
+                    gap={12}
+                    estimateSize={(item) => 280 / (ratios[item.id] ?? DEFAULT_RATIO)}
+                    animateItems={!m.reduce}
+                    ariaLabel="Matching video previews"
+                    className="pv-bento pv-masonry"
+                    contentClassName="pv-masonry-content"
+                    renderItem={(item, i) => (
+                      <article
+                        className="pv-preview-card"
+                        data-ratio={ratios[item.id] ?? DEFAULT_RATIO}
+                        onPointerEnter={() => setActivePreview(i)}
+                        onFocus={() => setActivePreview(i)}
+                      >
+                        <Button
+                          variant="quiet"
+                          className="pv-preview-open"
+                          aria-label={`Watch ${item.name} · ${item.platform} · ${item.handle}`}
+                          aria-haspopup="dialog"
+                          onClick={(e) => openPlayer(i, e.currentTarget)}
+                        >
+                          <AspectRatio ratio={ratios[item.id] ?? DEFAULT_RATIO} animated={!m.reduce} className="pv-preview-media">
+                            <PreviewVideo
+                              active={showing && !playerOpen && activePreview === i}
+                              src={clipSrc(item.clip, "mp4")}
+                              poster={clipSrc(item.clip, "jpg")}
+                              aria-hidden="true"
+                              onAspect={(ratio) => setRatios((r) => (r[item.id] === ratio ? r : { ...r, [item.id]: ratio }))}
+                            />
+                          </AspectRatio>
+                        </Button>
+                        <a
+                          className="pv-tile-caption"
+                          href={originalUrl(item, item.moments[0])}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Open the original on ${item.platform}`}
+                        >
+                          <span className="pv-tile-name">{item.name}</span>
+                          <span className="pv-tile-origin"><PlatformIcon platform={item.platform} />{item.platform} · {item.handle}</span>
+                        </a>
+                      </article>
+                    )}
+                  />
                 </>
               ) : showing && (
                 <>

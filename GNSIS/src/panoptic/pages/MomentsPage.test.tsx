@@ -23,6 +23,28 @@ if (!("PointerEvent" in window)) {
 
 // jsdom has no scrollIntoView; the palette keeps the active row in view with it.
 Element.prototype.scrollIntoView ??= () => {};
+// jsdom has no ResizeObserver and no layout; the masonry's virtualizer reads
+// its scroll container's offset size, and the masonry its content width.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+const MASONRY_SIZE = { width: 1200, height: 900 };
+const inMasonry = (el: HTMLElement) => el.classList.contains("pv-masonry") || el.classList.contains("pv-masonry-content");
+for (const [prop, key] of [["offsetWidth", "width"], ["offsetHeight", "height"]] as const) {
+  const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, prop)!;
+  Object.defineProperty(HTMLElement.prototype, prop, {
+    configurable: true,
+    get(this: HTMLElement) { return inMasonry(this) ? MASONRY_SIZE[key] : real.get!.call(this); },
+  });
+}
+const realRect = HTMLElement.prototype.getBoundingClientRect;
+HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+  if (!inMasonry(this)) return realRect.call(this);
+  const { width, height } = MASONRY_SIZE;
+  return { x: 0, y: 0, top: 0, left: 0, width, height, right: width, bottom: height, toJSON() { return this; } } as DOMRect;
+};
 
 // jsdom has no media playback.
 Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: () => Promise.resolve() });
@@ -82,7 +104,7 @@ async function openDesktopResults(query?: string) {
   const search = screen.getByRole("combobox", { name: "What do you want to find?" });
   await user.click(search);
   await user.keyboard("{Enter}");
-  const grid = await screen.findByRole("group", { name: "Matching video previews" });
+  const grid = await screen.findByRole("region", { name: "Matching video previews" });
   const cards = within(grid).getAllByRole("button", { name: /^Watch / });
   return { user, grid, cards };
 }
@@ -135,7 +157,7 @@ describe("the Video Search landing", () => {
     const { card } = await openResults();
     expect(window.matchMedia).toHaveBeenCalledWith("(min-width: 900px)");
     expect(screen.getByTestId("mobile-video-feed")).toContainElement(card);
-    expect(screen.queryByRole("group", { name: "Matching video previews" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Matching video previews" })).toBeNull();
   });
 
   it("keeps the mobile feed still under reduced motion until explicit playback", async () => {
@@ -393,7 +415,7 @@ describe("desktop Beautiful video results", () => {
       Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, value: 900 });
 
       const { grid } = await openDesktopResults();
-      expect(grid.querySelector(".pv-preview-card")).toHaveStyle({ "--pv-ratio": "1.7777777777777777" });
+      expect(grid.querySelector(".pv-preview-card")).toHaveAttribute("data-ratio", "1.7777777777777777");
     } finally {
       for (const [prototype, property, descriptor] of originalDescriptors) {
         if (descriptor) Object.defineProperty(prototype, property, descriptor);
@@ -404,7 +426,6 @@ describe("desktop Beautiful video results", () => {
 
   it("renders source-labelled playable bento cards, not a mobile feed", async () => {
     const { grid, cards } = await openDesktopResults();
-    expect(grid).toHaveAttribute("data-count", "6");
     expect(cards).toHaveLength(6);
     expect(screen.queryByText("Best match")).toBeNull();
     const arrows = within(grid).getAllByRole("link", { name: /^Open the original on / });
@@ -457,8 +478,8 @@ describe("desktop Beautiful video results", () => {
   });
 
   it("supports Enter/Space cards, traps focus, and closes with the close control", async () => {
-    const { user, cards } = await openDesktopResults();
-    cards[2].focus();
+    const { user, grid } = await openDesktopResults();
+    within(grid).getByRole("button", { name: /^Watch A slow Saturday lunch, start to finish/ }).focus();
     await user.keyboard("{Enter}");
     let dialog = screen.getByRole("dialog", { name: "A slow Saturday lunch, start to finish" });
     const close = within(dialog).getByRole("button", { name: "Close player" });
@@ -471,13 +492,15 @@ describe("desktop Beautiful video results", () => {
     expect(close).toHaveFocus();
     await user.click(close);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(cards[2]).toHaveFocus();
-    cards[4].focus();
+    const lunch = within(grid).getByRole("button", { name: /^Watch A slow Saturday lunch, start to finish/ });
+    const car = within(grid).getByRole("button", { name: /^Watch Finally fixing the car myself/ });
+    expect(lunch).toHaveFocus();
+    car.focus();
     await user.keyboard(" ");
     dialog = screen.getByRole("dialog", { name: "Finally fixing the car myself" });
     expect(within(within(dialog).getByRole("article", { name: /Video moments/ })).getByText("outsidehours")).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    expect(cards[4]).toHaveFocus();
+    expect(car).toHaveFocus();
   });
 
   it("dismisses on the backdrop without navigating away from the contextual grid", async () => {
@@ -549,7 +572,7 @@ describe("desktop Beautiful video results", () => {
     const user = renderMoments();
     await user.click(screen.getByRole("combobox", { name: "What do you want to find?" }));
     await user.keyboard("{Enter}");
-    const grid = await screen.findByRole("group", { name: "Matching video previews" });
+    const grid = await screen.findByRole("region", { name: "Matching video previews" });
     const card = within(grid).getAllByRole("button", { name: /^Watch / })[0];
     expect(play).not.toHaveBeenCalled();
     await user.click(card);
@@ -576,7 +599,7 @@ describe("desktop Beautiful video results", () => {
   });
 
   it("keeps desktop tap-middle pause, transient scrub time and CC/sound persistence", async () => {
-    const { user, cards } = await openDesktopResults();
+    const { user, grid, cards } = await openDesktopResults();
     await user.click(cards[0]);
     let dialog = screen.getByRole("dialog", { name: "A slow walk through the bamboo" });
     const player = within(dialog).getByRole("article", { name: /Video moments/ });
@@ -594,7 +617,7 @@ describe("desktop Beautiful video results", () => {
     await user.click(within(dialog).getByRole("button", { name: "Captions" }));
     await user.click(within(dialog).getByRole("button", { name: "Sound" }));
     await user.keyboard("{Escape}");
-    await user.click(cards[4]);
+    await user.click(within(grid).getByRole("button", { name: /^Watch Finally fixing the car myself/ }));
     dialog = screen.getByRole("dialog", { name: "Finally fixing the car myself" });
     expect(within(dialog).getByRole("button", { name: "Captions" })).toHaveAttribute("aria-pressed", "false");
     expect(within(dialog).getByRole("button", { name: "Sound" })).toHaveAttribute("aria-pressed", "true");
@@ -604,17 +627,14 @@ describe("desktop Beautiful video results", () => {
   it("filters food results and keeps query editing controlled", async () => {
     const { user, grid, cards } = await openDesktopResults("Breakfast ideas");
     expect(cards).toHaveLength(5);
-    expect(grid).toHaveAttribute("data-count", "5");
     expect(within(grid).queryByText("outsidehours")).toBeNull();
     expect(within(grid).getByRole("button", { name: /Watch A slow Saturday lunch, start to finish/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Breakfast ideas" })).toBeInTheDocument();
-    const search = screen.getByRole("textbox", { name: "Search again" });
-    expect(search).toHaveValue("");
-    expect(screen.queryByRole("button", { name: /New search|Search videos/ })).toBeNull();
-    await user.type(search, "A slow Saturday{Enter}");
+    expect(screen.queryByRole("textbox", { name: "Search again" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /Search videos/ }));
+    await user.type(await screen.findByRole("combobox", { name: "What do you want to find?" }), "A slow Saturday{Enter}");
     await screen.findByRole("heading", { name: "A slow Saturday" });
-    expect(search).toHaveValue("");
-    expect(await screen.findByRole("group", { name: "Matching video previews" })).toHaveAttribute("data-count", "6");
+    await waitFor(() => expect(within(grid).getAllByRole("button", { name: /^Watch / })).toHaveLength(6));
     expect(grid.querySelector(".pv-preview-play")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Panoptic home" }));
     const input = screen.getByRole("combobox", { name: "What do you want to find?" });
