@@ -34,6 +34,9 @@
 .pv-wordmark:hover { background:transparent; opacity:.8; }
 .pv-account { margin-left:auto; flex-shrink:0; letter-spacing:normal; }
 .pv-close + .pv-account { margin-left:0; }
+.pv-ask { margin-left:auto; flex:none; }
+.pv-ask + .pv-account { margin-left:0; }
+.pv-chat-sheet { font-family:"Geist Variable",ui-sans-serif,system-ui,sans-serif; letter-spacing:normal; }
 .pv-account-trigger { display:flex; align-items:center; gap:6px; height:32px; padding:0 4px; border-radius:var(--radius-control); }
 .pv-account-surface { font-family:"Geist Variable",ui-sans-serif,system-ui,sans-serif; letter-spacing:normal; }
 /* Search pill (Cosmos): soft grey fill, hairline edge, no shadow. */
@@ -163,8 +166,11 @@
   .pv-query-heading h1 { margin:0; font-size:20px; font-weight:500; line-height:1.3; letter-spacing:-.2px; }
   .pv-bento { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 28px; align-items:start; }
   /* Results: beUI InfiniteMasonry owns the scroll; the view no longer scrolls as a whole. */
-  .pv-results.pv-desktop-results { display:flex; flex-direction:column; overflow:hidden; padding-bottom:0; }
-  .pv-results.pv-desktop-results .pv-query-heading { flex:none; }
+  .pv-results.pv-desktop-results { display:grid; grid-template-columns:minmax(0,1fr) 360px; grid-template-rows:auto auto minmax(0,1fr); column-gap:24px; overflow:hidden; padding-bottom:0; }
+  .pv-results.pv-desktop-results .pv-result-header { grid-column:1 / -1; }
+  .pv-results.pv-desktop-results .pv-query-heading { grid-column:1; }
+  .pv-results.pv-desktop-results .pv-masonry { grid-column:1; grid-row:3; }
+  .pv-chat-aside { grid-column:2; grid-row:3; margin:0 0 24px; font-family:"Geist Variable",ui-sans-serif,system-ui,sans-serif; letter-spacing:normal; }
   /* beUI masonry look: its bordered panel, 12px gaps, rounded tiles with the caption over the video. */
   .pv-bento.pv-masonry { display:block; flex:1; min-height:0; margin-bottom:24px; }
   .pv-masonry .pv-preview-card { position:relative; overflow:hidden; border-radius:16px; }

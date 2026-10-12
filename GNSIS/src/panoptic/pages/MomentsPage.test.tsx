@@ -46,6 +46,9 @@ HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   return { x: 0, y: 0, top: 0, left: 0, width, height, right: width, bottom: height, toJSON() { return this; } } as DOMRect;
 };
 
+// jsdom has no image decoding; chat source favicons wait on it.
+HTMLImageElement.prototype.decode ??= () => Promise.resolve();
+
 // jsdom has no media playback.
 Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: () => Promise.resolve() });
 Object.defineProperty(HTMLMediaElement.prototype, "pause", { configurable: true, value: () => {} });
@@ -354,7 +357,7 @@ describe("the Video Search landing", () => {
     expect(screen.queryByText("Search across video")).toBeNull();
   });
 
-  it("has no chat, source sheet or match description on the phone", async () => {
+  it("keeps chat in a bottom sheet on the phone, with no source sheet or match description", async () => {
     const { user, card } = await openResults();
     expect(screen.queryByRole("button", { name: /Back to search|New search/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Panoptic home" }));
@@ -363,7 +366,7 @@ describe("the Video Search landing", () => {
     await screen.findByRole("article", { name: /Video moments/ });
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Ask|Send question|Original source/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send question|Original source/ })).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(card.querySelector("#pv-relevance")).toBeNull();
     expect(screen.queryByText(/demo|simulated|prototype|fictional/i)).toBeNull();
@@ -381,6 +384,28 @@ describe("the Video Search landing", () => {
     expect(screen.getByRole("status")).toHaveTextContent("You’ve reached the last source.");
   });
 
+});
+
+describe("follow-up chat", () => {
+  it("opens the phone chat in a bottom sheet seeded with the search", async () => {
+    const { user } = await openResults();
+    await user.click(screen.getByRole("button", { name: "Ask about these videos" }));
+    const sheet = await screen.findByRole("dialog", { name: "Ask about these videos" });
+    expect(within(sheet).getByText("Ideas for a slow Saturday")).toBeInTheDocument();
+    expect(within(sheet).getByText("Start with these moments:")).toBeInTheDocument();
+    expect(within(sheet).getByRole("textbox", { name: "Ask a follow-up" })).toBeInTheDocument();
+  });
+
+  it("answers a desktop follow-up from the matched moments, with sources", async () => {
+    const { user } = await openDesktopResults();
+    const chat = screen.getByRole("region", { name: "Ask about these videos" });
+    await user.type(within(chat).getByRole("textbox", { name: "Ask a follow-up" }), "spark plugs{Enter}");
+    expect(within(chat).getByText("spark plugs")).toBeInTheDocument();
+    await within(chat).findByText("These moments fit best:", undefined, { timeout: 2000 });
+    expect(within(chat).getAllByRole("link", { name: "Finally fixing the car myself" })[0])
+      .toHaveAttribute("href", expect.stringContaining("instagram.com"));
+    expect(within(chat).getAllByRole("button", { name: /sources/ }).length).toBeGreaterThan(0);
+  });
 });
 
 describe("desktop Beautiful video results", () => {

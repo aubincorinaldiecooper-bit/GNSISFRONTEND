@@ -13,11 +13,12 @@ import {
   ArrowDown, ArrowUp, BatteryFull, Captions, CaptionsOff,
   Instagram, Pause, Play, Search, Signal, Twitch, Video,
   Volume2, VolumeX, Wifi, X, Youtube,
-  History,
+  History, MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AspectRatio } from "@/components/motion/aspect-ratio";
 import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
+import { BottomSheet } from "@/components/motion/bottom-sheet";
 import { InfiniteMasonry } from "@/components/motion/infinite-masonry";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -27,6 +28,7 @@ import { useMotionPrefs } from "../motion";
 import { LANDING_META } from "../pageMeta";
 import { usePageMeta } from "../usePageMeta";
 import AccountMenu from "../components/AccountMenu";
+import { VideoChat } from "../components/VideoChat";
 
 interface Gesture {
   x: number;
@@ -150,6 +152,7 @@ export default function MomentsPage() {
   const [query, setQuery] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(true);
   const [recent, setRecent] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const [captions, setCaptions] = useState(true);
   const [muted, setMuted] = useState(true);
   const [scrubKey, setScrubKey] = useState<string | null>(null);
@@ -626,6 +629,11 @@ export default function MomentsPage() {
                     <kbd aria-hidden="true">⌘K</kbd>
                   </Button>
                 )}
+                {!wide && showing && (
+                  <Button variant="quiet" size="icon" className="pv-ask" aria-label="Ask about these videos" onClick={() => setChatOpen(true)}>
+                    <MessageCircle aria-hidden="true" />
+                  </Button>
+                )}
                 {showing && accountMenu}
               </header>
               {wide ? (
@@ -689,6 +697,7 @@ export default function MomentsPage() {
                       </article>
                     )}
                   />
+                  {showing && <VideoChat key={state.query} className="pv-chat-aside" query={state.query} list={state.list} />}
                 </>
               ) : showing && (
                 <>
@@ -766,6 +775,11 @@ export default function MomentsPage() {
           </Dialog>
         )}
       </div>
+      {!wide && (
+        <BottomSheet open={chatOpen && showing} onOpenChange={setChatOpen} snapPoints={[0.6, 0.92]} title="Ask about these videos" className="pv-chat-sheet">
+          <VideoChat key={state.query} query={state.query} list={state.list} showTitle={false} className="h-full rounded-none border-0 bg-transparent" />
+        </BottomSheet>
+      )}
       <CommandPalette
         open={paletteOpen}
         onOpenChange={(open) => {

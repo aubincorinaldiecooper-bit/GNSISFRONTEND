@@ -12,11 +12,15 @@ page in `src/panoptic/`, and new interfaces. There are no page-specific
 control-library exemptions.
 
 - Motion-led surfaces may additionally use beUI (MIT, github.com/starc007/
-  ui-components), copied as source into `src/components/motion/` with its
-  helpers in `src/lib/` (`ease.ts`, `command-search.ts`, `presence-gate.tsx`,
+  ui-components), copied as source into `src/components/motion/` and
+  `src/components/agents/` with its helpers in `src/lib/` (`ease.ts`,
+  `command-search.ts`, `presence-gate.tsx`, `touch.ts`, `favicon.ts`,
   `hooks/`). Copy the upstream file, keep its behaviour, and note any local
   adaptation in a header comment; style it with the same Beautiful tokens.
-  Panoptic Video Search's home is the beUI command palette.
+  Panoptic Video Search uses the beUI command palette as its home and only
+  search, InfiniteMasonry + AspectRatio for desktop results, Message +
+  StreamingResponse for the follow-up chat, and BottomSheet for that chat on
+  phones.
 - Inspect the existing shared primitives before adding a control. Buttons,
   inputs, textareas, dialogs, menus, selects, tooltips, avatars, chat and code
   views belong in `src/components/ui/`; reuse them across surfaces.
