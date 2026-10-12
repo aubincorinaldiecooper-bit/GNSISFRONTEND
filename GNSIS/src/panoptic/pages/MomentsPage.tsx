@@ -1,20 +1,22 @@
-// Beautiful UI video search: desktop preview bento + one Radix player;
-// phones keep the vertical swipe feed. Results are static sample data;
+// Video search: a command palette is the home and the search, desktop results
+// are a preview bento with one Radix player; phones keep the vertical swipe feed. Results are static sample data;
 // data/navigation contracts live in moments/model.ts.
 import "@fontsource-variable/geist";
 import "../moments/moments.css";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties, KeyboardEvent, PointerEvent } from "react";
 import {
-  DEFAULT_QUERY, SOURCES, currentMoment, formatTime, initialMomentsState,
+  DEFAULT_QUERY, currentMoment, formatTime, initialMomentsState,
   masonryColumns, momentsReducer, originalUrl, swipeIntent, type MomentsAction,
 } from "../moments/model";
 import {
   ArrowDown, ArrowUp, BatteryFull, Captions, CaptionsOff,
   Instagram, Pause, Play, Search, Signal, Twitch, Video,
   Volume2, VolumeX, Wifi, X, Youtube,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
 import { ChatComposer } from "@/components/ui/chat-composer";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -42,13 +44,13 @@ const KEY_MOVES: Record<string, MomentsAction> = {
 };
 const SCRUB_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 const WIDE = "(min-width: 900px)";
+const SUGGESTIONS = [DEFAULT_QUERY, "How to replace spark plugs", "Visiting the Louvre early", "Blueberry pancakes from scratch"];
 /** Sample clips are portrait; tiles take their own ratio once metadata arrives. */
 const DEFAULT_RATIO = 9 / 16;
 const SKELETON_RATIOS = [9 / 16, 4 / 5, 9 / 16];
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 const clipSrc = (name: string, ext: "mp4" | "jpg") => `/videos/panoptic/${name}.${ext}`;
 const PLATFORM_ICONS = { YouTube: Youtube, TikTok: Video, Instagram, Twitch };
-const PLATFORMS = Object.keys(PLATFORM_ICONS);
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => !!window.matchMedia?.(query).matches);
@@ -142,152 +144,12 @@ function SourceTag({ handle, platform }: { handle: string; platform: string }) {
     </>
   );
 }
-const HERO_STEPS = SOURCES.flatMap((source) => source.moments.map((moment) => ({ source, moment })));
-function HomePreview({ active }: { active: boolean }) {
-  const still = useMediaQuery(REDUCED_MOTION);
-  const [step, setStep] = useState(0);
-  useEffect(() => {
-    if (!active || still) return;
-    const timer = setInterval(() => setStep((n) => (n + 1) % HERO_STEPS.length), 2600);
-    return () => clearInterval(timer);
-  }, [active, still]);
-  const front = HERO_STEPS[step];
-  const at = SOURCES.indexOf(front.source);
-  return (
-    <div className="pv-hero" aria-hidden="true">
-      {SOURCES.map((source, i) => {
-        const isFront = i === at;
-        const role = isFront ? "is-front" : i === (at + 1) % SOURCES.length ? "is-next" : "is-back";
-        return (
-          <div key={source.id} className={`pv-hero-card ${role}`}>
-            <PreviewVideo
-              active={active && isFront}
-              src={clipSrc(source.clip, "mp4")}
-              poster={clipSrc(source.clip, "jpg")}
-            />
-            <div className="pv-scrim" />
-            <div className="pv-hero-bars">
-              <span className={isFront ? "is-active" : ""}><span key={isFront ? step : 0} /></span>
-            </div>
-            <div className="pv-hero-creator"><SourceTag handle={source.handle} platform={source.platform} /></div>
-            <p className="pv-hero-caption">{(isFront ? front.moment : source.moments[0]).why}</p>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-interface Clip {
-  name: string;
-  handle: string;
-  platform: string;
-  why: string;
-}
-const CLIPS = {
-  espresso: { name: "espresso", handle: "homebarista", platform: "YouTube", why: "Pulling a shot on a home espresso machine." },
-  louvre: { name: "louvre", handle: "parisonfoot", platform: "Instagram", why: "Through the archway into the Louvre courtyard." },
-  gloss: { name: "gloss", handle: "glownotes", platform: "TikTok", why: "A berry lip gloss, up close." },
-  palette: { name: "palette", handle: "studiohours", platform: "YouTube", why: "Setting out yellow and white paint." },
-} satisfies Record<string, Clip>;
-const FEATURES = [
-  { id: "ask", title: "Search what happens, not what it's called.", body: "Titles and tags miss most of what's in a video. Panoptic looks at what's shown and said, so results match what you described, not just the keywords." },
-  { id: "moment", title: "Land on the exact moment.", body: "Every result opens at the second that answers you. Tap the sides of the video to jump between the other matching moments, or drag the bar to scrub." },
-  { id: "next", title: "Swipe for the next source.", body: "Swipe up for another video that answers the same question, wherever it was posted. Like a feed, except every video is on topic." },
-  { id: "source", title: "Always one tap from the original.", body: "Tap the source line on any video to open the original on its platform, so you can check it for yourself." },
-] as const;
-function MiniCard({ clip, play }: { clip: Clip; play: boolean }) {
-  return (
-    <div className="pv-fp-card">
-      {play ? (
-        <PreviewVideo active={play} src={clipSrc(clip.name, "mp4")} poster={clipSrc(clip.name, "jpg")} />
-      ) : (
-        <img src={clipSrc(clip.name, "jpg")} alt="" />
-      )}
-      <div className="pv-scrim" />
-      <div className="pv-hero-bars"><span className="is-active"><span /></span></div>
-      <div className="pv-hero-creator"><SourceTag handle={clip.handle} platform={clip.platform} /></div>
-      <p className="pv-fp-why">{clip.why}</p>
-    </div>
-  );
-}
-function FeatureScreen({ id, active, play }: { id: (typeof FEATURES)[number]["id"]; active: boolean; play: boolean }) {
-  if (id === "ask") {
-    return (
-      <div className="pv-fp-ask">
-        <div className="pv-fp-brand"><span className="pv-logo">◉</span> panoptic</div>
-        <HomePreview active={active} />
-        <p className="pv-fp-headline">Just the part<br />you want to watch.</p>
-        <ChatComposer
-          className="pv-fp-search"
-          variant="pill"
-          value={DEFAULT_QUERY}
-          onValueChange={() => {}}
-          onSubmit={() => {}}
-          label="Example search"
-          hideSubmit
-          leading={<Search aria-hidden="true" />}
-          textareaProps={{ rows: 1, readOnly: true, tabIndex: -1 }}
-        />
-      </div>
-    );
-  }
-  if (id === "moment") {
-    return <><MiniCard clip={CLIPS.espresso} play={play} /><span className="pv-fp-tap" /></>;
-  }
-  if (id === "next") {
-    return (
-      <>
-        <div className="pv-fp-strip">
-          {[CLIPS.louvre, CLIPS.espresso, CLIPS.gloss, CLIPS.louvre].map((clip, i) => (
-            <div key={i} className="pv-fp-slide"><MiniCard clip={clip} play={play} /></div>
-          ))}
-        </div>
-        <span className="pv-fp-swipe"><ArrowUp aria-hidden="true" /></span>
-      </>
-    );
-  }
-  return (
-    <>
-      <MiniCard clip={CLIPS.palette} play={play} />
-      <span className="pv-fp-tap pv-fp-tap-source" />
-    </>
-  );
-}
-function Features({ active, play, onTry }: { active: boolean; play: boolean; onTry: () => void }) {
-  return (
-    <section className="pv-features" aria-label="How Panoptic works">
-      {FEATURES.map((f, i) => (
-        <article key={f.id} className={`pv-feature${i % 2 ? " is-flipped" : ""}`}>
-          <div className="pv-fp" aria-hidden="true" inert>
-            <div className="pv-fp-status">
-              <span>9:41</span>
-              <span className="pv-status-icons"><Signal /><Wifi /><BatteryFull /></span>
-            </div>
-            <div className="pv-fp-screen"><FeatureScreen id={f.id} active={active} play={play} /></div>
-          </div>
-          <div className="pv-feature-copy">
-            <h2>{f.title}</h2>
-            <p>{f.body}</p>
-            {f.id === "next" && (
-              <ul className="pv-platforms" aria-label="Platforms">
-                {PLATFORMS.map((p) => <li key={p}><PlatformIcon platform={p} />{p}</li>)}
-              </ul>
-            )}
-          </div>
-        </article>
-      ))}
-      <div className="pv-features-end">
-        <h2>What do you want to find?</h2>
-        <Button variant="primary" onClick={onTry}>Try it</Button>
-      </div>
-    </section>
-  );
-}
-
 export default function MomentsPage() {
   usePageMeta(LANDING_META.title, LANDING_META.description);
   const [state, dispatch] = useReducer(momentsReducer, undefined, initialMomentsState);
-  const [query, setQuery] = useState(DEFAULT_QUERY);
+  const [query, setQuery] = useState("");
+  const [paletteOpen, setPaletteOpen] = useState(true);
+  const [recent, setRecent] = useState<string | null>(null);
   const [nextQuery, setNextQuery] = useState("");
   const [captions, setCaptions] = useState(true);
   const [muted, setMuted] = useState(true);
@@ -309,8 +171,7 @@ export default function MomentsPage() {
   }, []);
   const gesture = useRef<Gesture | null>(null);
   const cardRef = useRef<HTMLElement>(null);
-  const queryRef = useRef<HTMLTextAreaElement>(null);
-  const homeRef = useRef<HTMLDivElement>(null);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
   const playerReturnFocus = useRef<HTMLElement | null>(null);
   const previousScreen = useRef(state.screen);
   const wide = useMediaQuery(WIDE);
@@ -406,14 +267,26 @@ export default function MomentsPage() {
     return () => mq?.removeEventListener?.("change", change);
   }, []);
   useEffect(() => {
-    if (state.screen === "home" && previousScreen.current !== "home") queryRef.current?.focus();
+    if (state.screen === "home" && previousScreen.current !== "home") setPaletteOpen(true);
     previousScreen.current = state.screen;
   }, [state.screen]);
-
-  const tryIt = () => {
-    homeRef.current?.scrollTo?.({ top: 0, behavior: reducedMotion ? "instant" : "smooth" });
-    queryRef.current?.focus({ preventScroll: true });
+  const runSearch = (text: string) => {
+    setActivePreview(0);
+    setQuery("");
+    setNextQuery("");
+    setRecent(text);
+    dispatch({ type: "search", query: text });
   };
+  const typed = query.trim();
+  const commands: CommandItem[] = [
+    ...(typed
+      ? [{ id: "search", label: `Search for “${typed}”`, group: "Search", icon: Search, keywords: [typed], pinned: true, onSelect: () => runSearch(typed) }]
+      : []),
+    ...(recent
+      ? [{ id: "recent", label: recent, group: "Recent", icon: History, onSelect: () => runSearch(recent) }]
+      : []),
+    ...SUGGESTIONS.filter((text) => text !== recent).map((text) => ({ id: `try:${text}`, label: text, group: "Try asking", icon: Search, onSelect: () => runSearch(text) })),
+  ];
   const resetDrag = () => {
     gesture.current = null;
     setDrag(null);
@@ -687,50 +560,18 @@ export default function MomentsPage() {
               <span>9:41</span>
               <span className="pv-status-icons"><Signal /><Wifi /><BatteryFull /></span>
             </div>
-            <div className="pv-view pv-home" ref={homeRef} hidden={state.screen !== "home"}>
+            <div className="pv-view pv-home" hidden={state.screen !== "home"}>
               <header className="pv-brand">
                 <span className="pv-logo">◉</span> panoptic
                 {state.screen === "home" && accountMenu}
               </header>
-              <HomePreview active={state.screen === "home" && !wide} />
               <div className="pv-home-main">
-                {wide && (
-                  <PreviewVideo
-                    active={state.screen === "home"}
-                    className="pv-home-backdrop"
-                    src={clipSrc("kitchen", "mp4")}
-                    poster={clipSrc("kitchen", "jpg")}
-                    aria-hidden="true"
-                  />
-                )}
-                <div className="pv-home-copy">
-                  <h1>Just the part<br />you want to watch.</h1>
-                  <p>Ask anything. Panoptic finds the videos that answer it and starts right at the part that matters.</p>
-                </div>
-                <ChatComposer
-                  className="pv-home-search"
-                  variant="pill"
-                  value={query}
-                  onValueChange={setQuery}
-                  onSubmit={(text) => {
-                    setActivePreview(0);
-                    dispatch({ type: "search", query: text });
-                  }}
-                  label="What do you want to find?"
-                  placeholder="What do you want to find?"
-                  hideSubmit
-                  leading={<Search aria-hidden="true" />}
-                  textareaRef={queryRef}
-                  textareaProps={{ id: "pv-query", rows: 1, autoComplete: "off", enterKeyHint: "search" }}
-                />
+                <Button ref={searchButtonRef} variant="primary" size="lg" className="pv-home-cta" onClick={() => setPaletteOpen(true)}>
+                  <Search aria-hidden="true" />
+                  Search videos
+                  <kbd aria-hidden="true">⌘K</kbd>
+                </Button>
               </div>
-              {wide && (
-                <Features
-                  active={state.screen === "home"}
-                  play={state.screen === "home" && !reducedMotion}
-                  onTry={tryIt}
-                />
-              )}
             </div>
             <div className={`pv-view pv-loading${wide ? " pv-desktop-results pv-desktop-loading" : ""}`} hidden={state.screen !== "loading"}>
               {wide ? (
@@ -786,11 +627,7 @@ export default function MomentsPage() {
                     variant="pill"
                     value={nextQuery}
                     onValueChange={setNextQuery}
-                    onSubmit={(text) => {
-                      setQuery(text);
-                      setNextQuery("");
-                      dispatch({ type: "search", query: text });
-                    }}
+                    onSubmit={runSearch}
                     label="Search again"
                     placeholder="Try 'how to replace spark plugs'"
                     hideSubmit
@@ -920,7 +757,7 @@ export default function MomentsPage() {
                 e.preventDefault();
                 const trigger = playerReturnFocus.current;
                 if (trigger?.isConnected && showing) trigger.focus({ preventScroll: true });
-                else queryRef.current?.focus();
+                else searchButtonRef.current?.focus();
               }}
             >
               <DialogTitle className="pv-sr">{source.name}</DialogTitle>
@@ -938,6 +775,19 @@ export default function MomentsPage() {
           </Dialog>
         )}
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={(open) => {
+          setPaletteOpen(open);
+          if (!open && state.screen === "home") searchButtonRef.current?.focus();
+        }}
+        items={commands}
+        inputLabel="What do you want to find?"
+        placeholder="What do you want to find?"
+        emptyMessage="Type what you want to see."
+        onQueryChange={setQuery}
+        className="pv-palette"
+      />
     </UIThemeProvider>
   );
 }

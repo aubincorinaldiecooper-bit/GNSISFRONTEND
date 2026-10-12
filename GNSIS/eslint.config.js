@@ -25,7 +25,9 @@ export default defineConfig([
     // react-compiler + fast-refresh lint rules (they intentionally export a
     // component alongside a `*Variants` helper, and use measurement effects), so
     // hold them to the base ruleset rather than rewriting generated code.
-    files: ['src/components/ui/**/*.{ts,tsx}', 'src/hooks/**/*.{ts,tsx}'],
+    // src/components/motion and src/lib/hooks are beUI copy-paste source
+    // (MIT); its row cursor resolves state during render by design.
+    files: ['src/components/ui/**/*.{ts,tsx}', 'src/hooks/**/*.{ts,tsx}', 'src/components/motion/**/*.{ts,tsx}', 'src/lib/hooks/**/*.{ts,tsx}'],
     rules: {
       'react-refresh/only-export-components': 'off',
       'react-hooks/set-state-in-effect': 'off',
