@@ -146,13 +146,11 @@ describe("the Video Search landing", () => {
     expect(within(loading).queryByText("Ideas for a slow Saturday")).toBeNull();
   });
 
-  it("keeps the plain mobile query editable without a search icon", async () => {
+  it("opens the approved search palette from the phone header's search icon", async () => {
     const { user } = await openResults();
-    const query = screen.getByRole("button", { name: "Edit search: Ideas for a slow Saturday" });
-    expect(query).toHaveTextContent("Ideas for a slow Saturday");
-    expect(query.querySelector("svg")).toBeNull();
-    await user.click(query);
-    expect(screen.getByRole("combobox", { name: "What do you want to find?" })).toHaveValue("");
+    expect(screen.queryByRole("button", { name: /^Edit search/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Search videos" }));
+    expect(await screen.findByRole("combobox", { name: "What do you want to find?" })).toHaveValue("");
     expect(screen.getByRole("option", { name: "Ideas for a slow Saturday" })).toBeInTheDocument();
   });
 
@@ -387,9 +385,9 @@ describe("the Video Search landing", () => {
 });
 
 describe("follow-up chat", () => {
-  it("opens the phone chat in a bottom sheet seeded with the search", async () => {
+  it("opens the phone chat from the ask pill under the video, in a bottom sheet seeded with the search", async () => {
     const { user } = await openResults();
-    await user.click(screen.getByRole("button", { name: "Ask about these videos" }));
+    await user.click(screen.getByRole("button", { name: "Ask about these videos…" }));
     const sheet = await screen.findByRole("dialog", { name: "Ask about these videos" });
     expect(within(sheet).getByText("Ideas for a slow Saturday")).toBeInTheDocument();
     expect(within(sheet).getByText("Start with these moments:")).toBeInTheDocument();

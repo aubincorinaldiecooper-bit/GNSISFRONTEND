@@ -13,7 +13,7 @@ import {
   ArrowDown, ArrowUp, BatteryFull, Captions, CaptionsOff,
   Instagram, Pause, Play, Search, Signal, Twitch, Video,
   Volume2, VolumeX, Wifi, X, Youtube,
-  History, MessageCircle,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AspectRatio } from "@/components/motion/aspect-ratio";
@@ -630,20 +630,16 @@ export default function MomentsPage() {
                   </Button>
                 )}
                 {!wide && showing && (
-                  <Button variant="quiet" size="icon" className="pv-ask" aria-label="Ask about these videos" onClick={() => setChatOpen(true)}>
-                    <MessageCircle aria-hidden="true" />
+                  <Button variant="quiet" size="icon" className="pv-search-icon" aria-label="Search videos" onClick={() => setPaletteOpen(true)}>
+                    <Search aria-hidden="true" />
                   </Button>
                 )}
                 {showing && accountMenu}
               </header>
-              {wide ? (
+              {wide && (
                 <div className="pv-query-heading">
                   <h1>{state.query}</h1>
                 </div>
-              ) : (
-                <Button variant="quiet" className="pv-question" aria-label={`Edit search: ${state.query}`} onClick={goHome}>
-                  {state.query}
-                </Button>
               )}
               {wide ? (
                 <>
@@ -733,6 +729,11 @@ export default function MomentsPage() {
                       onClick={() => dispatch({ type: "source", step: 1 })}
                     >
                       <ArrowUp aria-hidden="true" />
+                    </Button>
+                  </div>
+                  <div className="pv-ask-strip">
+                    <Button variant="quiet" className="pv-ask-pill" onClick={() => setChatOpen(true)}>
+                      Ask about these videos…
                     </Button>
                   </div>
                 </>
