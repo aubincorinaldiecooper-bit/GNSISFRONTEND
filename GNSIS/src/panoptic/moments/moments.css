@@ -212,6 +212,7 @@
   .pv-results:not(.pv-desktop-results) .pv-result-header { position:absolute; z-index:4; top:0; left:0; right:0; height:auto; padding:max(14px,env(safe-area-inset-top)) 14px 0; color:white; text-shadow:0 1px 3px oklch(0 0 0 / .45); pointer-events:none; }
   .pv-results:not(.pv-desktop-results) .pv-result-header > * { pointer-events:auto; }
   .pv-results:not(.pv-desktop-results) .pv-result-header .pv-search-icon { color:white; }
+  .pv-results:not(.pv-desktop-results) .pv-result-header .pv-account-trigger { color:white; }
   .pv-results:not(.pv-desktop-results) .pv-result-header .pv-search-icon:hover { background:oklch(1 0 0 / .14); }
   .pv-results:not(.pv-desktop-results) .pv-stack { flex:1; margin:0; }
   .pv-results:not(.pv-desktop-results) .pv-ghost { display:none; }
