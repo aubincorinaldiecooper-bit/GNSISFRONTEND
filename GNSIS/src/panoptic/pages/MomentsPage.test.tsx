@@ -395,18 +395,21 @@ describe("follow-up chat", () => {
     expect(within(sheet).getByRole("textbox", { name: "Ask a follow-up" })).toBeInTheDocument();
   });
 
-  it("answers a desktop follow-up from the matched moments, with sources", async () => {
-    const { user } = await openDesktopResults();
-    const chat = screen.getByRole("region", { name: "Ask about these videos" });
+  it("answers a follow-up about the picked video beside the desktop player, with sources", async () => {
+    const { user, grid } = await openDesktopResults();
+    expect(screen.queryByRole("region", { name: "Ask about these videos" })).toBeNull();
+    await user.click(within(grid).getByRole("button", { name: /^Watch A slow walk through the bamboo/ }));
+    const dialog = screen.getByRole("dialog", { name: "A slow walk through the bamboo" });
+    const chat = within(dialog).getByRole("region", { name: "Ask about these videos" });
     // The opening answer streams first; the follow-up box unlocks when it completes.
     await within(chat).findByRole("button", { name: "Retry response" }, { timeout: 3000 });
-    await user.type(within(chat).getByRole("textbox", { name: "Ask a follow-up" }), "spark plugs{Enter}");
-    expect(within(chat).getByText("spark plugs")).toBeInTheDocument();
+    await user.type(within(chat).getByRole("textbox", { name: "Ask a follow-up" }), "canopy{Enter}");
+    expect(within(chat).getByText("canopy")).toBeInTheDocument();
     await within(chat).findByText("These moments fit best:", undefined, { timeout: 3000 });
     await waitFor(() => expect(within(chat).getAllByRole("button", { name: "Retry response" })).toHaveLength(2), { timeout: 3000 });
-    expect(within(chat).getAllByRole("link", { name: "Finally fixing the car myself" })[0])
-      .toHaveAttribute("href", expect.stringContaining("instagram.com"));
-    expect(within(chat).getAllByRole("button", { name: /sources/ }).length).toBeGreaterThan(0);
+    const links = within(chat).getAllByRole("link", { name: "A slow walk through the bamboo" });
+    expect(links.length).toBeGreaterThan(1);
+    expect(within(chat).queryByRole("link", { name: "Finally fixing the car myself" })).toBeNull();
   });
 });
 
@@ -474,7 +477,7 @@ describe("desktop Beautiful video results", () => {
     expect(within(cards[4]).queryByText("Swapping the spark plugs, step by step.")).toBeNull();
   });
 
-  it("opens one themed modal with portrait player and controls, without desktop chat, and returns focus", async () => {
+  it("opens one themed modal with portrait player, controls and the video's chat, and returns focus", async () => {
     const { user, cards } = await openDesktopResults();
     const play = vi.spyOn(HTMLMediaElement.prototype, "play");
     await user.click(cards[0]);
@@ -486,9 +489,9 @@ describe("desktop Beautiful video results", () => {
     expect(within(dialog).getByRole("button", { name: "Captions" })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).getByRole("button", { name: "Sound" })).toHaveAttribute("aria-pressed", "false");
     expect(dialog.querySelector('[data-slot="chat-panel"]')).toBeNull();
-    expect(dialog.querySelector('[data-slot="chat-composer"]')).toBeNull();
+    expect(within(dialog).getByRole("region", { name: "Ask about these videos" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("log", { name: "Conversation" })).toBeNull();
-    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    expect(within(dialog).getByRole("textbox", { name: "Ask a follow-up" })).toBeInTheDocument();
     const player = within(dialog).getByRole("article", { name: /Video moments/ });
     expect(play.mock.contexts).toContain(player.querySelector("video"));
     expect(player.querySelector(".pv-cc")).toHaveTextContent("…listen to that.");

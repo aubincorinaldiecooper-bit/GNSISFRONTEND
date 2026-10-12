@@ -390,6 +390,21 @@ export default function MomentsPage() {
   };
 
   const enterClass = state.enter && state.enter.id !== settledEnter ? ` pv-enter-${state.enter.dir}` : "";
+  const creatorTag = (
+    <div className="pv-creator">
+      <a
+        className="pv-src-link"
+        href={originalUrl(source, moment)}
+        target="_blank"
+        rel="noopener noreferrer"
+        draggable={false}
+        aria-label={"Open the original on " + source.platform}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <SourceTag handle={source.handle} platform={source.platform} />
+      </a>
+    </div>
+  );
   const player = (
     <article
       ref={cardRef}
@@ -438,19 +453,7 @@ export default function MomentsPage() {
           </Button>
         ))}
       </div>
-      <div className="pv-creator">
-        <a
-          className="pv-src-link"
-          href={originalUrl(source, moment)}
-          target="_blank"
-          rel="noopener noreferrer"
-          draggable={false}
-          aria-label={"Open the original on " + source.platform}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <SourceTag handle={source.handle} platform={source.platform} />
-        </a>
-      </div>
+      {wide && creatorTag}
       {wide && (
         <Button
           variant="quiet"
@@ -493,6 +496,7 @@ export default function MomentsPage() {
         </Button>
       </div>
         </div>
+      {!wide && creatorTag}
       <div className="pv-timeline">
         {scrubbing && (
           <span className="pv-scrub-time" aria-hidden="true">
@@ -650,7 +654,7 @@ export default function MomentsPage() {
                     hasMore={false}
                     minColumnWidth={240}
                     maxColumns={4}
-                    gap={12}
+                    gap={16}
                     estimateSize={(item) => 280 / (ratios[item.id] ?? DEFAULT_RATIO)}
                     animateItems={!m.reduce}
                     ariaLabel="Matching video previews"
@@ -693,7 +697,6 @@ export default function MomentsPage() {
                       </article>
                     )}
                   />
-                  {showing && <VideoChat key={state.query} className="pv-chat-aside" query={state.query} list={state.list} />}
                 </>
               ) : showing && (
                 <>
@@ -767,6 +770,7 @@ export default function MomentsPage() {
                 <div className="pv-player-column">
                   {player}
                 </div>
+                <VideoChat key={`${state.query}:${source.id}`} className="pv-player-chat" query={state.query} list={[source]} />
               </div>
               <DialogClose asChild>
                 <Button variant="quiet" size="icon" className="pv-player-close" aria-label="Close player"><X aria-hidden="true" /></Button>

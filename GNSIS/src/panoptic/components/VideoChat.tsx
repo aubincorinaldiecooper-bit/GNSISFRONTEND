@@ -33,7 +33,8 @@ function pickMoments(question: string, list: readonly Source[], count = 3): Pick
   scored.sort((a, b) => b.score - a.score);
   const picks: Pick[] = [];
   for (const item of scored) {
-    if (picks.some((p) => p.source.id === item.source.id)) continue;
+    // Across results, one moment per video; inside one video, its best moments.
+    if (list.length > 1 && picks.some((p) => p.source.id === item.source.id)) continue;
     picks.push(item);
     if (picks.length === count) break;
   }
@@ -152,7 +153,7 @@ export function VideoChat({
         label="Conversation about these videos"
         busy={waiting}
         className="min-h-0 flex-1"
-        viewportClassName="px-4 pt-2 pb-4"
+        viewportClassName="px-5 pt-4 pb-5"
         contentClassName="min-h-full"
       >
         <MessageGroup spacing="default">
@@ -188,7 +189,7 @@ export function VideoChat({
           ))}
         </MessageGroup>
       </MessageScroller>
-      <div className="shrink-0 border-t border-border/60 px-4 py-3">
+      <div className="shrink-0 border-t border-border/60 px-5 py-4">
         <ChatComposer
         className="border-0 bg-muted shadow-none focus-within:border-transparent"
         variant="pill"
