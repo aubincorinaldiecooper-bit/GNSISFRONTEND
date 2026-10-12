@@ -20,7 +20,6 @@ import { AspectRatio } from "@/components/motion/aspect-ratio";
 import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
 import { BottomSheet } from "@/components/motion/bottom-sheet";
 import { InfiniteMasonry } from "@/components/motion/infinite-masonry";
-import { MorphingSearchChips } from "@/components/motion/morphing-search-chips";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
@@ -152,7 +151,7 @@ export default function MomentsPage() {
   const [state, dispatch] = useReducer(momentsReducer, undefined, initialMomentsState);
   const [query, setQuery] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(true);
-  const [recents, setRecents] = useState<string[]>([]);
+  const [recent, setRecent] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [captions, setCaptions] = useState(true);
   const [muted, setMuted] = useState(true);
@@ -276,7 +275,7 @@ export default function MomentsPage() {
   const runSearch = (text: string) => {
     setActivePreview(0);
     setQuery("");
-    setRecents((list) => [text, ...list.filter((r) => r.toLowerCase() !== text.toLowerCase())].slice(0, 5));
+    setRecent(text);
     dispatch({ type: "search", query: text });
   };
   const typed = query.trim();
@@ -284,8 +283,10 @@ export default function MomentsPage() {
     ...(typed
       ? [{ id: "search", label: `Search for “${typed}”`, group: "Search", icon: Search, keywords: [typed], pinned: true, onSelect: () => runSearch(typed) }]
       : []),
-    ...recents.map((text) => ({ id: `recent:${text}`, label: text, group: "Recent", icon: History, onSelect: () => runSearch(text) })),
-    ...SUGGESTIONS.filter((text) => !recents.includes(text)).map((text) => ({ id: `try:${text}`, label: text, group: "Try asking", icon: Search, onSelect: () => runSearch(text) })),
+    ...(recent
+      ? [{ id: "recent", label: recent, group: "Recent", icon: History, onSelect: () => runSearch(recent) }]
+      : []),
+    ...SUGGESTIONS.filter((text) => text !== recent).map((text) => ({ id: `try:${text}`, label: text, group: "Try asking", icon: Search, onSelect: () => runSearch(text) })),
   ];
   const resetDrag = () => {
     gesture.current = null;
@@ -297,25 +298,6 @@ export default function MomentsPage() {
     setPlayerOpen(false);
     dispatch({ type: "home" });
   };
-  // Phones search from beUI's morphing chip bar; the chip is the current search.
-  const searchChips = state.screen === "home" ? [] : [state.query];
-  const mobileSearch = (
-    <MorphingSearchChips
-      className="pv-mobile-search"
-      label="What do you want to find?"
-      placeholder={searchChips.length ? "New search" : "What do you want to find?"}
-      chips={searchChips}
-      onChipsChange={(next) => {
-        const added = next.find((chip) => !searchChips.includes(chip));
-        if (added) runSearch(added);
-        else if (next.length === 0) goHome();
-      }}
-      recents={recents}
-      onRecentsChange={setRecents}
-      suggestions={SUGGESTIONS}
-      emptyState="Type what you want to see, like “how to replace spark plugs”."
-    />
-  );
   const revealContext = () => {
     if (wide) return;
     setInteractionVisible(true);
@@ -585,13 +567,11 @@ export default function MomentsPage() {
                 {state.screen === "home" && accountMenu}
               </header>
               <div className="pv-home-main">
-                {wide ? (
-                  <Button ref={searchButtonRef} variant="primary" size="lg" className="pv-home-cta" onClick={() => setPaletteOpen(true)}>
-                    <Search aria-hidden="true" />
-                    Search videos
-                    <kbd aria-hidden="true">⌘K</kbd>
-                  </Button>
-                ) : state.screen === "home" && mobileSearch}
+                <Button ref={searchButtonRef} variant="primary" size="lg" className="pv-home-cta" onClick={() => setPaletteOpen(true)}>
+                  <Search aria-hidden="true" />
+                  Search videos
+                  <kbd aria-hidden="true">⌘K</kbd>
+                </Button>
               </div>
             </div>
             <div className={`pv-view pv-loading${wide ? " pv-desktop-results pv-desktop-loading" : ""}`} hidden={state.screen !== "loading"}>
@@ -656,10 +636,14 @@ export default function MomentsPage() {
                 )}
                 {showing && accountMenu}
               </header>
-              {wide && (
+              {wide ? (
                 <div className="pv-query-heading">
                   <h1>{state.query}</h1>
                 </div>
+              ) : (
+                <Button variant="quiet" className="pv-question" aria-label={`Edit search: ${state.query}`} onClick={goHome}>
+                  {state.query}
+                </Button>
               )}
               {wide ? (
                 <>
@@ -751,7 +735,6 @@ export default function MomentsPage() {
                       <ArrowUp aria-hidden="true" />
                     </Button>
                   </div>
-                  {mobileSearch}
                 </>
               )}
             </div>
@@ -797,7 +780,7 @@ export default function MomentsPage() {
           <VideoChat key={state.query} query={state.query} list={state.list} showTitle={false} className="h-full rounded-none border-0 bg-transparent" />
         </BottomSheet>
       )}
-      {wide && <CommandPalette
+      <CommandPalette
         open={paletteOpen}
         onOpenChange={(open) => {
           setPaletteOpen(open);
@@ -809,7 +792,7 @@ export default function MomentsPage() {
         emptyMessage="Type what you want to see."
         onQueryChange={setQuery}
         className="pv-palette"
-      />}
+      />
     </UIThemeProvider>
   );
 }

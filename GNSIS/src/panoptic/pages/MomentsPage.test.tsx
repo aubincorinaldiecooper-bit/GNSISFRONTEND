@@ -93,7 +93,8 @@ function renderMoments() {
 async function openResults() {
   const user = renderMoments();
   const search = await screen.findByRole("combobox", { name: "What do you want to find?" });
-  await user.type(search, "Ideas for a slow Saturday{Enter}");
+  await user.click(search);
+  await user.keyboard("{Enter}");
   const card = await screen.findByRole("article", { name: /Video moments/ });
   await waitFor(() => expect(card).toHaveClass("is-playing"));
   return { user, card };
@@ -136,9 +137,7 @@ function pressedMoment(card: HTMLElement) {
 describe("the Video Search landing", () => {
   it("shows a mobile video skeleton with an animation-only loader", () => {
     renderMoments();
-    const search = screen.getByRole("combobox", { name: "What do you want to find?" });
-    fireEvent.change(search, { target: { value: "Ideas for a slow Saturday" } });
-    fireEvent.keyDown(search, { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "What do you want to find?" }), { key: "Enter" });
     const loading = document.querySelector(".pv-loading:not([hidden])") as HTMLElement;
     expect(loading.querySelector(".pv-loading-skeleton")).not.toBeNull();
     expect(loading.querySelector(".pv-question-skeleton")).not.toBeNull();
@@ -147,17 +146,14 @@ describe("the Video Search landing", () => {
     expect(within(loading).queryByText("Ideas for a slow Saturday")).toBeNull();
   });
 
-  it("shows the phone search as a chip in the bottom bar, with recents and removal", async () => {
+  it("keeps the plain mobile query editable without a search icon", async () => {
     const { user } = await openResults();
-    const remove = screen.getByRole("button", { name: "Remove filter Ideas for a slow Saturday" });
-    const search = screen.getByRole("combobox", { name: "What do you want to find?" });
-    await user.click(search);
-    expect(within(screen.getByRole("listbox", { name: "Recent searches" })).getByRole("option", { name: /Ideas for a slow Saturday/ }))
-      .toBeInTheDocument();
-    await user.click(remove);
-    await screen.findByRole("combobox", { name: "What do you want to find?" });
-    expect(screen.queryByRole("article", { name: /Video moments/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Remove filter/ })).toBeNull();
+    const query = screen.getByRole("button", { name: "Edit search: Ideas for a slow Saturday" });
+    expect(query).toHaveTextContent("Ideas for a slow Saturday");
+    expect(query.querySelector("svg")).toBeNull();
+    await user.click(query);
+    expect(screen.getByRole("combobox", { name: "What do you want to find?" })).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Ideas for a slow Saturday" })).toBeInTheDocument();
   });
 
   it("keeps the vertical feed below 900px, rather than rendering desktop cards", async () => {
@@ -171,7 +167,9 @@ describe("the Video Search landing", () => {
     mockMedia({ reduced: true });
     const play = vi.spyOn(HTMLMediaElement.prototype, "play");
     const user = renderMoments();
-    await user.type(screen.getByRole("combobox", { name: "What do you want to find?" }), "Ideas for a slow Saturday{Enter}");
+    const search = screen.getByRole("combobox", { name: "What do you want to find?" });
+    await user.click(search);
+    await user.keyboard("{Enter}");
     const card = await screen.findByRole("article", { name: /Video moments/ });
     expect(card).not.toHaveClass("is-playing");
     expect(play).not.toHaveBeenCalled();
@@ -336,8 +334,7 @@ describe("the Video Search landing", () => {
       .toHaveAttribute("href", "https://www.youtube.com/watch?v=homecooking-lunch&t=95s");
   });
 
-  it("opens the search palette over a one-button home screen on desktop", async () => {
-    mockMedia({ wide: true });
+  it("opens the search palette over a one-button home screen", async () => {
     const user = renderMoments();
     const search = await screen.findByRole("combobox", { name: "What do you want to find?" });
     await waitFor(() => expect(search).toHaveFocus());
@@ -364,9 +361,11 @@ describe("the Video Search landing", () => {
     const { user, card } = await openResults();
     expect(screen.queryByRole("button", { name: /Back to search|New search/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Panoptic home" }));
-    await user.type(screen.getByRole("combobox", { name: "What do you want to find?" }), "Ideas for a slow Saturday{Enter}");
+    await user.click(screen.getByRole("combobox", { name: "What do you want to find?" }));
+    await user.keyboard("{Enter}");
     await screen.findByRole("article", { name: /Video moments/ });
     expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByRole("button", { name: /Send question|Original source/ })).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(card.querySelector("#pv-relevance")).toBeNull();
