@@ -778,7 +778,7 @@ export default function MomentsPage() {
       </div>
       {!wide && (
         <BottomSheet open={chatOpen && showing} onOpenChange={setChatOpen} snapPoints={[0.6, 0.92]} title="Ask about these videos" className="pv-chat-sheet">
-          <VideoChat key={state.query} query={state.query} list={state.list} className="h-full rounded-none border-0 bg-transparent" />
+          <VideoChat key={state.query} query={state.query} list={state.list} className="-mx-4 -mb-6 h-full rounded-none border-0 bg-transparent" />
         </BottomSheet>
       )}
       <CommandPalette

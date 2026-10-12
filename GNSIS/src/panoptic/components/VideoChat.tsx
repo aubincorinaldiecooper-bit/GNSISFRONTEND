@@ -152,7 +152,7 @@ export function VideoChat({
         label="Conversation about these videos"
         busy={waiting}
         className="min-h-0 flex-1"
-        viewportClassName="px-3 py-4"
+        viewportClassName="px-4 pt-2 pb-4"
         contentClassName="min-h-full"
       >
         <MessageGroup spacing="default">
@@ -176,6 +176,8 @@ export function VideoChat({
                       onRetry={waiting ? undefined : () => retry(turn.id)}
                       sources={asCitations(turn.picks)}
                       announce={turn.id > 0}
+                      contentClassName="[&_ul]:my-2 [&_ul]:space-y-1.5 [&_ul]:pl-4"
+                      actionsClassName="-ml-1.5"
                     >
                       <Answer pieces={asPieces(turn)} shown={turn.shown} />
                     </StreamingResponse>
@@ -186,7 +188,7 @@ export function VideoChat({
           ))}
         </MessageGroup>
       </MessageScroller>
-      <div className="shrink-0 border-t border-border/60 p-2">
+      <div className="shrink-0 border-t border-border/60 px-4 py-3">
         <ChatComposer
         className="border-0 bg-muted shadow-none focus-within:border-transparent"
         variant="pill"
