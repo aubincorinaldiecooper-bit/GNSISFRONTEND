@@ -170,19 +170,15 @@ export function VideoChat({
                   {turn.status === "pending" ? (
                     <MessageTyping label="Finding moments" className="text-muted-foreground" />
                   ) : (
-                    <MessageBubble variant="soft" animateIn={false}>
-                      <MessageBubbleContent>
-                        <StreamingResponse
-                          status={turn.status}
-                          copyText={asText(turn)}
-                          onRetry={waiting ? undefined : () => retry(turn.id)}
-                          sources={asCitations(turn.picks)}
-                          announce={turn.id > 0}
-                        >
-                          <Answer pieces={asPieces(turn)} shown={turn.shown} />
-                        </StreamingResponse>
-                      </MessageBubbleContent>
-                    </MessageBubble>
+                    <StreamingResponse
+                      status={turn.status}
+                      copyText={asText(turn)}
+                      onRetry={waiting ? undefined : () => retry(turn.id)}
+                      sources={asCitations(turn.picks)}
+                      announce={turn.id > 0}
+                    >
+                      <Answer pieces={asPieces(turn)} shown={turn.shown} />
+                    </StreamingResponse>
                   )}
                 </MessageContent>
               </Message>
