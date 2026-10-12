@@ -23,6 +23,31 @@ if (!("PointerEvent" in window)) {
 
 // jsdom has no scrollIntoView; the palette keeps the active row in view with it.
 Element.prototype.scrollIntoView ??= () => {};
+// jsdom has no ResizeObserver and no layout; the masonry's virtualizer reads
+// its scroll container's offset size, and the masonry its content width.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+const MASONRY_SIZE = { width: 1200, height: 900 };
+const inMasonry = (el: HTMLElement) => el.classList.contains("pv-masonry") || el.classList.contains("pv-masonry-content");
+for (const [prop, key] of [["offsetWidth", "width"], ["offsetHeight", "height"]] as const) {
+  const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, prop)!;
+  Object.defineProperty(HTMLElement.prototype, prop, {
+    configurable: true,
+    get(this: HTMLElement) { return inMasonry(this) ? MASONRY_SIZE[key] : real.get!.call(this); },
+  });
+}
+const realRect = HTMLElement.prototype.getBoundingClientRect;
+HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+  if (!inMasonry(this)) return realRect.call(this);
+  const { width, height } = MASONRY_SIZE;
+  return { x: 0, y: 0, top: 0, left: 0, width, height, right: width, bottom: height, toJSON() { return this; } } as DOMRect;
+};
+
+// jsdom has no image decoding; chat source favicons wait on it.
+HTMLImageElement.prototype.decode ??= () => Promise.resolve();
 
 // jsdom has no media playback.
 Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: () => Promise.resolve() });
@@ -82,7 +107,7 @@ async function openDesktopResults(query?: string) {
   const search = screen.getByRole("combobox", { name: "What do you want to find?" });
   await user.click(search);
   await user.keyboard("{Enter}");
-  const grid = await screen.findByRole("group", { name: "Matching video previews" });
+  const grid = await screen.findByRole("region", { name: "Matching video previews" });
   const cards = within(grid).getAllByRole("button", { name: /^Watch / });
   return { user, grid, cards };
 }
@@ -121,13 +146,11 @@ describe("the Video Search landing", () => {
     expect(within(loading).queryByText("Ideas for a slow Saturday")).toBeNull();
   });
 
-  it("keeps the plain mobile query editable without a search icon", async () => {
+  it("opens the approved search palette from the phone header's search icon", async () => {
     const { user } = await openResults();
-    const query = screen.getByRole("button", { name: "Edit search: Ideas for a slow Saturday" });
-    expect(query).toHaveTextContent("Ideas for a slow Saturday");
-    expect(query.querySelector("svg")).toBeNull();
-    await user.click(query);
-    expect(screen.getByRole("combobox", { name: "What do you want to find?" })).toHaveValue("");
+    expect(screen.queryByRole("button", { name: /^Edit search/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Search videos" }));
+    expect(await screen.findByRole("combobox", { name: "What do you want to find?" })).toHaveValue("");
     expect(screen.getByRole("option", { name: "Ideas for a slow Saturday" })).toBeInTheDocument();
   });
 
@@ -135,7 +158,7 @@ describe("the Video Search landing", () => {
     const { card } = await openResults();
     expect(window.matchMedia).toHaveBeenCalledWith("(min-width: 900px)");
     expect(screen.getByTestId("mobile-video-feed")).toContainElement(card);
-    expect(screen.queryByRole("group", { name: "Matching video previews" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Matching video previews" })).toBeNull();
   });
 
   it("keeps the mobile feed still under reduced motion until explicit playback", async () => {
@@ -332,7 +355,7 @@ describe("the Video Search landing", () => {
     expect(screen.queryByText("Search across video")).toBeNull();
   });
 
-  it("has no chat, source sheet or match description on the phone", async () => {
+  it("keeps chat in a bottom sheet on the phone, with no source sheet or match description", async () => {
     const { user, card } = await openResults();
     expect(screen.queryByRole("button", { name: /Back to search|New search/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Panoptic home" }));
@@ -341,7 +364,7 @@ describe("the Video Search landing", () => {
     await screen.findByRole("article", { name: /Video moments/ });
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Ask|Send question|Original source/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send question|Original source/ })).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(card.querySelector("#pv-relevance")).toBeNull();
     expect(screen.queryByText(/demo|simulated|prototype|fictional/i)).toBeNull();
@@ -359,6 +382,35 @@ describe("the Video Search landing", () => {
     expect(screen.getByRole("status")).toHaveTextContent("You’ve reached the last source.");
   });
 
+});
+
+describe("follow-up chat", () => {
+  it("opens the phone chat from the ask pill under the video, in a bottom sheet seeded with the search", async () => {
+    const { user } = await openResults();
+    await user.click(screen.getByRole("button", { name: "Ask about these videos…" }));
+    const sheet = await screen.findByRole("dialog", { name: "Ask about these videos" });
+    expect(within(sheet).getByText("Ideas for a slow Saturday")).toBeInTheDocument();
+    expect(await within(sheet).findByText("Start with these moments:", undefined, { timeout: 3000 })).toBeInTheDocument();
+    expect(await within(sheet).findByRole("button", { name: "Retry response" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(within(sheet).getByRole("textbox", { name: "Ask a follow-up" })).toBeInTheDocument();
+  });
+
+  it("answers a follow-up about the picked video beside the desktop player, with sources", async () => {
+    const { user, grid } = await openDesktopResults();
+    expect(screen.queryByRole("region", { name: "Ask about these videos" })).toBeNull();
+    await user.click(within(grid).getByRole("button", { name: /^Watch A slow walk through the bamboo/ }));
+    const dialog = screen.getByRole("dialog", { name: "A slow walk through the bamboo" });
+    const chat = within(dialog).getByRole("region", { name: "Ask about these videos" });
+    // The opening answer streams first; the follow-up box unlocks when it completes.
+    await within(chat).findByRole("button", { name: "Retry response" }, { timeout: 3000 });
+    await user.type(within(chat).getByRole("textbox", { name: "Ask a follow-up" }), "canopy{Enter}");
+    expect(within(chat).getByText("canopy")).toBeInTheDocument();
+    await within(chat).findByText("These moments fit best:", undefined, { timeout: 3000 });
+    await waitFor(() => expect(within(chat).getAllByRole("button", { name: "Retry response" })).toHaveLength(2), { timeout: 3000 });
+    const links = within(chat).getAllByRole("link", { name: "A slow walk through the bamboo" });
+    expect(links.length).toBeGreaterThan(1);
+    expect(within(chat).queryByRole("link", { name: "Finally fixing the car myself" })).toBeNull();
+  });
 });
 
 describe("desktop Beautiful video results", () => {
@@ -393,7 +445,7 @@ describe("desktop Beautiful video results", () => {
       Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, value: 900 });
 
       const { grid } = await openDesktopResults();
-      expect(grid.querySelector(".pv-preview-card")).toHaveStyle({ "--pv-ratio": "1.7777777777777777" });
+      expect(grid.querySelector(".pv-preview-card")).toHaveAttribute("data-ratio", "1.7777777777777777");
     } finally {
       for (const [prototype, property, descriptor] of originalDescriptors) {
         if (descriptor) Object.defineProperty(prototype, property, descriptor);
@@ -404,7 +456,6 @@ describe("desktop Beautiful video results", () => {
 
   it("renders source-labelled playable bento cards, not a mobile feed", async () => {
     const { grid, cards } = await openDesktopResults();
-    expect(grid).toHaveAttribute("data-count", "6");
     expect(cards).toHaveLength(6);
     expect(screen.queryByText("Best match")).toBeNull();
     const arrows = within(grid).getAllByRole("link", { name: /^Open the original on / });
@@ -426,7 +477,7 @@ describe("desktop Beautiful video results", () => {
     expect(within(cards[4]).queryByText("Swapping the spark plugs, step by step.")).toBeNull();
   });
 
-  it("opens one themed modal with portrait player and controls, without desktop chat, and returns focus", async () => {
+  it("opens one themed modal with portrait player, controls and the video's chat, and returns focus", async () => {
     const { user, cards } = await openDesktopResults();
     const play = vi.spyOn(HTMLMediaElement.prototype, "play");
     await user.click(cards[0]);
@@ -438,9 +489,9 @@ describe("desktop Beautiful video results", () => {
     expect(within(dialog).getByRole("button", { name: "Captions" })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).getByRole("button", { name: "Sound" })).toHaveAttribute("aria-pressed", "false");
     expect(dialog.querySelector('[data-slot="chat-panel"]')).toBeNull();
-    expect(dialog.querySelector('[data-slot="chat-composer"]')).toBeNull();
+    expect(within(dialog).getByRole("region", { name: "Ask about these videos" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("log", { name: "Conversation" })).toBeNull();
-    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    expect(within(dialog).getByRole("textbox", { name: "Ask a follow-up" })).toBeInTheDocument();
     const player = within(dialog).getByRole("article", { name: /Video moments/ });
     expect(play.mock.contexts).toContain(player.querySelector("video"));
     expect(player.querySelector(".pv-cc")).toHaveTextContent("…listen to that.");
@@ -457,8 +508,8 @@ describe("desktop Beautiful video results", () => {
   });
 
   it("supports Enter/Space cards, traps focus, and closes with the close control", async () => {
-    const { user, cards } = await openDesktopResults();
-    cards[2].focus();
+    const { user, grid } = await openDesktopResults();
+    within(grid).getByRole("button", { name: /^Watch A slow Saturday lunch, start to finish/ }).focus();
     await user.keyboard("{Enter}");
     let dialog = screen.getByRole("dialog", { name: "A slow Saturday lunch, start to finish" });
     const close = within(dialog).getByRole("button", { name: "Close player" });
@@ -471,13 +522,15 @@ describe("desktop Beautiful video results", () => {
     expect(close).toHaveFocus();
     await user.click(close);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(cards[2]).toHaveFocus();
-    cards[4].focus();
+    const lunch = within(grid).getByRole("button", { name: /^Watch A slow Saturday lunch, start to finish/ });
+    const car = within(grid).getByRole("button", { name: /^Watch Finally fixing the car myself/ });
+    expect(lunch).toHaveFocus();
+    car.focus();
     await user.keyboard(" ");
     dialog = screen.getByRole("dialog", { name: "Finally fixing the car myself" });
     expect(within(within(dialog).getByRole("article", { name: /Video moments/ })).getByText("outsidehours")).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    expect(cards[4]).toHaveFocus();
+    expect(car).toHaveFocus();
   });
 
   it("dismisses on the backdrop without navigating away from the contextual grid", async () => {
@@ -549,7 +602,7 @@ describe("desktop Beautiful video results", () => {
     const user = renderMoments();
     await user.click(screen.getByRole("combobox", { name: "What do you want to find?" }));
     await user.keyboard("{Enter}");
-    const grid = await screen.findByRole("group", { name: "Matching video previews" });
+    const grid = await screen.findByRole("region", { name: "Matching video previews" });
     const card = within(grid).getAllByRole("button", { name: /^Watch / })[0];
     expect(play).not.toHaveBeenCalled();
     await user.click(card);
@@ -576,7 +629,7 @@ describe("desktop Beautiful video results", () => {
   });
 
   it("keeps desktop tap-middle pause, transient scrub time and CC/sound persistence", async () => {
-    const { user, cards } = await openDesktopResults();
+    const { user, grid, cards } = await openDesktopResults();
     await user.click(cards[0]);
     let dialog = screen.getByRole("dialog", { name: "A slow walk through the bamboo" });
     const player = within(dialog).getByRole("article", { name: /Video moments/ });
@@ -594,7 +647,7 @@ describe("desktop Beautiful video results", () => {
     await user.click(within(dialog).getByRole("button", { name: "Captions" }));
     await user.click(within(dialog).getByRole("button", { name: "Sound" }));
     await user.keyboard("{Escape}");
-    await user.click(cards[4]);
+    await user.click(within(grid).getByRole("button", { name: /^Watch Finally fixing the car myself/ }));
     dialog = screen.getByRole("dialog", { name: "Finally fixing the car myself" });
     expect(within(dialog).getByRole("button", { name: "Captions" })).toHaveAttribute("aria-pressed", "false");
     expect(within(dialog).getByRole("button", { name: "Sound" })).toHaveAttribute("aria-pressed", "true");
@@ -604,17 +657,14 @@ describe("desktop Beautiful video results", () => {
   it("filters food results and keeps query editing controlled", async () => {
     const { user, grid, cards } = await openDesktopResults("Breakfast ideas");
     expect(cards).toHaveLength(5);
-    expect(grid).toHaveAttribute("data-count", "5");
     expect(within(grid).queryByText("outsidehours")).toBeNull();
     expect(within(grid).getByRole("button", { name: /Watch A slow Saturday lunch, start to finish/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Breakfast ideas" })).toBeInTheDocument();
-    const search = screen.getByRole("textbox", { name: "Search again" });
-    expect(search).toHaveValue("");
-    expect(screen.queryByRole("button", { name: /New search|Search videos/ })).toBeNull();
-    await user.type(search, "A slow Saturday{Enter}");
+    expect(screen.queryByRole("textbox", { name: "Search again" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /Search videos/ }));
+    await user.type(await screen.findByRole("combobox", { name: "What do you want to find?" }), "A slow Saturday{Enter}");
     await screen.findByRole("heading", { name: "A slow Saturday" });
-    expect(search).toHaveValue("");
-    expect(await screen.findByRole("group", { name: "Matching video previews" })).toHaveAttribute("data-count", "6");
+    await waitFor(() => expect(within(grid).getAllByRole("button", { name: /^Watch / })).toHaveLength(6));
     expect(grid.querySelector(".pv-preview-play")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Panoptic home" }));
     const input = screen.getByRole("combobox", { name: "What do you want to find?" });
