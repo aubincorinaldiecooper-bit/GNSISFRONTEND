@@ -390,16 +390,20 @@ describe("follow-up chat", () => {
     await user.click(screen.getByRole("button", { name: "Ask about these videos…" }));
     const sheet = await screen.findByRole("dialog", { name: "Ask about these videos" });
     expect(within(sheet).getByText("Ideas for a slow Saturday")).toBeInTheDocument();
-    expect(within(sheet).getByText("Start with these moments:")).toBeInTheDocument();
+    expect(await within(sheet).findByText("Start with these moments:", undefined, { timeout: 3000 })).toBeInTheDocument();
+    expect(await within(sheet).findByRole("button", { name: "Retry response" }, { timeout: 3000 })).toBeInTheDocument();
     expect(within(sheet).getByRole("textbox", { name: "Ask a follow-up" })).toBeInTheDocument();
   });
 
   it("answers a desktop follow-up from the matched moments, with sources", async () => {
     const { user } = await openDesktopResults();
     const chat = screen.getByRole("region", { name: "Ask about these videos" });
+    // The opening answer streams first; the follow-up box unlocks when it completes.
+    await within(chat).findByRole("button", { name: "Retry response" }, { timeout: 3000 });
     await user.type(within(chat).getByRole("textbox", { name: "Ask a follow-up" }), "spark plugs{Enter}");
     expect(within(chat).getByText("spark plugs")).toBeInTheDocument();
-    await within(chat).findByText("These moments fit best:", undefined, { timeout: 2000 });
+    await within(chat).findByText("These moments fit best:", undefined, { timeout: 3000 });
+    await waitFor(() => expect(within(chat).getAllByRole("button", { name: "Retry response" })).toHaveLength(2), { timeout: 3000 });
     expect(within(chat).getAllByRole("link", { name: "Finally fixing the car myself" })[0])
       .toHaveAttribute("href", expect.stringContaining("instagram.com"));
     expect(within(chat).getAllByRole("button", { name: /sources/ }).length).toBeGreaterThan(0);
