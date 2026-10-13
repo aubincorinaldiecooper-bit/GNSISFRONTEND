@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import { motion } from "motion/react";
-import { AppWindow, ArrowRight, ChevronDown, Cloud, Code2, Eye, EyeOff, Hand, KeyRound, Laptop, ListChecks, Mic, MousePointerClick, PanelTop, ShieldCheck, Smile, Sparkles, UserRound, WifiOff } from "lucide-react";
+import { AppWindow, ArrowRight, ChevronDown, Cloud, Code2, Eye, Hand, KeyRound, Laptop, ListChecks, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { Link } from "react-router";
 import { LAB_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
@@ -159,12 +159,8 @@ function Models() {
 }
 
 const FEATURES: readonly Item[] = [
-  { icon: AppWindow, title: "Over every app", body: "Floats above any app, on every desktop and in full screen." },
-  { icon: EyeOff, title: "Invisible to others", body: "Left out of screen sharing, recordings and screenshots." },
-  { icon: ListChecks, title: "Every step in view", body: "Watch each step as it happens, and take over any time." },
-  { icon: WifiOff, title: "Works offline", body: "GNSIS 0.5 runs on your Mac, even without internet." },
-  { icon: PanelTop, title: "Out of the way", body: "One click tucks it into the menu bar and brings it back." },
-  { icon: Smile, title: "Your own GNSIS", body: "Every GNSIS is a one-of-a-kind character, made for you." },
+  { icon: AppWindow, title: "Works over any app", body: "GNSIS floats above whatever you’re using, on every desktop." },
+  { icon: ListChecks, title: "Every step in view", body: "Watch each step as it happens, and take over when needed." },
 ];
 
 function Features() {
@@ -174,7 +170,7 @@ function Features() {
       <h2 id="features-title" className="mt-4 max-w-2xl text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
         Made for your Mac.
       </h2>
-      <ul className="mt-12 grid gap-x-8 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="mt-12 grid gap-x-8 gap-y-9 sm:grid-cols-2">
         {FEATURES.map(({ icon: Icon, title, body }) => (
           <li key={title} className="flex gap-4">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-signal-tint text-signal-ink">
@@ -195,7 +191,7 @@ const CONTROLS: readonly Item[] = [
   {
     icon: KeyRound,
     title: "Your key stays on your Mac",
-    body: "Each Mac makes its own private key, locked away by macOS. It never leaves your computer, and there’s no password to steal.",
+    body: "Each device generates its own private key, and it never leaves your computer. GNSIS signs you in with that key instead of a password, so there’s nothing to phish or leak.",
   },
   { icon: ShieldCheck, title: "It sees only what you share", body: "Screen and camera are off until you turn them on. No screenshots, and nothing is saved to disk." },
   { icon: Hand, title: "It asks first", body: "Anything that sends, buys, posts or deletes waits for your OK." },
@@ -209,7 +205,7 @@ function Control() {
         <div>
           <Eyebrow>Privacy</Eyebrow>
           <h2 id="control-title" className="mt-4 text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
-            Private by design.
+            Privacy first, by design.
           </h2>
         </div>
         <ul className="divide-y divide-line border-y border-line">
