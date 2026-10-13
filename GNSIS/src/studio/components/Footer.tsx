@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { PATHS } from "@/panoptic/config";
 import { MAC_DOWNLOAD_URL, STUDIO_PATHS, studioHomePath } from "../config";
 import { useEarlyAccess } from "../earlyAccess";
+import { useIsMobileDevice, useMacDownload } from "./macDownload";
 
 const linkClass =
   "rounded-chip text-[14.5px] text-ink-2 transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_var(--signal)]";
@@ -19,6 +20,8 @@ function Column({ title, children }: { title: string; children: ReactNode }) {
 export function StudioFooter() {
   const { open } = useEarlyAccess();
   const home = studioHomePath();
+  const mobile = useIsMobileDevice();
+  const download = useMacDownload();
   return (
     <footer className="relative border-t border-line">
       <div className="mx-auto max-w-6xl px-5 pb-10 pt-14 sm:px-8">
@@ -29,7 +32,14 @@ export function StudioFooter() {
           </Link>
           <nav aria-label="Footer" className="contents">
             <Column title="Product">
-              <li><a href={MAC_DOWNLOAD_URL} className={linkClass}>Download for Mac</a></li>
+              <li>
+                {mobile ? (
+                  <span className="text-[14.5px] text-ink-3">Available on Mac</span>
+                ) : (
+                  <a href={MAC_DOWNLOAD_URL} onClick={download.onClick} className={linkClass}>Download for Mac</a>
+                )}
+                {download.dialog}
+              </li>
               <li><a href={`${home}#how`} className={linkClass}>How it works</a></li>
               <li><a href={`${home}#models`} className={linkClass}>GNSIS 0.5 and 1.0</a></li>
               <li><a href={`${home}#faq`} className={linkClass}>FAQ</a></li>
