@@ -46,7 +46,6 @@ export function StudioFooter() {
             </Column>
             <Column title="Developers">
               <li><Link to={STUDIO_PATHS.developersPanoptic} className={linkClass}>Panoptic API</Link></li>
-              <li><Link to={STUDIO_PATHS.models} className={linkClass}>Models</Link></li>
             </Column>
             <Column title="Company">
               <li><Link to={home} className={linkClass}>About GNSIS</Link></li>

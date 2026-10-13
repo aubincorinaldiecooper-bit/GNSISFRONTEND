@@ -79,6 +79,17 @@ function assetRequest(request: Request, url: URL, path: string): Request {
   return new Request(target, { method: request.method, headers: request.headers });
 }
 
+/** Pages taken off the public (studio) site. They answer 404, not a redirect. */
+const RETIRED = /^\/(models(\/panoptic)?|lab|use-cases\/agentic-web-steering|login|admin(\/.*)?|welcome|home)(\/|\.html)?$/;
+
+async function notFound(request: Request, url: URL, env: SiteEnv): Promise<Response> {
+  const shell = await env.ASSETS.fetch(assetRequest(request, url, "/index.html"));
+  return new Response(shell.status === 200 ? shell.body : "Not found", {
+    status: 404,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
 async function serveFirst(
   request: Request,
   url: URL,
@@ -142,8 +153,10 @@ export async function handleRequest(request: Request, env: SiteEnv): Promise<Res
   }
 
   if (!liveEnabled && (path === "/live" || path === "/live/" || path === "/live.html")) {
-    return Response.redirect(new URL("/", url).toString(), 302);
+    return notFound(request, url, env);
   }
+
+  if (mode === "studio" && RETIRED.test(path)) return notFound(request, url, env);
 
   if (path === "/env.js") {
     return new Response(publicConfigScript(env), {
@@ -164,7 +177,7 @@ export async function handleRequest(request: Request, env: SiteEnv): Promise<Res
 
   // Video Search is off the site unless it is the home experience; its code stays for later.
   if (mode !== "video-search" && /^\/video-search(\/|\.html)?$/.test(path)) {
-    return Response.redirect(new URL("/", url).toString(), 302);
+    return notFound(request, url, env);
   }
 
   if (path.endsWith(".html") && PAGES.has(path.slice(0, -".html".length))) {
@@ -182,6 +195,10 @@ export async function handleRequest(request: Request, env: SiteEnv): Promise<Res
     response = await serveFirst(request, url, env, ["/live.html"]);
   } else if (PAGES.has(page)) {
     response = await serveFirst(request, url, env, [`${page}.html`]);
+  } else if (mode === "studio") {
+    // The studio site is only its own pages and files: anything else is 404.
+    response = await serveFirst(request, url, env, [path]);
+    if (response.status === 404) return notFound(request, url, env);
   } else {
     response = await serveFirst(request, url, env, [path, `${path}.html`, "/index.html"]);
   }

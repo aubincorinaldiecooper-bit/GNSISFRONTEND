@@ -410,7 +410,8 @@ describe("follow-up chat", () => {
     const links = within(chat).getAllByRole("link", { name: "A slow walk through the bamboo" });
     expect(links.length).toBeGreaterThan(1);
     expect(within(chat).queryByRole("link", { name: "Finally fixing the car myself" })).toBeNull();
-  });
+    // Several full chat round-trips: about 4 s alone, so the 5 s default flakes on CI.
+  }, 15_000);
 });
 
 describe("desktop Beautiful video results", () => {
