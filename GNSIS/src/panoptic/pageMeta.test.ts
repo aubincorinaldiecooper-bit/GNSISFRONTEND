@@ -60,9 +60,9 @@ describe("each Panoptic page's own HTML", () => {
     expect(LAB_META).toEqual({
       path: "/lab",
       file: "lab.html",
-      title: "GNSIS — an AI research lab in Toronto",
+      title: "GNSIS — super intelligence that lives on your computer",
       description:
-        "GNSIS is a research lab building AI that sees, listens and remembers in real time, so it can work alongside people, not just answer them.",
+        "GNSIS floats over your Mac desktop and gets tasks done in the apps you already use. Ask by voice or by typing. GNSIS 0.5 runs on your Mac; GNSIS 1.0 runs in the cloud.",
     });
     expect(STUDIO_PAGES).toContain(LAB_META);
   });
