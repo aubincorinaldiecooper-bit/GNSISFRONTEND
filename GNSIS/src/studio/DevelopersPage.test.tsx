@@ -4,8 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import StudioSite from "./Site";
 import DevelopersPage from "./pages/DevelopersPage";
-import { PATHS } from "@/panoptic/config";
-import { STUDIO_PATHS } from "./config";
+import { MAC_DOWNLOAD_URL, STUDIO_PATHS } from "./config";
 
 const auth = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -108,12 +107,13 @@ describe("developer access request", () => {
     expect(screen.queryByRole("dialog", { name: "Request developer access" })).not.toBeInTheDocument();
   });
 
-  it("links the header to Developers and the Panoptic video search", () => {
+  it("links the header to Developers and the Mac download", () => {
     renderPanoptic();
 
     const header = within(screen.getByRole("banner"));
     expect(header.getByRole("link", { name: "Developers" })).toHaveAttribute("href", STUDIO_PATHS.developers);
-    expect(header.getByRole("link", { name: /Try Panoptic/ })).toHaveAttribute("href", PATHS.videoSearch);
+    expect(header.getByRole("link", { name: "Download for Mac" })).toHaveAttribute("href", MAC_DOWNLOAD_URL);
+    expect(header.queryByRole("link", { name: /Try Panoptic/ })).not.toBeInTheDocument();
     expect(header.queryByRole("button", { name: /Get started/ })).not.toBeInTheDocument();
   });
 });

@@ -50,6 +50,13 @@
 	}
 	header @dormant X-Robots-Tag "noindex, nofollow"
 
+	# Video Search is off the site unless it is the home experience.
+	@searchoff {
+		path /video-search /video-search/ /video-search.html
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "video-search"`
+	}
+	redir @searchoff / temporary
+
 	redir /welcome / permanent
 	redir /home / permanent
 	redir /developers /developers/panoptic permanent

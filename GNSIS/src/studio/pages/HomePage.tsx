@@ -1,332 +1,237 @@
-import { useSyncExternalStore, type ComponentType } from "react";
-import { motion, useReducedMotion } from "motion/react";
-import { ArrowRight, AudioLines, Blocks, BrainCircuit, Eye, ShieldCheck } from "lucide-react";
+import type { ComponentType } from "react";
+import { motion } from "motion/react";
+import { ArrowRight, Cloud, Code2, Eye, Hand, Laptop, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { Link } from "react-router";
-import { cn } from "@/lib/utils";
 import { LAB_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
 import { STUDIO_PATHS } from "../config";
-import { useEarlyAccess } from "../earlyAccess";
+import { DownloadMenu } from "../components/DownloadMenu";
 import { StudioFooter } from "../components/Footer";
-import { ModelGlyph } from "../components/Glyphs";
-import { ModelLink } from "../components/ModelLink";
 import { StudioNav } from "../components/Nav";
 import { Eyebrow, RevealSection, RiseLines } from "../components/Reveal";
-import { LISTED_MODELS } from "../models";
-import LanyardBadge from "../ui/LanyardBadge";
 import { buttonArrow, studioButton } from "../ui/variants";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
 
-/** A slow, breathing field of warm and cool light: presence, not product. */
-function PresenceField() {
-  const reduce = useReducedMotion();
-  const breathe = (scale: number[], duration: number, delay = 0) =>
-    reduce
-      ? undefined
-      : { animate: { scale, opacity: [0.55, 1, 0.55] }, transition: { duration, delay, repeat: Infinity, ease: "easeInOut" as const } };
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[820px] overflow-hidden">
-      <motion.div
-        className="absolute -right-24 top-10 size-[640px] rounded-full bg-[radial-gradient(circle,rgba(255,176,120,0.40),rgba(255,214,160,0.16)_45%,transparent_70%)] blur-2xl"
-        {...breathe([1, 1.08, 1], 12)}
-      />
-      <motion.div
-        className="absolute right-40 top-56 size-[520px] rounded-full bg-[radial-gradient(circle,rgba(120,165,255,0.34),rgba(170,200,255,0.12)_45%,transparent_70%)] blur-2xl"
-        {...breathe([1.06, 1, 1.06], 14, 1.5)}
-      />
-      <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-b from-transparent to-[var(--page)]" />
-    </div>
-  );
-}
-
-const BADGE_INK = "#8fb0ff";
-
-function BadgeFront() {
-  return (
-    <div className="relative h-full w-full overflow-hidden bg-[#0b1220] font-studio text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(80%_60%_at_20%_100%,rgba(255,160,100,0.45),transparent_70%),radial-gradient(90%_70%_at_90%_10%,rgba(59,130,246,0.5),transparent_70%)]" />
-      <svg viewBox="-100 -100 200 200" className="absolute -right-16 top-24 w-[260px] text-white/15" fill="none" stroke="currentColor" strokeWidth={1}>
-        {[96, 78, 60, 42, 24].map((r) => (
-          <circle key={r} r={r} />
-        ))}
-        <circle r={7} fill="currentColor" />
-      </svg>
-      <div className="absolute inset-x-6 top-12">
-        <p className="text-[26px] font-semibold tracking-[0.08em]">GNSIS</p>
-        <p className="mt-1.5 text-[9px] font-medium uppercase tracking-[0.22em] text-white/60">Research Lab</p>
-      </div>
-      <div className="absolute inset-x-6 bottom-7">
-        <p className="font-display text-[22px] italic leading-[1.1] text-white/90">
-          Intelligence that
-          <br />
-          stays present.
-        </p>
-        <div className="mt-5 flex items-center justify-between text-[8.5px] font-medium uppercase tracking-[0.2em] text-white/55">
-          <span>Toronto, Canada</span>
-          <span>gnsis.studio</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BadgeBack() {
-  return (
-    <div className="relative h-full w-full overflow-hidden bg-[#f4f1ea] font-studio text-[#0b1220]">
-      <div className="absolute inset-x-6 top-14">
-        <p className="text-[9px] font-medium uppercase tracking-[0.22em] text-[#0b1220]/55">Pass</p>
-        <p className="mt-2 font-display text-[34px] leading-none">Early access</p>
-        <div className="mt-5 h-[2px] w-5 bg-[#0b1220]" />
-      </div>
-      <div className="absolute inset-x-0 bottom-0 h-[42%] rounded-tl-[40px] bg-[#0b1220] px-6 pt-7 text-white">
-        <p className="text-[18px] font-semibold tracking-[0.08em]">GNSIS</p>
-        <p className="mt-1 text-[8.5px] font-medium uppercase tracking-[0.2em] text-white/55">Perception · Voice · Memory</p>
-        <span className="absolute bottom-6 right-6 size-2 rounded-full" style={{ background: BADGE_INK }} />
-      </div>
-    </div>
-  );
-}
-
-const DESKTOP_QUERY = "(min-width: 1024px)";
-
-function subscribeDesktop(onChange: () => void) {
-  const mq = window.matchMedia(DESKTOP_QUERY);
-  mq.addEventListener("change", onChange);
-  return () => mq.removeEventListener("change", onChange);
-}
-
-function useIsDesktop() {
-  return useSyncExternalStore(
-    subscribeDesktop,
-    () => window.matchMedia(DESKTOP_QUERY).matches,
-    () => true,
-  );
-}
-
-function HeroLanyard({ placement }: { placement: "desktop" | "mobile" }) {
-  const desktop = useIsDesktop();
-  if (desktop !== (placement === "desktop")) return null;
+/** A Cluely-style sky: deep blue at the top fading into the page. */
+function Sky() {
   return (
     <div
-      className={
-        desktop
-          ? "absolute -right-36 -top-16 h-[760px] w-[760px]"
-          : "relative -mx-5 mt-2 h-[600px] [mask-image:linear-gradient(to_bottom,transparent,black_18%)] sm:-mx-8"
-      }
-    >
-      <LanyardBadge
-        front={<BadgeFront />}
-        back={<BadgeBack />}
-        strapText="intelligence that stays present"
-        strapLabel="GNSIS RESEARCH · TORONTO"
-        strapColor="#0b1220"
-        inkColor={BADGE_INK}
-        flipButton={false}
-        cardWidth={240}
-        height="100%"
-      />
-    </div>
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 top-0 h-[1100px] bg-[linear-gradient(180deg,#1f4fb8_0%,#4f86e0_28%,#9cc0f2_55%,#dde9fa_75%,var(--page)_100%)]"
+    />
   );
 }
 
 function Hero() {
-  const { open } = useEarlyAccess();
   return (
-    <section aria-labelledby="lab-title" className="relative pb-6 pt-16 sm:pb-32 sm:pt-28 lg:min-h-[700px]">
-      <HeroLanyard placement="desktop" />
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
-        <Eyebrow>GNSIS Research · Toronto</Eyebrow>
-      </motion.div>
-      <h1 id="lab-title" className="mt-6 max-w-4xl font-display text-[44px] leading-[1.04] tracking-[-0.02em] text-ink sm:text-[88px]">
-        <RiseLines lines={["Intelligence that", "stays present."]} delay={0.05} />
+    <section aria-labelledby="home-title" className="relative pb-20 pt-16 text-center sm:pt-24">
+      <motion.p
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: EASE }}
+        className="mx-auto inline-flex items-center gap-2 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-medium text-white ring-1 ring-white/25 backdrop-blur"
+      >
+        GNSIS 1.0 and GNSIS 0.5 · for Mac
+      </motion.p>
+      <h1
+        id="home-title"
+        className="mx-auto mt-6 max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.035em] text-white sm:text-[68px]"
+      >
+        <RiseLines lines={["Super intelligence that", "lives on your computer."]} delay={0.05} />
       </h1>
       <motion.p
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.35, ease: EASE }}
-        className="mt-8 max-w-xl text-[18.5px] leading-relaxed text-ink-2"
+        transition={{ duration: 0.8, delay: 0.3, ease: EASE }}
+        className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-white/85"
       >
-        GNSIS is a research lab building AI that sees, listens and remembers in real time, so it can work alongside
-        people, not just answer them.
+        GNSIS floats over your desktop and works in the apps you already use. Ask by voice or by typing. It sees what’s on
+        your screen and gets the task done, from a quick reply to a long piece of writing or code.
       </motion.p>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.5, ease: EASE }}
-        className="mt-10 flex flex-wrap items-center gap-3"
+        transition={{ duration: 0.8, delay: 0.42, ease: EASE }}
+        className="mt-9 flex justify-center"
       >
-        <Link to={STUDIO_PATHS.models} className={studioButton({ variant: "primary", size: "lg" })}>
-          See our releases
-          <ArrowRight aria-hidden className={buttonArrow} />
-        </Link>
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.96 }}
-          onClick={() => open("lab:hero")}
-          className={studioButton({ variant: "quiet", size: "lg" })}
-        >
-          Work with us
-        </motion.button>
+        <DownloadMenu size="lg" tone="light" />
       </motion.div>
-      <HeroLanyard placement="mobile" />
+      <motion.div
+        initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+        transition={{ duration: 1, delay: 0.5, ease: EASE }}
+        className="mx-auto mt-14 max-w-5xl overflow-hidden rounded-[18px] shadow-[0_40px_120px_-30px_rgba(11,18,32,0.55)] ring-1 ring-black/10 sm:rounded-[22px]"
+      >
+        <img
+          src="/images/gnsis/desktop-hero.webp"
+          width={1440}
+          height={900}
+          alt="GNSIS on a Mac desktop, above the Dock, after finding a recipe: the chat lists each step it took and the browser agent's screen shows the result."
+          className="block h-auto w-full"
+        />
+      </motion.div>
     </section>
   );
 }
 
-function Mission() {
-  return (
-    <RevealSection aria-labelledby="mission-title" className="border-t border-line py-24 sm:py-32">
-      <div className="grid gap-10 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-16">
-        <Eyebrow>Our mission</Eyebrow>
-        <div>
-          <h2 id="mission-title" className="max-w-3xl font-display text-[32px] leading-[1.2] tracking-[-0.01em] text-ink sm:text-[44px]">
-            Most AI waits for a prompt, answers, and forgets.{" "}
-            <span className="text-ink-3">
-              We are building intelligence that is continuously present: perceiving the world as it changes, holding
-              context across time, and acting only when people say so.
-            </span>
-          </h2>
-        </div>
-      </div>
-    </RevealSection>
-  );
-}
+type Item = { icon: ComponentType<{ className?: string }>; title: string; body: string };
 
-interface Principle {
-  icon: ComponentType<{ className?: string }>;
-  title: string;
-  body: string;
-}
-
-const PRINCIPLES: readonly Principle[] = [
-  {
-    icon: Eye,
-    title: "Perception first",
-    body: "Understanding starts with seeing. Our systems watch continuously and say what is true now, not what was true a moment ago.",
-  },
-  {
-    icon: AudioLines,
-    title: "Real time by default",
-    body: "Conversation is not turn-based. Our systems listen while they speak, and stop when you interrupt.",
-  },
-  {
-    icon: BrainCircuit,
-    title: "Memory across time",
-    body: "Context should outlive a single request. What matters is remembered, and what is stale is let go.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "People stay in control",
-    body: "Our models perceive and propose. Acting on the world is always the person’s call, and it is always recorded.",
-  },
-  {
-    icon: Blocks,
-    title: "Modular by design",
-    body: "Perception, speech, memory and reasoning are separate parts, so each can be studied, measured and replaced.",
-  },
+const STEPS: readonly Item[] = [
+  { icon: Mic, title: "You ask", body: "Speak or type, wherever you are on your Mac." },
+  { icon: Eye, title: "It sees your screen", body: "When you share it, GNSIS knows what you’re looking at." },
+  { icon: MousePointerClick, title: "It does the task", body: "It works in your apps and the web, step by step." },
+  { icon: Sparkles, title: "It shows its work", body: "Every step it took is there to check, and it remembers for next time." },
 ];
 
-function Principles() {
+function HowItWorks() {
   return (
-    <RevealSection aria-labelledby="principles-title" className="pb-24 sm:pb-32">
-      <div className="grid gap-10 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-16">
-        <Eyebrow>How we work</Eyebrow>
-        <div>
-          <h2 id="principles-title" className="sr-only">
-            How we work
-          </h2>
-          <ul className="divide-y divide-line border-y border-line">
-            {PRINCIPLES.map(({ icon: Icon, title, body }, i) => (
-              <motion.li
-                key={title}
-                initial={{ opacity: 0, y: 12 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "0px 0px -10% 0px" }}
-                transition={{ duration: 0.6, delay: i * 0.06, ease: EASE }}
-                className="group grid grid-cols-[40px_minmax(0,1fr)] gap-x-5 gap-y-2 py-7 sm:grid-cols-[40px_220px_minmax(0,1fr)] sm:items-start sm:gap-x-8"
-              >
-                <span className="flex size-10 items-center justify-center rounded-full bg-signal-tint text-signal-ink transition-transform duration-300 ease-out-strong group-hover:scale-110">
-                  <Icon className="size-[18px]" />
-                </span>
-                <h3 className="self-center text-[18px] font-medium tracking-[-0.01em] text-ink sm:self-auto sm:pt-2">{title}</h3>
-                <p className="col-start-2 max-w-lg text-[15.5px] leading-relaxed text-ink-2 sm:col-start-3 sm:pt-2">{body}</p>
-              </motion.li>
-            ))}
-          </ul>
-        </div>
+    <RevealSection id="how" aria-labelledby="how-title" className="py-20 sm:py-28">
+      <Eyebrow>How it works</Eyebrow>
+      <h2 id="how-title" className="mt-4 max-w-2xl text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
+        Ask once. GNSIS takes it from there.
+      </h2>
+      <ol className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {STEPS.map(({ icon: Icon, title, body }, i) => (
+          <li key={title} className="rounded-[18px] bg-surface p-6 shadow-btn">
+            <span className="flex size-10 items-center justify-center rounded-full bg-signal-tint text-signal-ink">
+              <Icon className="size-[18px]" />
+            </span>
+            <p className="mt-6 text-[12px] font-medium text-ink-3">0{i + 1}</p>
+            <h3 className="mt-1 text-[18px] font-medium tracking-[-0.01em] text-ink">{title}</h3>
+            <p className="mt-2 text-[15px] leading-relaxed text-ink-2">{body}</p>
+          </li>
+        ))}
+      </ol>
+    </RevealSection>
+  );
+}
+
+const MODELS = [
+  {
+    icon: Laptop,
+    name: "GNSIS 0.5",
+    where: "Runs on your Mac",
+    body: "Quick, everyday actions, offline and private. Nothing leaves your computer.",
+    good: ["Opening and switching apps", "Short replies and notes", "Reminders and quick look-ups"],
+  },
+  {
+    icon: Cloud,
+    name: "GNSIS 1.0",
+    where: "Runs in the cloud",
+    body: "Harder thinking for bigger jobs, when you want the most capable answer.",
+    good: ["Planning and research", "Long writing", "Coding"],
+  },
+] as const;
+
+function Models() {
+  return (
+    <RevealSection id="models" aria-labelledby="models-title" className="border-t border-line py-20 sm:py-28">
+      <Eyebrow>Two models, one app</Eyebrow>
+      <h2 id="models-title" className="mt-4 max-w-2xl text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
+        Pick the one that fits the task.
+      </h2>
+      <p className="mt-4 max-w-xl text-[16.5px] leading-relaxed text-ink-2">Switch between them from the chat bar, any time.</p>
+      <div className="mt-12 grid gap-4 md:grid-cols-2">
+        {MODELS.map(({ icon: Icon, name, where, body, good }) => (
+          <article key={name} className="rounded-[22px] bg-surface p-7 shadow-btn sm:p-9">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-full bg-inset text-ink">
+                <Icon className="size-[18px]" />
+              </span>
+              <div>
+                <h3 className="text-[20px] font-semibold tracking-[-0.015em] text-ink">{name}</h3>
+                <p className="text-[13px] text-ink-3">{where}</p>
+              </div>
+            </div>
+            <p className="mt-6 text-[16px] leading-relaxed text-ink-2">{body}</p>
+            <ul className="mt-6 divide-y divide-line border-y border-line text-[15px] text-ink">
+              {good.map((g) => (
+                <li key={g} className="py-3">
+                  {g}
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
       </div>
     </RevealSection>
   );
 }
 
-function Releases() {
+const CONTROLS: readonly Item[] = [
+  { icon: Hand, title: "It asks first", body: "Anything that sends, buys, posts or deletes waits for your OK." },
+  { icon: ShieldCheck, title: "You decide what it sees", body: "Screen and camera sharing are off until you turn them on, and off again with one click." },
+  { icon: UserRound, title: "Your memory is yours", body: "What GNSIS remembers belongs to you, on your account." },
+];
+
+function Control() {
   return (
-    <RevealSection aria-labelledby="releases-title" className="border-t border-line py-24 sm:py-32">
-      <div className="grid gap-10 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-16">
-        <Eyebrow>Our work</Eyebrow>
+    <RevealSection aria-labelledby="control-title" className="border-t border-line py-20 sm:py-28">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] lg:gap-16">
         <div>
-          <div className="flex flex-wrap items-end justify-between gap-5">
-            <h2 id="releases-title" className="max-w-xl font-display text-[32px] leading-[1.15] tracking-[-0.01em] text-ink sm:text-[40px]">
-              Our research ships as models.
-            </h2>
-            <Link to={STUDIO_PATHS.models} className={studioButton({ variant: "secondary", size: "sm" })}>
-              All releases
-              <ArrowRight aria-hidden className={buttonArrow} />
-            </Link>
-          </div>
-          <ul className="mt-10 divide-y divide-line border-y border-line">
-            {LISTED_MODELS.map((model) => (
-              <li key={model.id}>
-                <ModelLink
-                  model={model}
-                  className="group -mx-3 flex items-center gap-5 rounded-card px-3 py-6 transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:shadow-[0_0_0_2px_var(--signal)]"
-                >
-                  <ModelGlyph id={model.id} className="size-11 shrink-0 rounded-[12px] text-[13px] transition-transform duration-300 ease-out-strong group-hover:scale-105" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[18px] font-medium tracking-[-0.01em] text-ink">{model.name}</span>
-                    <span className="mt-0.5 block text-[15px] text-ink-2">{model.tagline}</span>
-                  </span>
-                  <ArrowRight
-                    aria-hidden
-                    className="size-5 shrink-0 text-ink-3 transition-[transform,color] duration-200 ease-out-strong group-hover:translate-x-1 group-hover:text-ink"
-                  />
-                </ModelLink>
-              </li>
-            ))}
-          </ul>
+          <Eyebrow>You stay in control</Eyebrow>
+          <h2 id="control-title" className="mt-4 text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
+            Helpful, never out of hand.
+          </h2>
         </div>
+        <ul className="divide-y divide-line border-y border-line">
+          {CONTROLS.map(({ icon: Icon, title, body }) => (
+            <li key={title} className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-5 py-6">
+              <span className="flex size-10 items-center justify-center rounded-full bg-signal-tint text-signal-ink">
+                <Icon className="size-[18px]" />
+              </span>
+              <div>
+                <h3 className="text-[17px] font-medium text-ink">{title}</h3>
+                <p className="mt-1 text-[15px] leading-relaxed text-ink-2">{body}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </RevealSection>
+  );
+}
+
+function ForDevelopers() {
+  return (
+    <RevealSection aria-labelledby="devs-title" className="border-t border-line py-20 sm:py-24">
+      <div className="flex flex-col gap-6 rounded-[22px] bg-inset p-7 sm:flex-row sm:items-center sm:justify-between sm:p-9">
+        <div className="flex items-start gap-4">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface text-ink shadow-btn">
+            <Code2 className="size-[18px]" />
+          </span>
+          <div>
+            <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-ink-3">From the lab · for developers</p>
+            <h2 id="devs-title" className="mt-1.5 text-[20px] font-semibold tracking-[-0.015em] text-ink">
+              Panoptic: vision for your own agents
+            </h2>
+            <p className="mt-1.5 max-w-xl text-[15px] leading-relaxed text-ink-2">
+              Give the agents you build the ability to see, through our API, SDK and MCP server.
+            </p>
+          </div>
+        </div>
+        <Link to={STUDIO_PATHS.developersPanoptic} className={studioButton({ variant: "secondary", size: "md" })}>
+          Developer docs
+          <ArrowRight aria-hidden className={buttonArrow} />
+        </Link>
       </div>
     </RevealSection>
   );
 }
 
 function Closing() {
-  const { open } = useEarlyAccess();
   return (
-    <RevealSection aria-labelledby="lab-closing-title" className="relative mb-24 overflow-hidden rounded-[28px] bg-[#0b1220] px-6 py-16 text-center sm:px-12 sm:py-20">
-      <div aria-hidden className="absolute inset-0 bg-[radial-gradient(60%_90%_at_30%_0%,rgba(255,170,110,0.26),transparent_70%),radial-gradient(60%_90%_at_75%_0%,rgba(59,130,246,0.34),transparent_70%)]" />
+    <RevealSection aria-labelledby="home-closing-title" className="relative mb-24 overflow-hidden rounded-[28px] bg-[#0b1220] px-6 py-16 text-center sm:px-12 sm:py-20">
+      <div aria-hidden className="absolute inset-0 bg-[radial-gradient(70%_100%_at_50%_0%,rgba(79,134,224,0.45),transparent_70%)]" />
       <div className="relative">
-        <h2 id="lab-closing-title" className="font-display text-[36px] leading-[1.05] tracking-[-0.015em] text-white sm:text-[52px]">
-          Built in Toronto, Canada.
+        <img src="/brand/gnsis-mark.png" alt="" width={48} height={48} className="mx-auto size-12 invert" />
+        <h2 id="home-closing-title" className="mt-6 text-[34px] font-semibold leading-[1.05] tracking-[-0.03em] text-white sm:text-[48px]">
+          Your computer, with GNSIS on it.
         </h2>
-        <p className="mx-auto mt-5 max-w-md text-[16.5px] leading-relaxed text-white/65">
-          We are opening GNSIS to teams a few at a time. If you are building with perception, voice or agents, we would
-          like to hear from you.
-        </p>
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.96 }}
-            onClick={() => open("lab:closing")}
-            className={cn(studioButton({ size: "lg" }), "bg-white text-[#0b1220] shadow-none hover:bg-white/90")}
-          >
-            Get in touch
-            <ArrowRight aria-hidden className={buttonArrow} />
-          </motion.button>
-          <Link to={STUDIO_PATHS.models} className={cn(studioButton({ variant: "quiet", size: "lg" }), "text-white/75 hover:bg-white/10 hover:text-white")}>
-            See our releases
-          </Link>
+        <p className="mx-auto mt-4 max-w-md text-[16px] leading-relaxed text-white/65">Built in Toronto, Canada.</p>
+        <div className="mt-9 flex justify-center">
+          <DownloadMenu size="lg" tone="light" />
         </div>
       </div>
     </RevealSection>
@@ -337,13 +242,14 @@ export default function HomePage() {
   usePageMeta(LAB_META.title, LAB_META.description);
   return (
     <div className="relative overflow-x-clip">
-      <PresenceField />
-      <StudioNav />
+      <Sky />
+      <StudioNav onSky />
       <main className="relative mx-auto max-w-6xl px-5 sm:px-8">
         <Hero />
-        <Mission />
-        <Principles />
-        <Releases />
+        <HowItWorks />
+        <Models />
+        <Control />
+        <ForDevelopers />
         <Closing />
       </main>
       <StudioFooter />

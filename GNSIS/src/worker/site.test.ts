@@ -85,6 +85,15 @@ describe("gnsis.studio worker", () => {
     expect(await response.text()).toBe(body);
   });
 
+  it.each(["/video-search", "/video-search/", "/video-search.html"])(
+    "sends %s home unless Video Search is the home experience",
+    async (path) => {
+      const off = await get(path, makeEnv({ GNSIS_HOME_EXPERIENCE: "studio" }));
+      expect(off.status).toBe(302);
+      expect(off.headers.get("Location")).toBe("https://gnsis.studio/");
+    },
+  );
+
   it("keeps /live as the live page in every mode", async () => {
     const response = await get("/live", makeEnv({ GNSIS_HOME_EXPERIENCE: "studio" }));
     expect(await response.text()).toBe("live page");
