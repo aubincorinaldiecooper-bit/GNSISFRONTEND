@@ -220,7 +220,7 @@ jobs:
           # addresses, which nothing on the live page links to.
           node -e "global.window={};require('./env.js');const h=global.window.__GNSIS_CONFIG__.VITE_HOME_EXPERIENCE;
             if(h!=='live')throw new Error('home experience should default to live, got '+h);console.log('home: live');"
-          for path in "/video-search" "/use-cases/agentic-web-steering" "/privacy" "/terms"; do
+          for path in "/use-cases/agentic-web-steering" "/privacy" "/terms"; do
             body=$(curl -s -D dormant-headers.txt "http://localhost:8080${path}")
             echo "$body" | grep -q '<div id="root">' || { echo "${path} is not served by the bundle"; exit 1; }
             # Dormant means out of search engines even for crawlers that run no JavaScript.
@@ -249,12 +249,15 @@ jobs:
           done <<'EOF'
           /login|GNSIS Developer Console
           /admin|GNSIS Developer Console
-          /video-search|Panoptic — ask, and see the exact moment.
-          /video-search/|Panoptic — ask, and see the exact moment.
           /use-cases/agentic-web-steering|Agentic web steering — Panoptic
           /privacy|Privacy — Panoptic
           /terms|Terms — Panoptic
           EOF
+          # Video Search is off the site unless it is the home experience.
+          for path in /video-search /video-search/ /video-search.html; do
+            loc=$(curl -s -o /dev/null -w '%{redirect_url}' "http://localhost:8080${path}")
+            test "$loc" = "http://localhost:8080/" || { echo "${path} should redirect home, got '${loc}'"; exit 1; }
+          done
           ct=$(curl -s -o /dev/null -w '%{content_type}' http://localhost:8080/og/genesis-preview.png)
           echo "/og/genesis-preview.png -> ${ct}"
           echo "$ct" | grep -qi 'image/png' || { echo "the preview picture is not served as an image"; exit 1; }
