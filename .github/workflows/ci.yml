@@ -289,6 +289,23 @@ jobs:
           docker logs gnsis-fe-typo 2>&1 | grep -q "GNSIS_HOME_EXPERIENCE must be" || { echo "no warning for an unknown value"; exit 1; }
           echo "home switch ok"
 
+      - name: GNSIS_HOME_EXPERIENCE=studio serves only the site's own pages
+        run: |
+          docker run -d --name gnsis-fe-studio -p 8084:8080 \
+            -e GNSIS_HOME_EXPERIENCE=studio gnsis-frontend:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:8084/health >/dev/null 2>&1 && break; sleep 1; done
+          for path in / /developers/panoptic /privacy /terms /env.js; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8084${path}")
+            test "$code" = 200 || { echo "${path} should be served, got ${code}"; exit 1; }
+          done
+          curl -s http://localhost:8084/ | grep -qF '<title>GNSIS — super intelligence on your computer</title>' || { echo "/ is not the studio home"; exit 1; }
+          for path in /models /models/panoptic /lab /lab/ /use-cases/agentic-web-steering /login /admin /admin/runs /video-search /live /welcome /nope; do
+            code=$(curl -s -o page.html -w '%{http_code}' "http://localhost:8084${path}")
+            test "$code" = 404 || { echo "${path} should be 404, got ${code}"; exit 1; }
+            grep -q '<div id="root">' page.html || { echo "${path} 404 is not the app's not-found page"; exit 1; }
+          done
+          echo "studio site ok"
+
       - name: Unsafe characters do not break the generated /env.js
         run: |
           docker rm -f gnsis-fe >/dev/null 2>&1 || true
