@@ -1,6 +1,6 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, Cloud, Code2, Eye, Hand, Laptop, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { ArrowRight, ChevronDown, Cloud, Code2, Eye, Hand, Laptop, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { Link } from "react-router";
 import { LAB_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
@@ -220,6 +220,66 @@ function ForDevelopers() {
   );
 }
 
+const FAQS: readonly { q: string; a: ReactNode }[] = [
+  {
+    q: "What is GNSIS?",
+    a: "An app that floats over your Mac’s desktop. You ask by voice or by typing, and it carries out the task in your apps and on the web, showing each step as it goes.",
+  },
+  {
+    q: "What’s the difference between GNSIS 0.5 and GNSIS 1.0?",
+    a: "GNSIS 0.5 runs on your Mac, so quick everyday tasks keep working even without an internet connection. GNSIS 1.0 runs in the cloud and takes on harder jobs: planning, long writing and coding. You switch between them from the chat bar.",
+  },
+  {
+    q: "Does GNSIS see my screen all the time?",
+    a: "No. GNSIS only sees your screen or camera while you share it, and you can stop sharing with one click. It never takes screenshots, and nothing it sees is saved to your disk.",
+  },
+  {
+    q: "Will it do things without asking me?",
+    a: "It handles simple things you ask for directly, like opening an app or a page. Anything that sends, buys, posts, deletes or changes an account waits for your OK first.",
+  },
+  {
+    q: "Does GNSIS show up when I share my screen?",
+    a: "No. GNSIS’s windows are left out of screenshots, screen recordings and screen sharing, so only you see it.",
+  },
+  {
+    q: "Which computers does it run on?",
+    a: "One download runs natively on both Apple silicon and Intel Macs. Windows is coming soon.",
+  },
+  {
+    q: "I build AI agents. Can I use your vision technology?",
+    a: (
+      <>
+        Yes. Panoptic gives your own agents the ability to see, through our API, SDK and MCP server.{" "}
+        <Link to={STUDIO_PATHS.developersPanoptic} className="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink">
+          Read the developer docs
+        </Link>
+        .
+      </>
+    ),
+  },
+];
+
+function Faq() {
+  return (
+    <RevealSection id="faq" aria-labelledby="faq-title" className="border-t border-line py-20 sm:py-28">
+      <h2 id="faq-title" className="text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
+        Frequently asked questions
+      </h2>
+      <div className="mt-10 border-b border-line">
+        {FAQS.map(({ q, a }) => (
+          <details key={q} className="group border-t border-line">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-6 text-[18px] font-medium tracking-[-0.01em] text-ink outline-none focus-visible:shadow-[0_0_0_2px_var(--signal)] [&::-webkit-details-marker]:hidden">
+              {q}
+              <ChevronDown aria-hidden className="size-5 shrink-0 text-ink-3 transition-transform duration-300 ease-out-strong group-open:rotate-180" />
+            </summary>
+            <p className="max-w-3xl pb-7 text-[16px] leading-relaxed text-ink-2">{a}</p>
+          </details>
+        ))}
+      </div>
+    </RevealSection>
+  );
+}
+
 function Closing() {
   return (
     <RevealSection aria-labelledby="home-closing-title" className="relative mb-24 overflow-hidden rounded-[28px] bg-[#0b1220] px-6 py-16 text-center sm:px-12 sm:py-20">
@@ -250,6 +310,7 @@ export default function HomePage() {
         <Models />
         <Control />
         <ForDevelopers />
+        <Faq />
         <Closing />
       </main>
       <StudioFooter />
