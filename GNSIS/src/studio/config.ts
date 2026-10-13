@@ -21,3 +21,6 @@ export function developerPath(id: ModelId): string {
 export function studioHomePath(): string {
   return homeExperience() === "studio" ? "/" : STUDIO_PATHS.home;
 }
+
+/** Where "Download for Mac" points: the newest published GNSIS for Mac release. */
+export const MAC_DOWNLOAD_URL = "https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND/releases/latest";

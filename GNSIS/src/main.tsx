@@ -16,7 +16,7 @@ import ConsoleFrame from './components/ConsoleFrame.tsx'
 import { ADMIN_BASE, LEGACY_DASHBOARD_PATHS } from './lib/adminRoutes'
 import { homeExperience } from './lib/env'
 import { PATHS } from './panoptic/config'
-import { STUDIO_PATHS } from './studio/config'
+import { STUDIO_PATHS, studioHomePath } from './studio/config'
 
 // The Panoptic pages load as their own chunk, only when one is visited.
 const panoptic = () => import('./panoptic/pages')
@@ -58,7 +58,7 @@ createRoot(document.getElementById('root')!).render(
           {videoSearchIsHome && <Route index element={<MomentsPage />} />}
           <Route
             path={PATHS.videoSearch}
-            element={videoSearchIsHome ? <Navigate to="/" replace /> : <MomentsPage />}
+            element={<Navigate to={videoSearchIsHome ? '/' : studioHomePath()} replace />}
           />
           <Route path={PATHS.webSteering} element={<WebSteeringPage />} />
           <Route path={PATHS.privacy} element={<PrivacyPage />} />
