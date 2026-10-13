@@ -33,6 +33,7 @@ const HomePage = lazy(() => studio().then((m) => ({ default: m.HomePage })))
 const ModelsPage = lazy(() => studio().then((m) => ({ default: m.ModelsPage })))
 const PanopticModelPage = lazy(() => studio().then((m) => ({ default: m.PanopticPage })))
 const DevelopersPage = lazy(() => studio().then((m) => ({ default: m.DevelopersPage })))
+const NotFoundPage = lazy(() => studio().then((m) => ({ default: m.NotFoundPage })))
 
 // What "/" is depends on GNSIS_HOME_EXPERIENCE (see docker-entrypoint.sh and
 // the Caddyfile). With "live", the default, Caddy serves the live session
@@ -56,11 +57,13 @@ createRoot(document.getElementById('root')!).render(
           }
         >
           {videoSearchIsHome && <Route index element={<MomentsPage />} />}
-          <Route
-            path={PATHS.videoSearch}
-            element={<Navigate to={videoSearchIsHome ? '/' : studioHomePath()} replace />}
-          />
-          <Route path={PATHS.webSteering} element={<WebSteeringPage />} />
+          {!studioIsHome && (
+            <Route
+              path={PATHS.videoSearch}
+              element={<Navigate to={videoSearchIsHome ? '/' : studioHomePath()} replace />}
+            />
+          )}
+          {!studioIsHome && <Route path={PATHS.webSteering} element={<WebSteeringPage />} />}
           <Route path={PATHS.privacy} element={<PrivacyPage />} />
           <Route path={PATHS.terms} element={<TermsPage />} />
         </Route>
@@ -72,18 +75,19 @@ createRoot(document.getElementById('root')!).render(
             </Suspense>
           }
         >
+          {/* gnsis.studio (studio mode) is only the home, Panoptic for developers,
+              privacy and terms; every other address is not found. */}
           {studioIsHome && <Route index element={<HomePage />} />}
-          <Route
-            path={STUDIO_PATHS.home}
-            element={studioIsHome ? <Navigate to="/" replace /> : <HomePage />}
-          />
-          <Route path={STUDIO_PATHS.models} element={<ModelsPage />} />
-          <Route path={STUDIO_PATHS.panoptic} element={<PanopticModelPage />} />
+          {!studioIsHome && <Route path={STUDIO_PATHS.home} element={<HomePage />} />}
+          {!studioIsHome && <Route path={STUDIO_PATHS.models} element={<ModelsPage />} />}
+          {!studioIsHome && <Route path={STUDIO_PATHS.panoptic} element={<PanopticModelPage />} />}
           <Route path={STUDIO_PATHS.developers} element={<Navigate to={STUDIO_PATHS.developersPanoptic} replace />} />
           <Route path={STUDIO_PATHS.developersPanoptic} element={<DevelopersPage modelId="panoptic" />} />
           <Route path={STUDIO_PATHS.developersGnsis01} element={<Navigate to={STUDIO_PATHS.developersPanoptic} replace />} />
+          {studioIsHome && <Route path="*" element={<NotFoundPage />} />}
         </Route>
 
+        {!studioIsHome && (
         <Route element={<ConsoleFrame />}>
           {/* Sign-in exists for operators reaching /admin, not for visitors. */}
           <Route path="/login" element={<LoginPage />} />
@@ -102,6 +106,7 @@ createRoot(document.getElementById('root')!).render(
           {/* Anything else is a visitor who mistyped: the front door. */}
           <Route path="*" element={<FrontDoor />} />
         </Route>
+        )}
       </Routes>
     </BrowserRouter>
   </StrictMode>,

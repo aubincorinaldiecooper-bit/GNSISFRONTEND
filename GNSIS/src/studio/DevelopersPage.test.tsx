@@ -111,7 +111,7 @@ describe("developer access request", () => {
     renderPanoptic();
 
     const header = within(screen.getByRole("banner"));
-    expect(header.getByRole("link", { name: "Developers" })).toHaveAttribute("href", STUDIO_PATHS.developers);
+    expect(header.getByRole("link", { name: "Developers" })).toHaveAttribute("href", STUDIO_PATHS.developersPanoptic);
     expect(header.getByRole("link", { name: "Download for Mac" })).toHaveAttribute("href", MAC_DOWNLOAD_URL);
     expect(header.queryByRole("link", { name: /Try Panoptic/ })).not.toBeInTheDocument();
     expect(header.queryByRole("button", { name: /Get started/ })).not.toBeInTheDocument();

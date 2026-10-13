@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, ChevronDown, Cloud, Code2, Eye, Hand, Laptop, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { AppWindow, ArrowRight, ChevronDown, Cloud, Code2, Eye, EyeOff, Hand, KeyRound, Laptop, ListChecks, Mic, MousePointerClick, PanelTop, ShieldCheck, Smile, Sparkles, UserRound, WifiOff } from "lucide-react";
 import { Link } from "react-router";
 import { LAB_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
@@ -38,7 +38,7 @@ function Hero() {
         id="home-title"
         className="mx-auto mt-6 max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.035em] text-white sm:text-[68px]"
       >
-        <RiseLines lines={["Super intelligence that", "lives on your computer."]} delay={0.05} />
+        <RiseLines lines={["Super intelligence", "on your computer."]} delay={0.05} />
       </h1>
       <motion.p
         initial={{ opacity: 0, y: 10 }}
@@ -46,8 +46,7 @@ function Hero() {
         transition={{ duration: 0.8, delay: 0.3, ease: EASE }}
         className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-white/85"
       >
-        GNSIS floats over your desktop and works in the apps you already use. Ask by voice or by typing. It sees what’s on
-        your screen and gets the task done, from a quick reply to a long piece of writing or code.
+        Talk or type. GNSIS sees your screen and gets it done.
       </motion.p>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -159,10 +158,48 @@ function Models() {
   );
 }
 
+const FEATURES: readonly Item[] = [
+  { icon: AppWindow, title: "Over every app", body: "Floats above any app, on every desktop and in full screen." },
+  { icon: EyeOff, title: "Invisible to others", body: "Left out of screen sharing, recordings and screenshots." },
+  { icon: ListChecks, title: "Every step in view", body: "Watch each step as it happens, and take over any time." },
+  { icon: WifiOff, title: "Works offline", body: "GNSIS 0.5 runs on your Mac, even without internet." },
+  { icon: PanelTop, title: "Out of the way", body: "One click tucks it into the menu bar and brings it back." },
+  { icon: Smile, title: "Your own GNSIS", body: "Every GNSIS is a one-of-a-kind character, made for you." },
+];
+
+function Features() {
+  return (
+    <RevealSection aria-labelledby="features-title" className="border-t border-line py-20 sm:py-28">
+      <Eyebrow>Features</Eyebrow>
+      <h2 id="features-title" className="mt-4 max-w-2xl text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
+        Made for your Mac.
+      </h2>
+      <ul className="mt-12 grid gap-x-8 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
+        {FEATURES.map(({ icon: Icon, title, body }) => (
+          <li key={title} className="flex gap-4">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-signal-tint text-signal-ink">
+              <Icon className="size-[18px]" />
+            </span>
+            <div>
+              <h3 className="text-[17px] font-medium text-ink">{title}</h3>
+              <p className="mt-1 text-[15px] leading-relaxed text-ink-2">{body}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </RevealSection>
+  );
+}
+
 const CONTROLS: readonly Item[] = [
+  {
+    icon: KeyRound,
+    title: "Your key stays on your Mac",
+    body: "Each Mac makes its own private key, locked away by macOS. It never leaves your computer, and there’s no password to steal.",
+  },
+  { icon: ShieldCheck, title: "It sees only what you share", body: "Screen and camera are off until you turn them on. No screenshots, and nothing is saved to disk." },
   { icon: Hand, title: "It asks first", body: "Anything that sends, buys, posts or deletes waits for your OK." },
-  { icon: ShieldCheck, title: "You decide what it sees", body: "Screen and camera sharing are off until you turn them on, and off again with one click." },
-  { icon: UserRound, title: "Your memory is yours", body: "What GNSIS remembers belongs to you, on your account." },
+  { icon: UserRound, title: "Your memory is yours", body: "What GNSIS remembers belongs to you, not to one device." },
 ];
 
 function Control() {
@@ -170,9 +207,9 @@ function Control() {
     <RevealSection aria-labelledby="control-title" className="border-t border-line py-20 sm:py-28">
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] lg:gap-16">
         <div>
-          <Eyebrow>You stay in control</Eyebrow>
+          <Eyebrow>Privacy</Eyebrow>
           <h2 id="control-title" className="mt-4 text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
-            Helpful, never out of hand.
+            Private by design.
           </h2>
         </div>
         <ul className="divide-y divide-line border-y border-line">
@@ -202,12 +239,12 @@ function ForDevelopers() {
             <Code2 className="size-[18px]" />
           </span>
           <div>
-            <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-ink-3">From the lab · for developers</p>
+            <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-ink-3">For developers</p>
             <h2 id="devs-title" className="mt-1.5 text-[20px] font-semibold tracking-[-0.015em] text-ink">
-              Panoptic: vision for your own agents
+              Panoptic: vision for any agent
             </h2>
             <p className="mt-1.5 max-w-xl text-[15px] leading-relaxed text-ink-2">
-              Give the agents you build the ability to see, through our API, SDK and MCP server.
+              Works with Claude Code, Codex and any agent that speaks MCP, or through our API and SDK.
             </p>
           </div>
         </div>
@@ -249,7 +286,7 @@ const FAQS: readonly { q: string; a: ReactNode }[] = [
     q: "I build AI agents. Can I use your vision technology?",
     a: (
       <>
-        Yes. Panoptic gives your own agents the ability to see, through our API, SDK and MCP server.{" "}
+        Yes. Panoptic lets any agent see: Claude Code, Codex or anything that speaks MCP, plus our API and SDK.{" "}
         <Link to={STUDIO_PATHS.developersPanoptic} className="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink">
           Read the developer docs
         </Link>
@@ -307,6 +344,7 @@ export default function HomePage() {
       <main className="relative mx-auto max-w-6xl px-5 sm:px-8">
         <Hero />
         <HowItWorks />
+        <Features />
         <Models />
         <Control />
         <ForDevelopers />

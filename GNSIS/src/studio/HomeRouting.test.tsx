@@ -30,11 +30,8 @@ function renderAt(path: string) {
       <Routes>
         <Route element={<StudioSite />}>
           {studioIsHome && <Route index element={<HomePage />} />}
-          <Route
-            path={STUDIO_PATHS.home}
-            element={studioIsHome ? <Navigate to="/" replace /> : <HomePage />}
-          />
-          <Route path={STUDIO_PATHS.models} element={<p>Models page</p>} />
+          {!studioIsHome && <Route path={STUDIO_PATHS.home} element={<HomePage />} />}
+          {!studioIsHome && <Route path={STUDIO_PATHS.models} element={<p>Models page</p>} />}
           <Route path={STUDIO_PATHS.developersPanoptic} element={<DevelopersPage modelId="panoptic" />} />
           <Route path={STUDIO_PATHS.developersGnsis01} element={<Navigate to={STUDIO_PATHS.developersPanoptic} replace />} />
         </Route>
@@ -52,11 +49,10 @@ describe("Studio home routing", () => {
     expect(screen.getByTestId("current-path")).toHaveTextContent("/");
   });
 
-  it("redirects /lab to the studio home at / in studio mode", () => {
+  it.each([STUDIO_PATHS.home, STUDIO_PATHS.models])("has no %s in studio mode", (path) => {
     window.__GNSIS_CONFIG__ = { VITE_HOME_EXPERIENCE: "studio" };
-    renderAt(STUDIO_PATHS.home);
-    expect(screen.getByRole("heading", { name: "Studio home stub" })).toBeInTheDocument();
-    expect(screen.getByTestId("current-path")).toHaveTextContent("/");
+    renderAt(path);
+    expect(screen.getByText("Not found")).toBeInTheDocument();
   });
 
   it("keeps /lab as the Studio home path in other modes", () => {

@@ -37,7 +37,7 @@ export function StudioNav({ onSky = false }: { onSky?: boolean }) {
             <a href={`${studioHomePath()}#models`} className={cn(studioButton({ variant: "quiet", size: "sm" }), "hidden px-2 sm:inline-flex sm:px-3.5", linkTone)}>
               Models
             </a>
-            <Link to={STUDIO_PATHS.developers} className={cn(studioButton({ variant: "quiet", size: "sm" }), "px-2 sm:px-3.5", linkTone)}>
+            <Link to={STUDIO_PATHS.developersPanoptic} className={cn(studioButton({ variant: "quiet", size: "sm" }), "px-2 sm:px-3.5", linkTone)}>
               Developers
             </Link>
           </nav>

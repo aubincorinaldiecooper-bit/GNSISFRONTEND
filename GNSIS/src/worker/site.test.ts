@@ -86,26 +86,42 @@ describe("gnsis.studio worker", () => {
   });
 
   it.each(["/video-search", "/video-search/", "/video-search.html"])(
-    "sends %s home unless Video Search is the home experience",
+    "has no %s unless Video Search is the home experience",
     async (path) => {
       const off = await get(path, makeEnv({ GNSIS_HOME_EXPERIENCE: "studio" }));
-      expect(off.status).toBe(302);
-      expect(off.headers.get("Location")).toBe("https://gnsis.studio/");
+      expect(off.status).toBe(404);
     },
   );
+
+  it.each([
+    "/models",
+    "/models/panoptic",
+    "/models/panoptic.html",
+    "/lab",
+    "/lab/",
+    "/use-cases/agentic-web-steering",
+    "/login",
+    "/admin",
+    "/admin/runs",
+    "/welcome",
+    "/runs/example-id",
+  ])("answers 404 for %s on the studio site, with the app's not-found page", async (path) => {
+    const res = await get(path, makeEnv({ GNSIS_HOME_EXPERIENCE: "studio" }));
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain('<div id="root">');
+  });
 
   it("keeps /live as the live page in every mode", async () => {
     const response = await get("/live", makeEnv({ GNSIS_HOME_EXPERIENCE: "studio" }));
     expect(await response.text()).toBe("live page");
   });
 
-  it("serves studio pages with and without a trailing slash", async () => {
+  it("serves the studio site's pages with and without a trailing slash", async () => {
     const env = makeEnv({ GNSIS_HOME_EXPERIENCE: "studio" });
-    expect(await (await get("/models/panoptic", env)).text()).toBe("panoptic page");
-    expect(await (await get("/developers/panoptic/", env)).text()).toBe(
-      "developers panoptic page",
-    );
-    expect((await get("/lab", env)).headers.get("X-Robots-Tag")).toBeNull();
+    const page = await get("/developers/panoptic/", env);
+    expect(await page.text()).toBe("developers panoptic page");
+    expect(page.headers.get("X-Robots-Tag")).toBeNull();
+    expect(await (await get("/assets/app.js", env)).text()).toBe("console.log(1)");
   });
 
   it("marks studio pages noindex while the live page is home", async () => {
@@ -171,9 +187,7 @@ describe("gnsis.studio worker", () => {
   it("hides the live page and its sockets unless the live surface is enabled", async () => {
     const env = makeEnv({ GNSIS_HOME_EXPERIENCE: "studio", GNSIS_LIVE_ENABLED: "false" });
     for (const path of ["/live", "/live/", "/live.html"]) {
-      const res = await get(path, env);
-      expect(res.status).toBe(302);
-      expect(res.headers.get("Location")).toBe("https://gnsis.studio/");
+      expect((await get(path, env)).status).toBe(404);
     }
     expect((await get("/ws/duplex", env)).status).toBe(404);
     expect(await (await get("/", env)).text()).toBe("lab page");
