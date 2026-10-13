@@ -11,7 +11,6 @@ import { developerPath } from "../config";
 import { developerPageData, type DeveloperFeature } from "../developers";
 import { LISTED_MODELS, type ModelId } from "../models";
 import { useEarlyAccess } from "../earlyAccess";
-import { StudioFooter } from "../components/Footer";
 import { StudioNav } from "../components/Nav";
 import { Eyebrow, RevealSection, RiseLines } from "../components/Reveal";
 import { StatusPill } from "../ui/StatusPill";
@@ -234,7 +233,6 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
           </div>
         </section>
       </main>
-      <StudioFooter />
     </div>
   );
 }

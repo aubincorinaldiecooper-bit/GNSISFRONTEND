@@ -6,7 +6,6 @@ import { usePageMeta } from "@/panoptic/usePageMeta";
 import { ModelGlyph } from "../components/Glyphs";
 import { ModelLink } from "../components/ModelLink";
 import { StudioNav } from "../components/Nav";
-import { StudioFooter } from "../components/Footer";
 import { Gnsis01Preview, PanopticPreview } from "../components/Previews";
 import { Eyebrow, RiseLines } from "../components/Reveal";
 import { LISTED_MODELS, type StudioModel } from "../models";
@@ -102,7 +101,6 @@ export default function ModelsPage() {
           ))}
         </section>
       </main>
-      <StudioFooter />
     </div>
   );
 }

@@ -1,15 +1,13 @@
 import type { ComponentType, ReactNode } from "react";
 import { motion } from "motion/react";
-import { AppWindow, ArrowRight, ChevronDown, Cloud, Code2, Eye, Hand, KeyRound, Laptop, ListChecks, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { ChevronDown, Eye, Hand, KeyRound, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { Link } from "react-router";
 import { LAB_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
 import { STUDIO_PATHS } from "../config";
 import { DownloadMenu } from "../components/DownloadMenu";
-import { StudioFooter } from "../components/Footer";
 import { StudioNav } from "../components/Nav";
 import { Eyebrow, RevealSection, RiseLines } from "../components/Reveal";
-import { buttonArrow, studioButton } from "../ui/variants";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
 
@@ -32,7 +30,7 @@ function Hero() {
         transition={{ duration: 0.6, ease: EASE }}
         className="mx-auto inline-flex items-center gap-2 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-medium text-white ring-1 ring-white/25 backdrop-blur"
       >
-        GNSIS 1.0 and GNSIS 0.5 · for Mac
+        GNSIS for Mac
       </motion.p>
       <h1
         id="home-title"
@@ -106,87 +104,6 @@ function HowItWorks() {
   );
 }
 
-const MODELS = [
-  {
-    icon: Laptop,
-    name: "GNSIS 0.5",
-    where: "Runs on your Mac",
-    body: "Quick, everyday actions, offline and private. Nothing leaves your computer.",
-    good: ["Opening and switching apps", "Short replies and notes", "Reminders and quick look-ups"],
-  },
-  {
-    icon: Cloud,
-    name: "GNSIS 1.0",
-    where: "Runs in the cloud",
-    body: "Harder thinking for bigger jobs, when you want the most capable answer.",
-    good: ["Planning and research", "Long writing", "Coding"],
-  },
-] as const;
-
-function Models() {
-  return (
-    <RevealSection id="models" aria-labelledby="models-title" className="border-t border-line py-20 sm:py-28">
-      <Eyebrow>Two models, one app</Eyebrow>
-      <h2 id="models-title" className="mt-4 max-w-2xl text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
-        Pick the one that fits the task.
-      </h2>
-      <p className="mt-4 max-w-xl text-[16.5px] leading-relaxed text-ink-2">Switch between them from the chat bar, any time.</p>
-      <div className="mt-12 grid gap-4 md:grid-cols-2">
-        {MODELS.map(({ icon: Icon, name, where, body, good }) => (
-          <article key={name} className="rounded-[22px] bg-surface p-7 shadow-btn sm:p-9">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-full bg-inset text-ink">
-                <Icon className="size-[18px]" />
-              </span>
-              <div>
-                <h3 className="text-[20px] font-semibold tracking-[-0.015em] text-ink">{name}</h3>
-                <p className="text-[13px] text-ink-3">{where}</p>
-              </div>
-            </div>
-            <p className="mt-6 text-[16px] leading-relaxed text-ink-2">{body}</p>
-            <ul className="mt-6 divide-y divide-line border-y border-line text-[15px] text-ink">
-              {good.map((g) => (
-                <li key={g} className="py-3">
-                  {g}
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))}
-      </div>
-    </RevealSection>
-  );
-}
-
-const FEATURES: readonly Item[] = [
-  { icon: AppWindow, title: "Works over any app", body: "GNSIS floats above whatever you’re using, on every desktop." },
-  { icon: ListChecks, title: "Every step in view", body: "Watch each step as it happens, and take over when needed." },
-];
-
-function Features() {
-  return (
-    <RevealSection aria-labelledby="features-title" className="border-t border-line py-20 sm:py-28">
-      <Eyebrow>Features</Eyebrow>
-      <h2 id="features-title" className="mt-4 max-w-2xl text-[32px] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[44px]">
-        Made for your Mac.
-      </h2>
-      <ul className="mt-12 grid gap-x-8 gap-y-9 sm:grid-cols-2">
-        {FEATURES.map(({ icon: Icon, title, body }) => (
-          <li key={title} className="flex gap-4">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-signal-tint text-signal-ink">
-              <Icon className="size-[18px]" />
-            </span>
-            <div>
-              <h3 className="text-[17px] font-medium text-ink">{title}</h3>
-              <p className="mt-1 text-[15px] leading-relaxed text-ink-2">{body}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </RevealSection>
-  );
-}
-
 const CONTROLS: readonly Item[] = [
   {
     icon: KeyRound,
@@ -226,41 +143,10 @@ function Control() {
   );
 }
 
-function ForDevelopers() {
-  return (
-    <RevealSection aria-labelledby="devs-title" className="border-t border-line py-20 sm:py-24">
-      <div className="flex flex-col gap-6 rounded-[22px] bg-inset p-7 sm:flex-row sm:items-center sm:justify-between sm:p-9">
-        <div className="flex items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface text-ink shadow-btn">
-            <Code2 className="size-[18px]" />
-          </span>
-          <div>
-            <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-ink-3">For developers</p>
-            <h2 id="devs-title" className="mt-1.5 text-[20px] font-semibold tracking-[-0.015em] text-ink">
-              Panoptic: vision for any agent
-            </h2>
-            <p className="mt-1.5 max-w-xl text-[15px] leading-relaxed text-ink-2">
-              Works with Claude Code, Codex and any agent that speaks MCP, or through our API and SDK.
-            </p>
-          </div>
-        </div>
-        <Link to={STUDIO_PATHS.developersPanoptic} className={studioButton({ variant: "secondary", size: "md" })}>
-          Developer docs
-          <ArrowRight aria-hidden className={buttonArrow} />
-        </Link>
-      </div>
-    </RevealSection>
-  );
-}
-
 const FAQS: readonly { q: string; a: ReactNode }[] = [
   {
     q: "What is GNSIS?",
     a: "An app that floats over your Mac’s desktop. You ask by voice or by typing, and it carries out the task in your apps and on the web, showing each step as it goes.",
-  },
-  {
-    q: "What’s the difference between GNSIS 0.5 and GNSIS 1.0?",
-    a: "GNSIS 0.5 runs on your Mac, so quick everyday tasks keep working even without an internet connection. GNSIS 1.0 runs in the cloud and takes on harder jobs: planning, long writing and coding. You switch between them from the chat bar.",
   },
   {
     q: "Does GNSIS see my screen all the time?",
@@ -340,14 +226,10 @@ export default function HomePage() {
       <main className="relative mx-auto max-w-6xl px-5 sm:px-8">
         <Hero />
         <HowItWorks />
-        <Features />
-        <Models />
         <Control />
-        <ForDevelopers />
         <Faq />
         <Closing />
       </main>
-      <StudioFooter />
     </div>
   );
 }

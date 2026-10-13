@@ -7,7 +7,6 @@ import { PANOPTIC_MODEL_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
 import { STUDIO_PATHS } from "../config";
 import { useEarlyAccess } from "../earlyAccess";
-import { StudioFooter } from "../components/Footer";
 import { StudioNav } from "../components/Nav";
 import { Eyebrow, RevealSection, RiseLines } from "../components/Reveal";
 import { VisionOrb } from "../components/VisionOrb";
@@ -550,7 +549,6 @@ export default function PanopticPage() {
           <Closing />
         </main>
       </div>
-      <StudioFooter />
     </div>
   );
 }
