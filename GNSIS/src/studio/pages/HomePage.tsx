@@ -24,14 +24,6 @@ function Sky() {
 function Hero() {
   return (
     <section aria-labelledby="home-title" className="relative pb-20 pt-16 text-center sm:pt-24">
-      <motion.p
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: EASE }}
-        className="mx-auto inline-flex items-center gap-2 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-medium text-white ring-1 ring-white/25 backdrop-blur"
-      >
-        GNSIS for Mac
-      </motion.p>
       <h1
         id="home-title"
         className="mx-auto mt-6 max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.035em] text-white sm:text-[68px]"

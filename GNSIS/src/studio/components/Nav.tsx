@@ -2,18 +2,16 @@ import { useState } from "react";
 import { useMotionValueEvent, useScroll } from "motion/react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
-import { STUDIO_PATHS, studioHomePath } from "../config";
-import { studioButton } from "../ui/variants";
+import { studioHomePath } from "../config";
 import { DownloadMenu } from "./DownloadMenu";
 
-/** The studio header: logo, page sections, Developers, and Download for Mac. */
+/** The studio header: logo and Download for Mac. */
 /** `onSky` lightens the header while it sits over the home page's blue sky. */
 export function StudioNav({ onSky = false }: { onSky?: boolean }) {
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 8));
   const light = onSky && !scrolled;
-  const linkTone = light ? "text-white/80 hover:bg-white/10 hover:text-white" : undefined;
 
   return (
     <header
@@ -33,11 +31,6 @@ export function StudioNav({ onSky = false }: { onSky?: boolean }) {
             <img src="/brand/gnsis-mark.png" alt="" width={26} height={26} className={cn("size-[26px] transition-[filter]", light && "invert")} />
             <span className="hidden sm:inline">GNSIS</span>
           </Link>
-          <nav aria-label="Primary" className="flex items-center gap-0 sm:gap-0.5">
-            <Link to={STUDIO_PATHS.developersPanoptic} className={cn(studioButton({ variant: "quiet", size: "sm" }), "px-2 sm:px-3.5", linkTone)}>
-              Developers
-            </Link>
-          </nav>
         </div>
         <DownloadMenu tone={light ? "light" : "ink"} />
       </div>
