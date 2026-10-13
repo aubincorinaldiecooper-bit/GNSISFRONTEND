@@ -34,9 +34,6 @@ export function StudioNav({ onSky = false }: { onSky?: boolean }) {
             <span className="hidden sm:inline">GNSIS</span>
           </Link>
           <nav aria-label="Primary" className="flex items-center gap-0 sm:gap-0.5">
-            <a href={`${studioHomePath()}#models`} className={cn(studioButton({ variant: "quiet", size: "sm" }), "hidden px-2 sm:inline-flex sm:px-3.5", linkTone)}>
-              Models
-            </a>
             <Link to={STUDIO_PATHS.developersPanoptic} className={cn(studioButton({ variant: "quiet", size: "sm" }), "px-2 sm:px-3.5", linkTone)}>
               Developers
             </Link>

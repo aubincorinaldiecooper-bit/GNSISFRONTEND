@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { studioHomePath } from "../config";
-import { StudioFooter } from "../components/Footer";
 import { StudioNav } from "../components/Nav";
 import { buttonArrow, studioButton } from "../ui/variants";
 
@@ -18,7 +17,6 @@ export default function NotFoundPage() {
           <ArrowRight aria-hidden className={buttonArrow} />
         </Link>
       </main>
-      <StudioFooter />
     </>
   );
 }
