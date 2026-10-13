@@ -22,5 +22,5 @@ export function studioHomePath(): string {
   return homeExperience() === "studio" ? "/" : STUDIO_PATHS.home;
 }
 
-/** Where "Download for Mac" points: the newest published GNSIS for Mac release. */
-export const MAC_DOWNLOAD_URL = "https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND/releases/latest";
+/** Where "Download for Mac" points: the DMG attached to the newest GNSISBACKEND release (desktop-dmg.yml publishes one per main build). */
+export const MAC_DOWNLOAD_URL = "https://github.com/aubincorinaldiecooper-bit/GNSISBACKEND/releases/latest/download/GNSIS-for-Mac.dmg";
