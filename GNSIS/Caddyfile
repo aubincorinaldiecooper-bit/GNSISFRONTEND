@@ -50,15 +50,19 @@
 	}
 	header @dormant X-Robots-Tag "noindex, nofollow"
 
-	# Video Search is off the site unless it is the home experience.
+	# Video Search is off the site unless it is the home experience (studio
+	# mode answers 404 below instead).
 	@searchoff {
 		path /video-search /video-search/ /video-search.html
-		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "video-search"`
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "live"`
 	}
 	redir @searchoff / temporary
 
-	redir /welcome / permanent
-	redir /home / permanent
+	@aliases {
+		path /welcome /home
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" != "studio"`
+	}
+	redir @aliases / permanent
 	redir /developers /developers/panoptic permanent
 	redir /developers/ /developers/panoptic permanent
 	redir /developers/gnsis-01 /developers/panoptic permanent
@@ -124,6 +128,28 @@
 	# The copies are how a page is served, not addresses of their own.
 	@panoptichtml path_regexp html ^(/video-search|/use-cases/agentic-web-steering|/privacy|/terms|/models|/models/panoptic|/lab|/developers/panoptic)\.html$
 	redir @panoptichtml {re.html.1} permanent
+
+	# Studio mode (gnsis.studio) is only its home, Panoptic for developers,
+	# privacy and terms. Retired and unknown addresses answer 404 with the
+	# bundle's not-found page, never a redirect home. Mirrors src/worker/site.ts.
+	@retired expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "studio" && {http.request.orig_uri.path}.matches("^/(models(/panoptic)?|lab|use-cases/agentic-web-steering|login|admin(/.*)?|welcome|home|video-search|live)(/|[.]html)?$")`
+	handle @retired {
+		rewrite * /index.html
+		file_server {
+			status 404
+		}
+	}
+
+	@studiomissing {
+		not file {path} {path}.html
+		expression `"{$GNSIS_HOME_EXPERIENCE:live}" == "studio"`
+	}
+	handle @studiomissing {
+		rewrite * /index.html
+		file_server {
+			status 404
+		}
+	}
 
 	# Everything else is the React bundle: /login and the control plane under
 	# /admin, with the usual single-page fallback. {path}.html is where a
