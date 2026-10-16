@@ -107,12 +107,12 @@ describe("developer access request", () => {
     expect(screen.queryByRole("dialog", { name: "Request developer access" })).not.toBeInTheDocument();
   });
 
-  it("links the header only to home and offers Try", () => {
+  it("links the header only to home and offers early access", () => {
     renderPanoptic();
 
     const header = within(screen.getByRole("banner"));
     expect(header.queryByRole("link", { name: "Developers" })).not.toBeInTheDocument();
-    expect(header.getByRole("button", { name: "Try" })).toBeInTheDocument();
+    expect(header.getByRole("button", { name: "Request early access" })).toBeInTheDocument();
     expect(header.queryByRole("link", { name: /Try Panoptic/ })).not.toBeInTheDocument();
     expect(header.queryByRole("button", { name: /Get started/ })).not.toBeInTheDocument();
   });

@@ -16,8 +16,8 @@ const SWAP = {
 const HEIGHT = { sm: "h-8 text-[13px]", md: "h-10 text-sm", lg: "h-12 text-[15px]" } as const;
 const FIELD = { sm: "w-[min(170px,44vw)]", md: "w-[min(210px,50vw)]", lg: "w-[min(240px,56vw)]" } as const;
 
-/** "Try" opens in place into an email field; submitting joins the early-access list. */
-export function TryButton({
+/** "Request early access" opens in place into an email field; submitting joins the early-access list. */
+export function EarlyAccessButton({
   source,
   size = "lg",
   tone = "ink",
@@ -77,9 +77,9 @@ export function TryButton({
               type="button"
               {...SWAP}
               onClick={() => setStep("open")}
-              className={cn("h-full outline-none active:scale-[0.96]", size === "sm" ? "px-4" : "px-7")}
+              className={cn("h-full outline-none active:scale-[0.96]", size === "sm" ? "px-4" : "px-6")}
             >
-              Try
+              Request early access
             </motion.button>
           ) : step === "sent" ? (
             <motion.p key="sent" role="status" {...SWAP} className={cn("flex items-center gap-2", size === "sm" ? "px-3.5" : "px-6")}>

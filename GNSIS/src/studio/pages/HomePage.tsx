@@ -1,11 +1,9 @@
 import type { ComponentType, ReactNode } from "react";
 import { motion } from "motion/react";
 import { ChevronDown, Eye, Hand, KeyRound, Mic, MousePointerClick, ShieldCheck, Sparkles, UserRound } from "lucide-react";
-import { Link } from "react-router";
 import { LAB_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
-import { STUDIO_PATHS } from "../config";
-import { TryButton } from "../components/TryButton";
+import { EarlyAccessButton } from "../components/EarlyAccessButton";
 import { StudioNav } from "../components/Nav";
 import { Eyebrow, RevealSection, RiseLines } from "../components/Reveal";
 
@@ -26,23 +24,15 @@ function Hero() {
     <section aria-labelledby="home-title" className="relative pb-20 pt-16 text-center sm:pt-24">
       <h1
         id="home-title"
-        className="mx-auto mt-6 max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.035em] text-white sm:text-[68px]"
+        className="mx-auto mt-6 max-w-4xl text-[36px] font-semibold leading-[1.08] tracking-[-0.03em] text-white sm:text-[54px]"
       >
-        <RiseLines lines={["GNSIS"]} delay={0.05} />
+        <RiseLines lines={["Agents keep getting better at reasoning.", "We just added an awareness layer."]} delay={0.05} />
       </h1>
       <motion.p
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, delay: 0.3, ease: EASE }}
-        className="mx-auto mt-6 max-w-2xl text-[20px] font-medium leading-snug tracking-[-0.01em] text-white sm:text-[24px]"
-      >
-        Agents keep getting better at reasoning. We just added an awareness layer.
-      </motion.p>
-      <motion.p
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.36, ease: EASE }}
-        className="mx-auto mt-5 max-w-2xl text-[16px] leading-relaxed text-white/80"
+        className="mx-auto mt-6 max-w-2xl text-[17px] leading-relaxed text-white/85 sm:text-[18px]"
       >
         Every computer in history has asked us to adjust to its medium. The command line, the query box, the prompt. Even the one that
         took our voice continued the ritual: “Say its name, wait for the chime, one question at a time, repeat.” The communication bridge
@@ -54,7 +44,7 @@ function Hero() {
         transition={{ duration: 0.8, delay: 0.48, ease: EASE }}
         className="mt-9 flex justify-center"
       >
-        <TryButton source="home:hero" size="lg" tone="light" />
+        <EarlyAccessButton source="home:hero" size="lg" tone="light" />
       </motion.div>
       <motion.div
         initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
@@ -166,18 +156,6 @@ const FAQS: readonly { q: string; a: ReactNode }[] = [
     q: "Which computers does it run on?",
     a: "It runs natively on both Apple silicon and Intel Macs. Windows is coming soon.",
   },
-  {
-    q: "I build AI agents. Can I use your vision technology?",
-    a: (
-      <>
-        Yes. Panoptic lets any agent see: Claude Code, Codex or anything that speaks MCP, plus our API and SDK.{" "}
-        <Link to={STUDIO_PATHS.developersPanoptic} className="font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink">
-          Read the developer docs
-        </Link>
-        .
-      </>
-    ),
-  },
 ];
 
 function Faq() {
@@ -212,7 +190,7 @@ function Closing() {
         </h2>
         <p className="mx-auto mt-4 max-w-md text-[16px] leading-relaxed text-white/65">Built in Toronto, Canada.</p>
         <div className="mt-9 flex justify-center">
-          <TryButton source="home:closing" size="lg" tone="light" />
+          <EarlyAccessButton source="home:closing" size="lg" tone="light" />
         </div>
       </div>
     </RevealSection>
