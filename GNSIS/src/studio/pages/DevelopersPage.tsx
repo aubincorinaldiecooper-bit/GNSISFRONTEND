@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, ExternalLink } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/authClient";
@@ -31,13 +31,7 @@ function FeatureRow({ feature }: { feature: DeveloperFeature }) {
   const className =
     "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-3 py-4 transition-colors hover:bg-hover sm:gap-6";
 
-  return feature.docsUrl ? (
-    <a href={feature.docsUrl} target="_blank" rel="noopener noreferrer" className={className}>
-      {content}
-    </a>
-  ) : (
-    <div className={className}>{content}</div>
-  );
+  return <div className={className}>{content}</div>;
 }
 
 export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
@@ -150,15 +144,6 @@ export default function DevelopersPage({ modelId }: { modelId: ModelId }) {
                 {connectingGitHub ? "Connecting GitHub…" : "Request with GitHub"}
                 <ArrowRight aria-hidden className={buttonArrow} />
               </motion.button>
-              <a
-                href={content.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={studioButton({ variant: "secondary", size: "lg" })}
-              >
-                Read the docs
-                <ExternalLink aria-hidden className="size-4" />
-              </a>
             </div>
             {(githubError || new URLSearchParams(location.search).has("githubError")) && (
               <p role="alert" className="mt-3 text-[13px] text-[oklch(0.55_0.19_25)]">

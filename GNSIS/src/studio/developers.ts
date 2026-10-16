@@ -1,12 +1,9 @@
 import { MODELS, type ModelId, type StudioModel } from "./models";
 
-const DOCS_BASE = "https://docs.gnsis.studio/docs";
-
 export interface DeveloperFeature {
   name: string;
   description: string;
   available: boolean;
-  docsUrl?: string;
 }
 
 export interface DeveloperStep {
@@ -16,7 +13,6 @@ export interface DeveloperStep {
 
 interface DeveloperCopy {
   description: string;
-  docsUrl: string;
   features: readonly DeveloperFeature[];
   steps: readonly DeveloperStep[];
   quickstartCaption: string;
@@ -34,31 +30,26 @@ const COPY: Record<ModelId, DeveloperCopy> = {
   panoptic: {
     description:
       "Give your agent a live view of a browser tab or desktop. {model} describes what’s on screen and what just changed, and tells you what’s at any point you ask about. Your app stays in charge of every action.",
-    docsUrl: `${DOCS_BASE}/panoptic/quickstart`,
     features: [
       {
         name: "REST API",
         description: "Open a session, stream frames, ask what’s on screen.",
         available: true,
-        docsUrl: `${DOCS_BASE}/panoptic/quickstart`,
       },
       {
         name: "Python SDK",
         description: "Typed client, frame streaming and a ready-made browser host.",
         available: true,
-        docsUrl: `${DOCS_BASE}/panoptic/python`,
       },
       {
         name: "TypeScript SDK",
         description: "A lightweight client for the same API.",
         available: true,
-        docsUrl: `${DOCS_BASE}/panoptic/typescript`,
       },
       {
         name: "MCP server",
         description: "Let Claude Code, Codex and other MCP agents see the screen.",
         available: true,
-        docsUrl: `${DOCS_BASE}/panoptic/mcp`,
       },
     ],
     steps: [
@@ -90,19 +81,16 @@ const COPY: Record<ModelId, DeveloperCopy> = {
   "gnsis-01": {
     description:
       "Hand {model} a task through the API and follow it to the finish. Every run is recorded, waits for your approval, and leaves a receipt.",
-    docsUrl: `${DOCS_BASE}/gnsis-01/runs`,
     features: [
       {
         name: "Runs API",
         description: "Start a run, follow its progress, approve the result.",
         available: true,
-        docsUrl: `${DOCS_BASE}/gnsis-01/runs`,
       },
       {
         name: "Receipts",
         description: "A record of what each run did and what it used.",
         available: true,
-        docsUrl: `${DOCS_BASE}/gnsis-01/runs`,
       },
       {
         name: "Realtime voice and vision",
