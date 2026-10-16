@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { LAB_META } from "@/panoptic/pageMeta";
 import { usePageMeta } from "@/panoptic/usePageMeta";
 import { STUDIO_PATHS } from "../config";
-import { DownloadMenu } from "../components/DownloadMenu";
+import { TryButton } from "../components/TryButton";
 import { StudioNav } from "../components/Nav";
 import { Eyebrow, RevealSection, RiseLines } from "../components/Reveal";
 
@@ -28,23 +28,33 @@ function Hero() {
         id="home-title"
         className="mx-auto mt-6 max-w-4xl text-[44px] font-semibold leading-[1.02] tracking-[-0.035em] text-white sm:text-[68px]"
       >
-        <RiseLines lines={["Super intelligence", "on your computer."]} delay={0.05} />
+        <RiseLines lines={["GNSIS"]} delay={0.05} />
       </h1>
       <motion.p
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, delay: 0.3, ease: EASE }}
-        className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-white/85"
+        className="mx-auto mt-6 max-w-2xl text-[20px] font-medium leading-snug tracking-[-0.01em] text-white sm:text-[24px]"
       >
-        Talk or type. GNSIS sees your screen and gets it done.
+        Agents keep getting better at reasoning. We just added an awareness layer.
+      </motion.p>
+      <motion.p
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, delay: 0.36, ease: EASE }}
+        className="mx-auto mt-5 max-w-2xl text-[16px] leading-relaxed text-white/80"
+      >
+        Every computer in history has asked us to adjust to its medium. The command line, the query box, the prompt. Even the one that
+        took our voice continued the ritual: “Say its name, wait for the chime, one question at a time, repeat.” The communication bridge
+        has always been the bottleneck.
       </motion.p>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.42, ease: EASE }}
+        transition={{ duration: 0.8, delay: 0.48, ease: EASE }}
         className="mt-9 flex justify-center"
       >
-        <DownloadMenu size="lg" tone="light" />
+        <TryButton source="home:hero" size="lg" tone="light" />
       </motion.div>
       <motion.div
         initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
@@ -198,11 +208,11 @@ function Closing() {
       <div className="relative">
         <img src="/brand/gnsis-mark.png" alt="" width={48} height={48} className="mx-auto size-12 invert" />
         <h2 id="home-closing-title" className="mt-6 text-[34px] font-semibold leading-[1.05] tracking-[-0.03em] text-white sm:text-[48px]">
-          Your computer, with GNSIS on it.
+          Conversation that moves at the pace of your thinking.
         </h2>
         <p className="mx-auto mt-4 max-w-md text-[16px] leading-relaxed text-white/65">Built in Toronto, Canada.</p>
         <div className="mt-9 flex justify-center">
-          <DownloadMenu size="lg" tone="light" />
+          <TryButton source="home:closing" size="lg" tone="light" />
         </div>
       </div>
     </RevealSection>

@@ -9,12 +9,12 @@
 /** Where the site lives. Link-preview images must be absolute addresses. */
 export const SITE_ORIGIN = "https://gnsis.studio";
 
-/** The genesis horizontal lockup on Paper, 1200 × 630, from the brand kit. */
+/** The GNSIS app icon, name and line on Paper, 1200 × 630. */
 export const PREVIEW_IMAGE = {
-  path: "/og/genesis-preview.png",
+  path: "/og/gnsis-preview.png",
   width: 1200,
   height: 630,
-  alt: "genesis",
+  alt: "GNSIS",
 } as const;
 
 export interface PageMeta {
@@ -93,9 +93,8 @@ export const DEVELOPERS_GNSIS01_META: PageMeta = {
 export const LAB_META: PageMeta = {
   path: "/lab",
   file: "lab.html",
-  title: "GNSIS — super intelligence on your computer",
-  description:
-    "Talk or type. GNSIS sees your screen and gets it done in the apps you already use. For Mac.",
+  title: "GNSIS",
+  description: "Agents keep getting better at reasoning. We just added an awareness layer.",
 };
 
 export const STUDIO_PAGES: readonly PageMeta[] = [

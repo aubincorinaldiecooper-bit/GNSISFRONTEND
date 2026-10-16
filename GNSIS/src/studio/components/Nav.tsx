@@ -3,9 +3,9 @@ import { useMotionValueEvent, useScroll } from "motion/react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { studioHomePath } from "../config";
-import { DownloadMenu } from "./DownloadMenu";
+import { TryButton } from "./TryButton";
 
-/** The studio header: logo and Download for Mac. */
+/** The studio header: logo and Try. */
 /** `onSky` lightens the header while it sits over the home page's blue sky. */
 export function StudioNav({ onSky = false }: { onSky?: boolean }) {
   const { scrollY } = useScroll();
@@ -32,7 +32,7 @@ export function StudioNav({ onSky = false }: { onSky?: boolean }) {
             <span className="hidden sm:inline">GNSIS</span>
           </Link>
         </div>
-        <DownloadMenu tone={light ? "light" : "ink"} />
+        <TryButton source="home:nav" size="sm" tone={light ? "light" : "ink"} />
       </div>
     </header>
   );

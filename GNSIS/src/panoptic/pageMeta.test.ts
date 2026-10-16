@@ -60,9 +60,8 @@ describe("each Panoptic page's own HTML", () => {
     expect(LAB_META).toEqual({
       path: "/lab",
       file: "lab.html",
-      title: "GNSIS — super intelligence on your computer",
-      description:
-        "Talk or type. GNSIS sees your screen and gets it done in the apps you already use. For Mac.",
+      title: "GNSIS",
+      description: "Agents keep getting better at reasoning. We just added an awareness layer.",
     });
     expect(STUDIO_PAGES).toContain(LAB_META);
   });

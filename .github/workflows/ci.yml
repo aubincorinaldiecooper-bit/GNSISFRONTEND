@@ -238,7 +238,7 @@ jobs:
           # Link previews are drawn from the served HTML without running the
           # bundle, so each Panoptic page is served its own copy of index.html
           # (src/panoptic/pageMeta.ts), and the console keeps its own.
-          image='https://gnsis.studio/og/genesis-preview.png'
+          image='https://gnsis.studio/og/gnsis-preview.png'
           while IFS='|' read -r path title; do
             curl -s "http://localhost:8080${path}" -o preview.html
             grep -qF "<title>${title}</title>" preview.html \
@@ -258,8 +258,8 @@ jobs:
             loc=$(curl -s -o /dev/null -w '%{redirect_url}' "http://localhost:8080${path}")
             test "$loc" = "http://localhost:8080/" || { echo "${path} should redirect home, got '${loc}'"; exit 1; }
           done
-          ct=$(curl -s -o /dev/null -w '%{content_type}' http://localhost:8080/og/genesis-preview.png)
-          echo "/og/genesis-preview.png -> ${ct}"
+          ct=$(curl -s -o /dev/null -w '%{content_type}' http://localhost:8080/og/gnsis-preview.png)
+          echo "/og/gnsis-preview.png -> ${ct}"
           echo "$ct" | grep -qi 'image/png' || { echo "the preview picture is not served as an image"; exit 1; }
           # The copies are how a page is served, not addresses of their own.
           loc=$(curl -s -o /dev/null -w '%{redirect_url}' http://localhost:8080/privacy.html)
@@ -298,7 +298,7 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8084${path}")
             test "$code" = 200 || { echo "${path} should be served, got ${code}"; exit 1; }
           done
-          curl -s http://localhost:8084/ | grep -qF '<title>GNSIS — super intelligence on your computer</title>' || { echo "/ is not the studio home"; exit 1; }
+          curl -s http://localhost:8084/ | grep -qF '<title>GNSIS</title>' || { echo "/ is not the studio home"; exit 1; }
           for path in /models /models/panoptic /lab /lab/ /use-cases/agentic-web-steering /login /admin /admin/runs /video-search /live /welcome /nope; do
             code=$(curl -s -o page.html -w '%{http_code}' "http://localhost:8084${path}")
             test "$code" = 404 || { echo "${path} should be 404, got ${code}"; exit 1; }

@@ -109,8 +109,7 @@ the bundle, so `panopticPageHtml` in `vite.config.ts` writes each page its own
 that copy at the page's address. The console's title and preview stay in
 `index.html`.
 
-`public/og/genesis-preview.png` is the owner's horizontal genesis lockup
-placed unaltered on Paper (#F7F6F2), as the genesis logo guidelines require.
-If the logo changes, re-export it from the master SVG; never redraw it.
+`public/og/gnsis-preview.png` is the GNSIS app icon (`public/brand/gnsis-app-icon.png`,
+unaltered) with the name and home-page line on Paper (#F7F6F2), 1200 × 630.
 The live page's title and preview (`/`, `/live`) belong to GNSISBACKEND, like
 the rest of that page. Existing brand artwork assets must remain unchanged.

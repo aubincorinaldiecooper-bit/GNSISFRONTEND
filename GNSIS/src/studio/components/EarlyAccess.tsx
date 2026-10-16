@@ -5,22 +5,12 @@ import { ArrowRight, Check, X } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { PATHS } from "@/panoptic/config";
-import { looksLikeEmail, requestDeveloperAccess, requestEarlyAccess, type IntakeResult } from "@/panoptic/intake";
-import { EarlyAccessContext } from "../earlyAccess";
+import { looksLikeEmail, requestDeveloperAccess, requestEarlyAccess } from "@/panoptic/intake";
+import { EarlyAccessContext, FAILURE_COPY, type Failure } from "../earlyAccess";
 import { MODELS, type ModelId } from "../models";
 import { buttonArrow, studioButton } from "../ui/variants";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
-
-type Failure = Extract<IntakeResult, { ok: false }>["reason"];
-
-const FAILURE_COPY: Record<Failure, string> = {
-  "invalid-email": "That email doesn’t look right. Check it and try again.",
-  "github-required": "Reconnect GitHub to send this developer request.",
-  "too-many": "Too many tries just now. Give it a minute.",
-  unavailable: "Sign-ups are closed for a moment. Please try again soon.",
-  failed: "Something went wrong sending that. Please try again.",
-};
 
 /** Holds the one early-access dialog every "Get started" on the studio pages opens. */
 export function EarlyAccessProvider({ children }: { children: ReactNode }) {
