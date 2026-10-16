@@ -164,7 +164,7 @@ const FAQS: readonly { q: string; a: ReactNode }[] = [
   },
   {
     q: "Which computers does it run on?",
-    a: "One download runs natively on both Apple silicon and Intel Macs. Windows is coming soon.",
+    a: "It runs natively on both Apple silicon and Intel Macs. Windows is coming soon.",
   },
   {
     q: "I build AI agents. Can I use your vision technology?",
